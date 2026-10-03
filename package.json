@@ -1,0 +1,39 @@
+{
+  "name": "agentflow",
+  "version": "0.1.0",
+  "description": "Terminal-first AI routing and agent platform",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "bin": {
+    "aflow": "./bin/aflow.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "open-sse/",
+    "LICENSE",
+    "PROJECT_ORIGIN.md"
+  ],
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\"",
+    "aflow": "node bin/aflow.js",
+    "doctor": "node bin/aflow.js doctor"
+  },
+  "keywords": [
+    "ai",
+    "llm",
+    "router",
+    "agent",
+    "cli",
+    "tui"
+  ],
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "confbox": "^1.2.0",
+    "undici": "^7.0.0",
+    "uuid": "^11.0.0"
+  }
+}
