@@ -1,6 +1,15 @@
 MIT License
 
 Copyright (c) 2026 anand-cpp
+Copyright (c) 2024-2026 decolua and contributors
+
+This project is distributed under the MIT License below. It contains
+substantial portions of 9Router (https://github.com/decolua/9router),
+obtained at commit a99cf572 and licensed under the same MIT terms with the
+copyright notice of decolua and contributors retained above.
+
+Third-party dependencies retain their own licenses; see THIRD_PARTY_NOTICES.md
+once published.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
