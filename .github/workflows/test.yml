@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # The exposure monitor is the only check that can notice a credential becoming
+  # publicly retrievable again -- or still being retrievable, since the rewrite.
+  # Nothing else in this workflow can see it, so it needs a clock as well as a
+  # commit hook. Hourly is frequent enough to bound exposure and cheap: the
+  # check makes 8 unauthenticated requests.
+  schedule:
+    - cron: "17 * * * *"
 
 # A new push supersedes an in-flight run for the same ref.
 concurrency:
@@ -73,13 +80,17 @@ jobs:
 
   # A working-tree scan cannot see a secret that was committed and later
   # scrubbed. That is not hypothetical: this repository published a hardcoded
-  # Google API key (Windsurf registry) and an iFlow OAuth secret, both removed
-  # from HEAD within the same day, and both still reachable in history -- which
-  # is why GitHub raised a public secret scanning alert against a repository
-  # whose source was clean.
+  # Google API key (Windsurf registry) and an iFlow OAuth client secret, both
+  # removed from HEAD within the same day, and both still reachable in history
+  # -- which is why GitHub raised a public secret scanning alert against a
+  # repository whose source was clean.
   #
   # fetch-depth: 0 is load-bearing. The default shallow clone has one commit, so
   # a history scan against it would silently pass while checking nothing.
+  #
+  # This is now blocking. It was continue-on-error only while the two known
+  # findings were still in history; those objects have been rewritten out, so a
+  # failure here means a credential has been reintroduced and must stop the push.
   secrets-history:
     runs-on: ubuntu-latest
     steps:
@@ -88,8 +99,27 @@ jobs:
           fetch-depth: 0
 
       - name: Scan every reachable blob for credentials
-        # Non-blocking while the two known legacy findings are still in history.
-        # This becomes blocking once the history is purged; the assertion that
-        # it works today lives in test/scan-secrets.test.js.
-        continue-on-error: true
         run: node scripts/scan-secrets.mjs --history
+
+  # The check that matters most, and the one that was missing.
+  #
+  # After the history rewrite, a fresh clone of this repository contained zero
+  # occurrences of the leaked key -- and the key was still being served to
+  # unauthenticated callers by the REST API from the pre-purge objects. Every
+  # other job in this workflow was green while the credential was public.
+  # Force-pushing rewrites refs; it does not delete objects.
+  #
+  # So this job asks the only question that matters: are the known-bad object ids
+  # still publicly retrievable? It is expected to FAIL until the credential
+  # owner rotates the values and GitHub drops the retained objects. That red
+  # build is the correct signal, not a misconfiguration -- do not silence it.
+  secrets-exposure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No token is passed to this step, and none is present in the environment:
+      # the probe must be anonymous. If an unauthenticated request can read the
+      # object, the exposure is real, and that is exactly what we need to know.
+      - name: Are known-bad objects still publicly retrievable?
+        run: node scripts/check-exposure.mjs

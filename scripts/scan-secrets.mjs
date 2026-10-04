@@ -58,6 +58,85 @@ const MAX_BYTES = 1_500_000;
 // digits, so a random base64 blob still trips the rule.
 const PATH_LIKE = /^[A-Za-z_][A-Za-z0-9_]*(?:\/[A-Za-z_][A-Za-z0-9_]*)+$/;
 
+// --- high-entropy value detection -------------------------------------------
+//
+// Added after a real miss. The iFlow OAuth secret that leaked from the imported
+// engine carried no distinguishing prefix, so no shape-based rule could name it.
+// It was caught only because it happened to sit in an assignment named
+// `clientSecret`, which the `inline-secret-assignment` rule covers by name. Had
+// the upstream author called the field `auth` or `k`, it would have shipped.
+//
+// So: for assignments whose *name* implies a secret, measure the entropy of the
+// value instead of its shape. This is deliberately confined to secret-named
+// assignments. Running entropy across all string literals produces unusable
+// false positives, because hashes, base64 test fixtures and minified content
+// are all high-entropy by nature.
+
+/** Shannon entropy in bits per character. */
+export function shannonEntropy(value) {
+  if (!value) return 0;
+  const counts = new Map();
+  for (const ch of value) counts.set(ch, (counts.get(ch) ?? 0) + 1);
+  let h = 0;
+  for (const n of counts.values()) {
+    const p = n / value.length;
+    h -= p * Math.log2(p);
+  }
+  return h;
+}
+
+// A secret-named field holding a literal. Captures the value, not the key, so
+// the entropy test applies to exactly the bytes that would be leaked.
+// Group 1 is the opening quote and must be closed with \1; \2 is the value.
+const SECRET_NAMED_ASSIGNMENT =
+  /(?:^|[^\w$])(?:[A-Za-z0-9_$]*(?:secret|passwd|password|token|credential|private[_-]?key|auth)[A-Za-z0-9_$]*)\s*[:=]\s*(["'])([^"'\n]{16,})\1/g;
+
+// Values that are references or shapes rather than stored secrets. Ordered
+// cheapest-first; each pattern here has cost us a false positive in practice.
+const NON_SECRET_VALUE = [
+  /^\$\{/, // template interpolation
+  /^\{\{/,
+  /^process\.env/,
+  /^\$/, // shell/env reference
+  /^[a-z][a-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$/, // dotted config path
+  PATH_LIKE,
+  /^https?:\/\//i,
+  /^[a-z]+:\/\//i,
+  /^\.{0,2}\//, // filesystem path
+  /^[A-Za-z]:\\/,
+  /<[^>]+>/, // placeholder
+  /^[*x•]{3,}$/i,
+];
+
+/**
+ * Strip a leading HTTP auth scheme so the entropy test judges the credential
+ * rather than the fixed word in front of it. `Bearer abc123def456ghi789` is
+ * dominated by the scheme's own letters, which masks the token's randomness and
+ * produced a false positive on a synthetic fixture. Testing only the token
+ * keeps real long bearer tokens detectable while ignoring the constant.
+ */
+export function stripAuthScheme(value) {
+  return String(value).replace(/^(?:Bearer|Basic|Token|Digest|Negotiate)\s+/i, "");
+}
+
+/**
+ * A value is "secret-shaped by entropy" when it is long enough, mixed enough,
+ * and random enough. The mixed-charset requirement matters: real random secrets
+ * use a broad character set, whereas long lowercase identifiers and long digit
+ * runs are usually hashes of something else or just long words.
+ */
+export function looksHighEntropySecret(rawValue) {
+  if (typeof rawValue !== "string") return false;
+  const value = stripAuthScheme(rawValue).trim();
+  if (value.length < 20) return false;
+  if (NON_SECRET_VALUE.some((re) => re.test(value))) return false;
+  if (!/[a-z]/.test(value) || !/[A-Z]/.test(value)) return false;
+  if (!/[0-9]/.test(value)) return false;
+  // Reject a value dominated by one character, e.g. "aaaa...".
+  if (new Set(value).size < 10) return false;
+  return shannonEntropy(value) >= 3.2;
+}
+
 export const RULES = [
   {
     name: "google-oauth-client-secret",
@@ -115,6 +194,18 @@ export const RULES = [
     isFixture: (m) =>
       /\$\{|\bprocess\.env\b|EXAMPLE|REDACTED|PLACEHOLDER|\*{3,}|<[^>]+>/i.test(m) ||
       PATH_LIKE.test(m.replace(/^\s*[^:=]+\s*[:=]\s*["']/, "").replace(/["'];?\s*$/, "")),
+  },
+  {
+    // Entropy on a secret-named field. Shape-independent by construction, which
+    // is the point: the value that actually leaked had no recognisable prefix,
+    // so only its randomness gave it away. See shannonEntropy above for why
+    // this is scoped to secret-named assignments instead of all string literals.
+    name: "high-entropy-secret-value",
+    re: SECRET_NAMED_ASSIGNMENT,
+    isFixture: (m) => {
+      const value = /(["'])([^"'\n]{16,})\1/.exec(m)?.[2] ?? "";
+      return !looksHighEntropySecret(value);
+    },
   },
 ];
 

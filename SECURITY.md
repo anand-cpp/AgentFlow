@@ -241,6 +241,41 @@ corrected.
 Rotation and GitHub-side garbage collection — see
 [Still outstanding](#still-outstanding--and-why-the-alert-stays-open) above.
 
+### The monitor that would have caught it
+
+Nothing in this repository would have told us the credential was still public.
+`scripts/scan-secrets.mjs` reported clean, correctly: by the time it ran, the
+credential was not in any reachable blob. The gap was not a weak rule, it was
+the absence of the right *question*.
+
+`scripts/check-exposure.mjs` asks it. For each entry in
+[`config/exposure.json`](config/exposure.json) — a commit id, a path, and a
+credential *shape*, never a value — it requests the object from the public REST
+API with **no token** and fails the build if the object is still retrievable. It
+runs on every push to `main` and hourly on a cron.
+
+Three properties are deliberate:
+
+- **It never handles a credential value.** `config/exposure.json` stores no
+  values, and retrieved content is inspected in memory. A finding reports the
+  ref, the path and the rule name. Not the matched text, not truncated — a
+  truncated secret is still a secret, and this file is committed.
+- **It fails closed.** A rate limit, a 403 or a dropped connection reports
+  `UNKNOWN` and exits non-zero. Reading a network error as "not exposed" would
+  turn CI green while the credential stayed public, which is the exact failure
+  this monitor exists to prevent.
+- **It is expected to fail right now.** `main` is red because the credential is
+  live. That is the correct signal. Making this job `continue-on-error` would
+  restore the false all-clear that let the exposure go unnoticed — do not do it.
+
+A shape-independent rule was also added to the scanner. The iFlow secret that
+leaked carried no distinguishing prefix, so no shape-based rule could name it; it
+was caught only because the field happened to be called `clientSecret`. Entropy
+of the value now does the work, scoped to secret-named assignments so that
+hashes and base64 fixtures do not turn into noise. `test/exposure.test.js` builds
+every credential-shaped string it needs from fragments, which is why that file
+is scanned honestly rather than allowlisted.
+
 ## Supported versions
 
 | Version | Supported |

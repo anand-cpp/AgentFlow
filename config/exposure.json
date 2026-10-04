@@ -1,0 +1,41 @@
+{
+  "$comment": [
+    "Known public exposures of this repository, tracked until they are fully remediated.",
+    "",
+    "This file intentionally contains NO credential values -- only commit ids, paths and",
+    "shape names. scripts/check-exposure.mjs inspects retrieved content in memory and",
+    "reports the matched rule name, never the matched text.",
+    "",
+    "An entry must NOT be deleted or marked resolved until BOTH are true:",
+    "  1. the credential owner has rotated/revoked the value, and",
+    "  2. the platform no longer serves the pre-purge objects.",
+    "Deleting an entry is an assertion that remediation is complete. Assert it only when it is.",
+    "",
+    "Timeline: the credential was committed 2026-10-03 and the repository is public, so",
+    "assume it was harvested. Rotation is urgent regardless of what this monitor reports."
+  ],
+  "exposures": [
+    {
+      "id": "windsurf-firebase-web-api-key",
+      "repo": "anand-cpp/AgentFlow",
+      "path": "open-sse/providers/registry/windsurf.js",
+      "shape": "firebase-web-api-key",
+      "refs": ["6b38c80d", "fadc9b78", "274bf6c3", "f4fe8bae"],
+      "committedOn": "2026-10-03",
+      "ownerAction": "decolua (9router) must restrict or rotate the Firebase key in Google Cloud, by API and HTTP referrer.",
+      "githubAlert": 1,
+      "notes": "Inherited from upstream 9router, which hardcoded it. Alert #1 stays open until rotation is confirmed."
+    },
+    {
+      "id": "iflow-oauth-client-secret",
+      "repo": "anand-cpp/AgentFlow",
+      "path": "open-sse/providers/registry/iflow.js",
+      "shape": "inline-secret-assignment",
+      "refs": ["6b38c80d", "fadc9b78", "274bf6c3", "f4fe8bae"],
+      "committedOn": "2026-10-03",
+      "ownerAction": "decolua (9router) must rotate the iFlow OAuth client secret. No GitHub alert was raised for this one.",
+      "githubAlert": null,
+      "notes": "Higher risk than the Firebase key: an OAuth client secret plus the public client id allows impersonation of the OAuth client. Carries no distinguishing prefix, so shape-based rules could not name it."
+    }
+  ]
+}
