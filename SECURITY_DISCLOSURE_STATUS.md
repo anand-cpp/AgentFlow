@@ -19,7 +19,14 @@ DOCUMENTED SECURITY POLICY:
 NOT FOUND
 
 Report identifier:
-NONE - no submission was created
+GHSA-35rj-mq32-7gcj - submitted privately by the maintainer via the GitHub web
+UI on 2026-10-04. Under upstream maintainer review; not public.
+
+Submission method:
+MANUAL (authenticated browser session)
+
+Automated submission from this environment:
+STILL BLOCKED - unchanged by the manual submission
 
 GitHub Support request:
 BLOCKED
@@ -46,7 +53,9 @@ SECURITY GATE:
 BLOCKED
 
 Feature work:
-NOT STARTED
+IN PROGRESS on branch `feat/sessions` (`aflow sessions`). Proceeding under the
+maintainer's explicit decision to continue development while the upstream
+incident remains open. This does not change the gate status above.
 
 ---
 
@@ -60,6 +69,22 @@ and is corrected here.
 
 To be explicit: an outside reporter can file a private report for
 `decolua/9router`. Doing so requires only a signed-in GitHub browser session.
+
+That is the route that was then used: the report was submitted manually through
+an authenticated browser session and is now tracked as
+`GHSA-35rj-mq32-7gcj`. It remains private and under upstream maintainer review.
+
+Two separate facts, kept separate on purpose:
+
+- **Submission happened.** `GHSA-35rj-mq32-7gcj` exists and the maintainer
+  upstream has it.
+- **Automated submission from this environment is still blocked.** The
+  unauthenticated `gh` CLI still cannot create the report, and still could not
+  publish an advisory even if it were authenticated.
+
+So "BLOCKED" above now describes the automation, not the disclosure. Nothing
+about the gate changes: the credentials are still live and the alert is still
+open.
 
 ## Evidence that the route is real
 

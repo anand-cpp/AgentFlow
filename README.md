@@ -32,17 +32,20 @@ That distinction — **advertised** versus **working** — is the product.
 
 ## Status
 
-Early. The CLI, routing engine, and dashboard are in place and tested. The
-agent runtime, tool registry, and plugins are not built yet.
+Early. The CLI, routing engine, dashboard, and agent runtime are in place and
+tested. A plugin loader is not built yet.
 
 | Area | State |
 |---|---|
 | Routing engine (`open-sse/`) | Imported from 9Router, 89 providers |
-| CLI commands | Working, 43 tests passing |
+| CLI commands | Working, 558 tests passing |
 | Live reachability probing | Working |
 | TUI dashboard | Working |
-| Agent runtime | Not started |
-| Tools, permissions, plugins | Not started |
+| Sessions | Working — durable per-project work units |
+| Blackboard | Working — durable per-project workflow state |
+| Agent runtime | Working — bounded, registry-driven, eight built-ins |
+| Tool permissions | Working — scoped allowlists, approval, guards, audit log |
+| Plugin loader | Not started |
 | Standalone gateway | Runs via 9Router's server; bundled gateway in progress |
 
 See [`AUDIT/FEATURE_AUDIT.md`](AUDIT/FEATURE_AUDIT.md) for the full
@@ -87,10 +90,174 @@ that via `AGENTFLOW_API_KEY` or leave it unset to probe anonymously.
 | `aflow status` | Cheap health check, safe for a status bar |
 | `aflow config` | Resolved config, and which layer each value came from |
 | `aflow init` | Write a starter project config |
+| `aflow sessions` | Persistent sessions: start, resume, inspect, annotate |
+| `aflow blackboard` | Durable per-project workflow state: tasks, decisions, blockers, next action |
+| `aflow agent` | The built-in agent fleet: list, inspect a declaration, run one |
+| `aflow route` | Run a prompt through the fallback cascade, with a receipt |
+| `aflow logs` | Read the structured event log |
 | `aflow dashboard` | Interactive terminal dashboard |
 
 Every command takes `--json` for machine-readable output, so AgentFlow scripts
 cleanly instead of asking you to parse a table.
+
+### Sessions
+
+A session is one unit of work that outlives the process, so the next command —
+or the next agent — continues instead of starting from zero.
+
+```bash
+aflow sessions new "fix the routing cascade" --model oc/muse
+aflow sessions note ses_20261004T071530123Z_a1b2c3 "cascade now falls through" --as coder
+aflow sessions resume                    # picks up the current session
+aflow sessions inspect ses_20261004T071530123Z_a1b2c3 --entries 0
+```
+
+Sessions are stored one JSON file per session under the platform state directory
+(`AGENTFLOW_STATE_DIR`, or the XDG/`LOCALAPPDATA` equivalent). Each file is
+written to a temporary file and renamed over the target, so a process killed
+mid-write leaves the previous version intact rather than a truncated one. A file
+that fails to parse is reported as corrupt and left untouched — a damaged session
+may be the only surviving record of real work, so the store will not overwrite it
+to tidy things up.
+
+Entries cover conversation turns, tool calls and results, routing decisions,
+errors, agent attribution, and Blackboard references. Concurrent appends from
+several agents take a lock and re-read inside it, so parallel work does not lose
+entries.
+
+Everything written passes through the same redaction as the event log, and a
+credential-shaped value that survives redaction is refused rather than stored.
+
+### Blackboard
+
+Sessions record what happened *in* a run. The Blackboard records what the project
+is *for* — the goal, what is open, why a decision was made, what is blocked, what
+already failed, and what should happen next. That is the state an agent needs when
+it restarts mid-task and finds an empty context window.
+
+```bash
+aflow blackboard goal "ship durable state" --objective "finish the milestone"
+aflow blackboard task add "implement the store" --detail "corruption safe"
+aflow blackboard task t1 --status in_progress
+aflow blackboard block "waiting on upstream merge" --task t1 --severity high
+aflow blackboard test unit --passed 304 --failed 0 --command "npm test"
+aflow blackboard implemented "added store and cli" \
+  --files src/core/blackboard.js,src/commands/blackboard.js --commit abc1234
+aflow blackboard next "open the PR"
+aflow blackboard show                      # goal, open work, blockers, checkpoints
+```
+
+`show` is the recovery path: it prints the goal, the next action, work in progress,
+open work, blockers, bugs, open questions, active decisions, and the recent
+checkpoints, in one screen.
+
+The split with git is deliberate:
+
+```
+git         what the code is
+blackboard  what we were doing to it
+```
+
+Only references are recorded — a path, a sha, a command, a url — never file
+contents. A Blackboard that copied source would go stale the moment the file
+changed and would then contradict git about the same thing.
+
+State is scoped to the current directory, so running it inside a repo picks up
+that repo's record with no flag; `--project` points somewhere else. It lives under
+the platform state directory as one `<id>.state.json` per project, written
+atomically, alongside an append-only `<id>.events.jsonl` timeline of checkpoints.
+The timeline is never replayed into state — it is an independent record, which is
+what makes it useful when the state file is damaged.
+
+Every mutating command creates the Blackboard on demand, so there is no
+initialisation step to forget. Credentials are redacted before either file is
+written, and a value that survives redaction is refused rather than stored.
+
+Pass `--json` for machine-readable output, as with every command.
+
+### Agents
+
+An agent is a declaration — a bounded set of permissions, an output contract and a
+budget — not a prompt with a name. The runtime reads the fields; nothing anywhere
+switches on the agent's id.
+
+```bash
+aflow agent                                 # what exists, and how much each may do
+aflow agent show coder                      # scopes, allowlist, gates, bounds, contracts
+aflow agent run planner "add a health endpoint"
+aflow agent run coder "fix the null deref in routing.js" --session ses_2026...
+```
+
+Eight agents ship built in:
+
+| Agent | Does | Privilege |
+|---|---|---|
+| `planner` | Turn an objective into a checkable plan | read-only |
+| `coder` | Implement a change and show evidence it works | writes, asks |
+| `reviewer` | Judge a change against what it was meant to do | read-only |
+| `debugger` | Find the actual cause, then fix that and nothing else | writes, asks |
+| `tester` | Prove it works, or prove exactly that it does not | writes, asks |
+| `researcher` | Answer from evidence and say how confident that is | reads, network asks |
+| `security` | Find the vulnerability that is actually there | read-only |
+| `release` | Prepare and verify; publish only when told | asks about everything |
+
+#### Scopes are the control. Instructions are not.
+
+This is the part worth internalising, because it is easy to get backwards. Every
+agent's prompt contains instructions — *do not push*, *run the tests before claiming
+success* — and none of them are security controls. The model is the untrusted party
+in this system. "Do not push" in a prompt is a request, and the Coder cannot
+`git push origin main` because there is no allowlist entry for it, not because it
+was told not to.
+
+So a permission is an entry, and entries resolve in a fixed order:
+
+```
+deny  ->  scope approval  ->  allow  ->  ask  ->  deny
+```
+
+`deny` is refused outright. Scope-level approval gates the *whole* scope, allowlist
+included — "nothing here runs without a human" has to mean nothing. `allow` runs
+silently. `ask` needs approval. Everything else is refused.
+
+`allow` and `ask` together are what make a narrow policy practical. The Coder runs
+`git status`, `git diff`, `git log` and `npm test` without prompting, because those
+change nothing; anything else in the shell scope asks first. An agent that cannot
+check repository state without a prompt is an agent nobody runs interactively.
+
+#### Approvals fail closed
+
+Interactive on a terminal, one prompt per gated call. Without a TTY there is nobody
+to ask, so gated actions are **refused** and the refusal explains how to override it.
+`--yes` approves everything and `--deny` refuses everything; both have to be typed on
+purpose, because approving unattended is a decision rather than a convenience.
+
+#### Bounds are enforced, and checked in both directions
+
+Every agent declares a maximum iteration count, tool-call count, wall clock,
+context size and recursion depth. All of them are checked before the work *and*
+after each model call — a deadline only enforced between iterations is not a deadline,
+because a single slow call overruns it and then reports clean success.
+
+Four outcomes are tracked separately and are never collapsed into "failed":
+`completed`, `timedOut`, `cancelled`, and the state the run ended in. A run that both
+timed out and failed its output contract is not "timed out" — that reading loses the
+second fact.
+
+#### The audit trail records what ran
+
+Every tool call is logged before dispatch, so a crash mid-tool still leaves a record.
+Only the pre-execute waterfall may rewrite a call; the execute waterfall may not,
+because by then the call has already been judged by the permission check, the
+approver and the guards, and a rewrite there would dispatch something nobody
+approved while the log faithfully described the original command.
+
+A successful run is recorded in both places it belongs: the Session gets the full
+outcome — model, state, counts, duration, output, error — and the Blackboard gets an
+implementation note with a reference back to the Session. An entry saying only "fixed
+the routing cascade" is close to useless a week later.
+
+Pass `--json` for machine-readable output, as with every command.
 
 ### Dashboard
 
@@ -153,9 +320,15 @@ aflow config --json | jq '.baseUrl, .sources'
 |---|---|
 | `0` | Healthy |
 | `1` | A check failed (gateway down, probes erroring) |
+| `2` | Usage error — bad flags, unknown subcommand, missing argument |
 | `127` | Unknown command |
 
-Scripts can branch on these instead of scraping output.
+Scripts can branch on these instead of scraping output. `2` always means the
+command line was wrong and the printed usage is the fix; `1` means the command
+was understood but the work did not succeed.
+
+`aflow agent run` uses the same three: `0` completed, `1`
+failed/timed out/cancelled, `2` usage.
 
 ---
 
