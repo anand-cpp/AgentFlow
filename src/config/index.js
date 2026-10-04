@@ -38,6 +38,10 @@ export const DEFAULTS = Object.freeze({
   verbose: false,
   // Disable ANSI colour even when stdout is a TTY.
   noColor: false,
+  // Minimum level written to the structured event log: debug|info|warn|error
+  logLevel: "info",
+  // Explicit log path; null means use the platform default.
+  logPath: null,
 });
 
 function readJsonFile(file) {
@@ -93,6 +97,8 @@ const ENV_MAP = {
   AGENTFLOW_QUIET: "quiet",
   AGENTFLOW_VERBOSE: "verbose",
   AGENTFLOW_NO_COLOR: "noColor",
+  AGENTFLOW_LOG_LEVEL: "logLevel",
+  AGENTFLOW_LOG_PATH: "logPath",
 };
 
 /**

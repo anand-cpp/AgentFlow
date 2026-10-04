@@ -76,6 +76,7 @@ function s0(initial) {
 }
 
 export const dashboardCommand = defineCommand("dashboard", {
+  valueFlags: ["interval"],
   summary: "open the interactive terminal dashboard",
   usage: `aflow dashboard [--interval MS]
 

@@ -112,6 +112,7 @@ function args0(flags) {
 }
 
 export const modelsCommand = defineCommand("models", {
+  valueFlags: ["limit"],
   summary: "list models by provider, optionally probing reachability",
   usage: `aflow models [filter] [--probe] [--limit N]
 

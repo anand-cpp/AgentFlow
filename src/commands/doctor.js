@@ -11,6 +11,7 @@ import { ping, probeModel, getVersion } from "../core/gateway.js";
 import { projectConfigPaths, globalConfigPath } from "../config/index.js";
 import { bold, dim, table, heading, symbol, statusColor, green, red, yellow } from "../cli/ui.js";
 import { oauthClientConfigured } from "../../open-sse/providers/shared.js";
+import { EventLog, EVENTS, defaultLogPath } from "../core/events.js";
 
 /**
  * Candidate models worth probing when the user hasn't named one.
@@ -63,6 +64,14 @@ function checkOAuthClients() {
 async function runDoctor({ config, out, flags }) {
   const checks = [];
 
+  // Every probe outcome becomes an event, so `aflow logs --type gateway.probe`
+  // can answer "was this provider ever working?" over time rather than only
+  // describing one moment.
+  const log = new EventLog({
+    file: flags["log-file"] || config.logPath || defaultLogPath(),
+    level: config.logLevel,
+  });
+
   checks.push(checkNodeVersion());
   checks.push(checkConfig());
   checks.push(...checkOAuthClients());
@@ -75,6 +84,12 @@ async function runDoctor({ config, out, flags }) {
       ? `${config.baseUrl} reachable in ${pinged.elapsedMs}ms`
       : `${config.baseUrl} — ${pinged.error}`,
   });
+
+  log.emit(
+    pinged.ok ? EVENTS.GATEWAY_PROBE : EVENTS.GATEWAY_ERROR,
+    { baseUrl: config.baseUrl, elapsedMs: pinged.elapsedMs, error: pinged.error },
+    pinged.ok ? "info" : "error"
+  );
 
   let version = null;
   let catalogueCount = null;
@@ -102,6 +117,8 @@ async function runDoctor({ config, out, flags }) {
           ? `reachable in ${result.elapsedMs}ms`
           : result.detail,
       });
+      log.emit(EVENTS.GATEWAY_PROBE, { model, status: result.status, elapsedMs: result.elapsedMs, detail: result.detail },
+        result.status === "ok" ? "info" : result.status === "empty" ? "warn" : "error");
     }
 
     // Count the advertised catalogue for contrast with what actually works.
@@ -179,6 +196,7 @@ async function runDoctor({ config, out, flags }) {
 }
 
 export const doctorCommand = defineCommand("doctor", {
+  valueFlags: ["log-file"],
   summary: "check environment, gateway, and live provider reachability",
   usage: `aflow doctor [--verbose]
 
