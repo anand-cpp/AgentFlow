@@ -38,9 +38,11 @@ agent runtime, tool registry, and plugins are not built yet.
 | Area | State |
 |---|---|
 | Routing engine (`open-sse/`) | Imported from 9Router, 89 providers |
-| CLI commands | Working, 43 tests passing |
+| CLI commands | Working, 304 tests passing |
 | Live reachability probing | Working |
 | TUI dashboard | Working |
+| Sessions | Working — durable per-project work units |
+| Blackboard | Working — durable per-project workflow state |
 | Agent runtime | Not started |
 | Tools, permissions, plugins | Not started |
 | Standalone gateway | Runs via 9Router's server; bundled gateway in progress |
@@ -88,6 +90,7 @@ that via `AGENTFLOW_API_KEY` or leave it unset to probe anonymously.
 | `aflow config` | Resolved config, and which layer each value came from |
 | `aflow init` | Write a starter project config |
 | `aflow sessions` | Persistent sessions: start, resume, inspect, annotate |
+| `aflow blackboard` | Durable per-project workflow state: tasks, decisions, blockers, next action |
 | `aflow route` | Run a prompt through the fallback cascade, with a receipt |
 | `aflow logs` | Read the structured event log |
 | `aflow dashboard` | Interactive terminal dashboard |
@@ -122,6 +125,53 @@ entries.
 
 Everything written passes through the same redaction as the event log, and a
 credential-shaped value that survives redaction is refused rather than stored.
+
+### Blackboard
+
+Sessions record what happened *in* a run. The Blackboard records what the project
+is *for* — the goal, what is open, why a decision was made, what is blocked, what
+already failed, and what should happen next. That is the state an agent needs when
+it restarts mid-task and finds an empty context window.
+
+```bash
+aflow blackboard goal "ship durable state" --objective "finish the milestone"
+aflow blackboard task add "implement the store" --detail "corruption safe"
+aflow blackboard task t1 --status in_progress
+aflow blackboard block "waiting on upstream merge" --task t1 --severity high
+aflow blackboard test unit --passed 304 --failed 0 --command "npm test"
+aflow blackboard implemented "added store and cli" \
+  --files src/core/blackboard.js,src/commands/blackboard.js --commit abc1234
+aflow blackboard next "open the PR"
+aflow blackboard show                      # goal, open work, blockers, checkpoints
+```
+
+`show` is the recovery path: it prints the goal, the next action, work in progress,
+open work, blockers, bugs, open questions, active decisions, and the recent
+checkpoints, in one screen.
+
+The split with git is deliberate:
+
+```
+git         what the code is
+blackboard  what we were doing to it
+```
+
+Only references are recorded — a path, a sha, a command, a url — never file
+contents. A Blackboard that copied source would go stale the moment the file
+changed and would then contradict git about the same thing.
+
+State is scoped to the current directory, so running it inside a repo picks up
+that repo's record with no flag; `--project` points somewhere else. It lives under
+the platform state directory as one `<id>.state.json` per project, written
+atomically, alongside an append-only `<id>.events.jsonl` timeline of checkpoints.
+The timeline is never replayed into state — it is an independent record, which is
+what makes it useful when the state file is damaged.
+
+Every mutating command creates the Blackboard on demand, so there is no
+initialisation step to forget. Credentials are redacted before either file is
+written, and a value that survives redaction is refused rather than stored.
+
+Pass `--json` for machine-readable output, as with every command.
 
 ### Dashboard
 
@@ -184,9 +234,12 @@ aflow config --json | jq '.baseUrl, .sources'
 |---|---|
 | `0` | Healthy |
 | `1` | A check failed (gateway down, probes erroring) |
+| `2` | Usage error — bad flags, unknown subcommand, missing argument |
 | `127` | Unknown command |
 
-Scripts can branch on these instead of scraping output.
+Scripts can branch on these instead of scraping output. `2` always means the
+command line was wrong and the printed usage is the fix; `1` means the command
+was understood but the work did not succeed.
 
 ---
 
