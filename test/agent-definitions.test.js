@@ -10,7 +10,7 @@ import { BUILT_INS, builtinSpecs } from "../src/core/agents/definitions.js";
 import { TOOL_SCOPE, CAPABILITY, AgentRegistry, AgentConflictError } from "../src/core/agents/registry.js";
 import { evaluatePermission } from "../src/core/agents/tools.js";
 
-const EXPECTED = ["planner", "coder"];
+const EXPECTED = ["planner", "coder", "reviewer", "debugger"];
 
 const TOOL_SCOPE_OF = {
   shell: TOOL_SCOPE.SHELL,
@@ -171,6 +171,20 @@ test("the coder cannot reach the network even with an approver", () => {
   assert.equal(permits("coder", "fetch", { url: "https://registry.npmjs.org/x" }, yes).decision, "deny");
 });
 
+test("the reviewer cannot write files", () => {
+  // It should be able to find a bug and report it, not quietly fix it and call the
+  // change reviewed. A reviewer that can edit is reviewing its own work.
+  assert.equal(permits("reviewer", "read_file", { path: "src/x.js" }).decision, "allow");
+  assert.equal(permits("reviewer", "write_file", { path: "src/x.js" }).decision, "deny");
+  assert.equal(permits("reviewer", "shell", { command: "npm test" }).decision, "deny");
+});
+
+test("the debugger can reproduce and patch", () => {
+  assert.equal(permits("debugger", "shell", { command: "npm test" }).decision, "allow");
+  assert.equal(permits("debugger", "write_file", { path: "src/x.js" }).decision, "allow");
+  assert.equal(permits("debugger", "run_tests", { command: "npm test" }).decision, "allow");
+});
+
 test("a shell allowlist entry does not permit a chained command", () => {
   assert.equal(permits("coder", "shell", { command: "git status; rm -rf /" }, yes).decision, "ask");
 });
@@ -183,6 +197,8 @@ test("each agent declares capabilities that match what it does", () => {
   const expectations = {
     planner: [CAPABILITY.PLANNING, CAPABILITY.REASONING],
     coder: [CAPABILITY.CODING, CAPABILITY.TOOL_CALLING],
+    reviewer: [CAPABILITY.CODING, CAPABILITY.REASONING],
+    debugger: [CAPABILITY.REASONING, CAPABILITY.TOOL_CALLING],
   };
   for (const [id, expected] of Object.entries(expectations)) {
     const agent = new AgentRegistry(builtinSpecs()).get(id);
