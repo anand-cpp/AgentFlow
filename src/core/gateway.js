@@ -159,4 +159,47 @@ export async function ping(config) {
   }
 }
 
-export default { GatewayError, getVersion, listModels, probeModel, ping };
+/**
+ * Send a real chat completion and return the assistant text.
+ *
+ * Throws on transport or HTTP failure -- unlike probeModel, this is used for
+ * work that matters, so a failure must not be flattened into a status object
+ * the caller might ignore. Routing's failure classifier needs the error.
+ *
+ * An empty completion resolves with an empty string rather than throwing; the
+ * router treats that as a distinct failure kind (a provider that answers 200
+ * with nothing is a different problem from one that 500s).
+ */
+export async function complete(config, modelId, prompt, { timeoutMs, system = null, maxTokens = 1024, temperature = null } = {}) {
+  const messages = [];
+  if (system) messages.push({ role: "system", content: system });
+  messages.push({ role: "user", content: String(prompt) });
+
+  const body = {
+    model: modelId,
+    messages,
+    max_tokens: maxTokens,
+  };
+  if (temperature != null) body.temperature = temperature;
+
+  const { body: parsed } = await request(config, "/v1/chat/completions", {
+    method: "POST",
+    json: true,
+    timeoutMs,
+    body,
+  });
+
+  const choice = parsed?.choices?.[0];
+  const content = choice?.message?.content;
+  const text = typeof content === "string" ? content : content == null ? "" : String(content);
+
+  return {
+    model: modelId,
+    text: text.trim(),
+    raw: parsed,
+    finishReason: choice?.finish_reason ?? null,
+    usage: parsed?.usage ?? null,
+  };
+}
+
+export default { GatewayError, getVersion, listModels, probeModel, ping, complete };
