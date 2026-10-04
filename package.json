@@ -21,7 +21,7 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
-    "test": "node --test \"test/**/*.test.js\"",
+    "test": "node scripts/run-tests.mjs",
     "aflow": "node bin/aflow.js",
     "doctor": "node bin/aflow.js doctor",
     "scan-secrets": "node scripts/scan-secrets.mjs"
