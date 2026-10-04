@@ -117,8 +117,11 @@ test("this test file contains no credential-shaped literal", () => {
 
 function initRepo() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aflow-scan-"));
+  // `input` alone, never `input` together with `stdio`: Node 20 rejects that
+  // combination with ERR_INVALID_ARG_VALUE, and it was only relaxed later.
+  // `input` already implies a piped stdin, so `stdio` bought nothing.
   const run = (args, input) =>
-    execFileSync("git", args, { cwd: dir, encoding: "utf8", input, stdio: ["pipe", "pipe", "pipe"] });
+    execFileSync("git", args, { cwd: dir, encoding: "utf8", input });
 
   run(["init", "-q", "-b", "main"]);
   run(["config", "user.email", "test@example.com"]);
