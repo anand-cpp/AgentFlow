@@ -271,7 +271,141 @@ export const DEBUGGER = defineAgent({
   failure: { maxRetries: 2 },
 });
 
-export const BUILT_INS = { planner: PLANNER, coder: CODER, reviewer: REVIEWER, debugger: DEBUGGER };
+/**
+ * The Tester gets the test scope and a shell allowlist made of test commands, and
+ * explicitly no network. A test agent that can reach a package registry can change
+ * which code it is testing by installing something, which quietly invalidates every
+ * result it reports.
+ */
+const TESTER_TOOLS = {
+  scopes: [T.READ, T.SEARCH, T.WRITE, T.TEST, T.SHELL],
+  allow: [
+    "read:*",
+    "search:*",
+    "write:*",
+    "test:*",
+    "shell:npm test",
+    "shell:npm run test",
+    "shell:npm run",
+  ],
+  ask: ["shell:*"],
+};
+
+export const TESTER = defineAgent({
+  id: "tester",
+  name: "Tester",
+  purpose: "Prove a change works, or prove precisely that it does not.",
+  instructions: [
+    "You decide whether something actually works.",
+    "",
+    "Run the thing. Do not read the test file, conclude it looks fine, and report that",
+    "it passes -- a test nobody ran is an assumption wearing a lab coat.",
+    "",
+    "When a test fails, report the failure, not a summary of your intentions. Include",
+    "what was expected, what happened, and the command you ran. \"Some tests fail\" is",
+    "not a result; it is a way of avoiding one.",
+    "",
+    "If you cannot run the tests, say so and stop. A Tester that reports success",
+    "without having run anything is worse than no Tester, because the claim is",
+    "believed.",
+    "",
+    "Write tests that fail for the right reason. A test that passes against broken",
+    "code is worse than no test: it is a false assurance with a coverage number",
+    "attached.",
+  ].join("\n"),
+  capabilities: [CAPABILITY.CODING, CAPABILITY.TOOL_CALLING],
+  tools: TESTER_TOOLS,
+  model: { requireCapabilities: [CAPABILITY.CODING, CAPABILITY.TOOL_CALLING], maxTokens: 4096 },
+  routing: { tierSize: 2 },
+  bounds: { maxIterations: 12, maxToolCalls: 50, timeoutMs: 600_000, maxContextChars: 48_000 },
+  input: {
+    fields: [
+      { name: "target", type: "string", required: true, description: "what to exercise, or what to test" },
+      { name: "expectations", type: "array", description: "the behaviours that must hold" },
+    ],
+    unknownFields: "ignore",
+  },
+  output: {
+    fields: [
+      { name: "summary", type: "string", required: true, description: "what passed, what failed, what was run" },
+      { name: "ran", type: "boolean", required: true, description: "true only if the tests were actually executed" },
+      { name: "failures", type: "array", description: "each with expected, actual and the command run" },
+    ],
+    unknownFields: "reject",
+  },
+  failure: { maxRetries: 1 },
+});
+
+/**
+ * The Researcher is the only agent that asks before it touches the network, and the
+ * policy is deliberately blunt: read and search freely, every fetch asks.
+ *
+ * There is no host allowlist here. Hard-coding a few well-known hosts would be
+ * arbitrary and would rot; the honest version is "this agent can read your disk and
+ * your search results without asking, and every outbound request is a decision you
+ * make".
+ */
+const RESEARCHER_TOOLS = {
+  scopes: [T.READ, T.SEARCH, T.NETWORK],
+  allow: ["read:*", "search:*"],
+  ask: ["network:*"],
+};
+
+export const RESEARCHER = defineAgent({
+  id: "researcher",
+  name: "Researcher",
+  purpose: "Answer a question from evidence, and say how confident that is.",
+  instructions: [
+    "You answer questions from sources you can point at.",
+    "",
+    "Cite where each claim came from, and separate what a source says from what you",
+    "inferred. An inference presented as a finding is how a wrong answer acquires",
+    "authority.",
+    "",
+    "Prefer primary sources -- the specification, the documentation, the source",
+    "itself. Secondary summaries drift, and a confident wrong citation is worse than",
+    "no citation because it discourages anyone from checking.",
+    "",
+    "Say when you could not find something, or when the sources disagree. \"The docs",
+    "say X, the code does Y\" is a useful answer. A single smooth answer that quietly",
+    "picks a side is not.",
+    "",
+    "Stop when you have enough to answer. Research that keeps gathering after the",
+    "question is settled is how a three-line answer becomes a two-thousand-line",
+    "report.",
+  ].join("\n"),
+  capabilities: [CAPABILITY.RESEARCH, CAPABILITY.LONG_CONTEXT, CAPABILITY.REASONING],
+  tools: RESEARCHER_TOOLS,
+  model: { requireCapabilities: [CAPABILITY.RESEARCH, CAPABILITY.REASONING], maxTokens: 8192 },
+  routing: { tierSize: 3 },
+  bounds: { maxIterations: 8, maxToolCalls: 30, timeoutMs: 420_000, maxContextChars: 128_000 },
+  input: {
+    fields: [
+      { name: "question", type: "string", required: true, description: "what to find out" },
+      { name: "sources", type: "array", description: "places worth starting from" },
+    ],
+    unknownFields: "ignore",
+  },
+  output: {
+    fields: [
+      { name: "summary", type: "string", required: true, description: "the answer in a few sentences" },
+      { name: "findings", type: "array", description: "each claim with its source" },
+      { name: "confidence", type: "string", required: true, description: "high, medium or low, and why" },
+      { name: "gaps", type: "array", description: "what remains unanswered" },
+    ],
+    unknownFields: "reject",
+  },
+  failure: { maxRetries: 1 },
+});
+
+export const BUILT_INS = {
+  planner: PLANNER,
+  coder: CODER,
+  reviewer: REVIEWER,
+  debugger: DEBUGGER,
+  tester: TESTER,
+  researcher: RESEARCHER,
+};
 
 export function builtinSpecs() {
   return Object.values(BUILT_INS);
@@ -281,4 +415,4 @@ export function builtins() {
   return builtinSpecs();
 }
 
-export default { BUILT_INS, builtinSpecs, PLANNER, CODER, REVIEWER, DEBUGGER };
+export default { BUILT_INS, builtinSpecs, PLANNER, CODER, REVIEWER, DEBUGGER, TESTER, RESEARCHER };

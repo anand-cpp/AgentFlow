@@ -10,7 +10,7 @@ import { BUILT_INS, builtinSpecs } from "../src/core/agents/definitions.js";
 import { TOOL_SCOPE, CAPABILITY, AgentRegistry, AgentConflictError } from "../src/core/agents/registry.js";
 import { evaluatePermission } from "../src/core/agents/tools.js";
 
-const EXPECTED = ["planner", "coder", "reviewer", "debugger"];
+const EXPECTED = ["planner", "coder", "reviewer", "debugger", "tester", "researcher"];
 
 const TOOL_SCOPE_OF = {
   shell: TOOL_SCOPE.SHELL,
@@ -185,6 +185,33 @@ test("the debugger can reproduce and patch", () => {
   assert.equal(permits("debugger", "run_tests", { command: "npm test" }).decision, "allow");
 });
 
+test("the tester runs tests but cannot deploy or publish", () => {
+  assert.equal(permits("tester", "run_tests", { command: "npm test" }).decision, "allow");
+  assert.equal(permits("tester", "shell", { command: "npm test" }).decision, "allow");
+  // Even with an approver: deployment is not a testing action under any reading.
+  assert.equal(permits("tester", "shell", { command: "npm publish" }, yes).decision, "ask");
+  assert.equal(permits("tester", "shell", { command: "git push origin main" }, yes).decision, "ask");
+});
+
+test("the tester has no network, so it cannot change what it is testing", () => {
+  // A test agent that can install from a registry can swap the code under test
+  // and then report a green run against something nobody is shipping.
+  assert.equal(permits("tester", "fetch", { url: "https://registry.npmjs.org/x" }, yes).decision, "deny");
+});
+
+test("the researcher reads freely but asks before every fetch", () => {
+  assert.equal(permits("researcher", "read_file", { path: "docs/x.md" }).decision, "allow");
+  assert.equal(permits("researcher", "grep", { pattern: "TODO" }).decision, "allow");
+  // No host allowlist, by design -- see the note in definitions.js.
+  assert.equal(permits("researcher", "fetch", { url: "https://example.test" }).decision, "deny");
+  assert.equal(permits("researcher", "fetch", { url: "https://example.test" }, yes).decision, "ask");
+});
+
+test("the researcher cannot write or run commands", () => {
+  assert.equal(permits("researcher", "write_file", { path: "notes.md" }).decision, "deny");
+  assert.equal(permits("researcher", "shell", { command: "npm test" }, yes).decision, "deny");
+});
+
 test("a shell allowlist entry does not permit a chained command", () => {
   assert.equal(permits("coder", "shell", { command: "git status; rm -rf /" }, yes).decision, "ask");
 });
@@ -199,6 +226,8 @@ test("each agent declares capabilities that match what it does", () => {
     coder: [CAPABILITY.CODING, CAPABILITY.TOOL_CALLING],
     reviewer: [CAPABILITY.CODING, CAPABILITY.REASONING],
     debugger: [CAPABILITY.REASONING, CAPABILITY.TOOL_CALLING],
+    tester: [CAPABILITY.CODING, CAPABILITY.TOOL_CALLING],
+    researcher: [CAPABILITY.RESEARCH, CAPABILITY.LONG_CONTEXT],
   };
   for (const [id, expected] of Object.entries(expectations)) {
     const agent = new AgentRegistry(builtinSpecs()).get(id);
@@ -211,6 +240,25 @@ test("each agent declares capabilities that match what it does", () => {
 test("an agent that writes needs a tighter tool budget than one that only reads", () => {
   const registry = new AgentRegistry(builtinSpecs());
   assert.ok(registry.get("planner").bounds.maxToolCalls < registry.get("coder").bounds.maxToolCalls);
+});
+
+test("the tester must report whether it actually ran anything", () => {
+  // A Tester that can say "everything passes" without running a test is a false
+  // assurance, and it is the most expensive kind of wrong in this system.
+  const ran = new AgentRegistry(builtinSpecs()).get("tester").output.fields.find((f) => f.name === "ran");
+  assert.ok(ran, "tester must declare a `ran` field");
+  assert.equal(ran.required, true, "tester's `ran` must be required, not optional");
+});
+
+test("the researcher must report its confidence", () => {
+  const confidence = new AgentRegistry(builtinSpecs()).get("researcher").output.fields.find((f) => f.name === "confidence");
+  assert.ok(confidence, "researcher must declare a `confidence` field");
+  assert.equal(confidence.required, true);
+});
+
+test("the researcher carries the largest context budget of the read-only agents", () => {
+  const registry = new AgentRegistry(builtinSpecs());
+  assert.ok(registry.get("researcher").bounds.maxContextChars > registry.get("planner").bounds.maxContextChars);
 });
 
 test("no built-in declares escalation to an agent that does not exist", () => {
