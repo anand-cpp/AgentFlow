@@ -9,5 +9,6 @@ import "../commands/status.js";
 import "../commands/config.js";
 import "../commands/init.js";
 import "../commands/dashboard.js";
+import "../commands/logs.js";
 
 export { defineCommand, getCommand, getCommands } from "../cli/registry.js";
