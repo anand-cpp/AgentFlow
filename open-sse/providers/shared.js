@@ -107,7 +107,7 @@ export const ANTIGRAVITY_IDE_USER_AGENT = `antigravity/ide/${ANTIGRAVITY_IDE_VER
 // Derived from 9Router open-sse/providers/shared.js @ a99cf572 (MIT).
 // Copyright (c) 2024-2026 decolua and contributors. See THIRD_PARTY_NOTICES.md.
 
-function oauthClientFromEnv(name) {
+export function oauthClientFromEnv(name) {
   const id = process.env[`${name}_OAUTH_CLIENT_ID`] || "";
   const secret = process.env[`${name}_OAUTH_CLIENT_SECRET`] || "";
   return { clientId: id, clientSecret: secret };
@@ -122,3 +122,18 @@ export function oauthClientConfigured(name) {
 export const ANTIGRAVITY_OAUTH_CLIENT = oauthClientFromEnv("ANTIGRAVITY");
 
 export const GOOGLE_OAUTH_CLIENT = oauthClientFromEnv("GOOGLE");
+
+export const IFLOW_OAUTH_CLIENT = oauthClientFromEnv("IFLOW");
+
+export const WINDSURF_OAUTH_CLIENT = oauthClientFromEnv("WINDSURF");
+
+// Firebase web API keys are lower-risk than OAuth client secrets — they are
+// designed to ship in client bundles and are restricted by Firebase security
+// rules rather than treated as secrets. Hardcoding one still pins this fork to
+// upstream's Firebase project, so it is operator-supplied here like the rest.
+export const WINDSURF_FIREBASE_API_KEY = process.env.WINDSURF_FIREBASE_API_KEY || "";
+
+/** True when a provider's OAuth client *and* extra key are both supplied. */
+export function windsurfConfigured() {
+  return oauthClientConfigured("WINDSURF") && Boolean(WINDSURF_FIREBASE_API_KEY);
+}

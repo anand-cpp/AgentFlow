@@ -15,12 +15,16 @@
     "src/",
     "open-sse/",
     "LICENSE",
-    "PROJECT_ORIGIN.md"
+    "PROJECT_ORIGIN.md",
+    "README.md",
+    "SECURITY.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
     "aflow": "node bin/aflow.js",
-    "doctor": "node bin/aflow.js doctor"
+    "doctor": "node bin/aflow.js doctor",
+    "scan-secrets": "node scripts/scan-secrets.mjs"
   },
   "keywords": [
     "ai",
@@ -29,11 +33,5 @@
     "agent",
     "cli",
     "tui"
-  ],
-  "dependencies": {
-    "chalk": "^5.3.0",
-    "confbox": "^1.2.0",
-    "undici": "^7.0.0",
-    "uuid": "^11.0.0"
-  }
+  ]
 }

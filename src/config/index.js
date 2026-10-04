@@ -92,6 +92,7 @@ const ENV_MAP = {
   AGENTFLOW_JSON: "json",
   AGENTFLOW_QUIET: "quiet",
   AGENTFLOW_VERBOSE: "verbose",
+  AGENTFLOW_NO_COLOR: "noColor",
 };
 
 /**
@@ -168,10 +169,19 @@ export function resolveConfig({ flags = {}, cwd = process.cwd(), env = process.e
       sources.push("environment");
     }
 
-    const flagCfg = {};
+    // Maps a parsed CLI flag name onto its config key. These differ because the
+// parser keeps flags dashed (--no-color) while config keys are camelCase.
+const FLAG_TO_CONFIG = {
+  json: "json",
+  quiet: "quiet",
+  verbose: "verbose",
+  "no-color": "noColor",
+};
+
+const flagCfg = {};
     if (flags.port) flagCfg.baseUrl = `http://localhost:${flags.port}`;
-    for (const k of ["json", "quiet", "verbose", "noColor"]) {
-      if (flags[k]) flagCfg[k] = true;
+    for (const [flagName, configKey] of Object.entries(FLAG_TO_CONFIG)) {
+      if (flags[flagName]) flagCfg[configKey] = true;
     }
     if (flags.model) flagCfg.defaultModel = flags.model;
     if (flags["base-url"]) flagCfg.baseUrl = flags["base-url"];

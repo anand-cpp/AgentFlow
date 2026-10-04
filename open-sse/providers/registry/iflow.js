@@ -1,3 +1,9 @@
+import { IFLOW_OAUTH_CLIENT } from "../shared.js";
+
+// AgentFlow change: upstream hardcoded the iFlow OAuth client id/secret here.
+// Replaced with an environment-sourced client, matching the Google and
+// Antigravity fix. Derived from 9Router @ a99cf572 (MIT); see
+// THIRD_PARTY_NOTICES.md.
 export default {
   id: "iflow",
   hidden: true,
@@ -38,8 +44,8 @@ export default {
     { id: "iflow-rome-30ba3b", name: "iFlow ROME" },
   ],
   oauth: {
-    clientId: "REDACTED_CLIENT_ID",
-    clientSecret: "REDACTED_CLIENT_SECRET",
+    clientId: IFLOW_OAUTH_CLIENT.clientId,
+    clientSecret: IFLOW_OAUTH_CLIENT.clientSecret,
     authorizeUrl: "https://iflow.cn/oauth",
     tokenUrl: "https://iflow.cn/oauth/token",
     userInfoUrl: "https://iflow.cn/api/oauth/getUserInfo",
