@@ -65,4 +65,36 @@ export function redactDeep(value, seen = new WeakSet()) {
   return out;
 }
 
-export default { redact, redactDeep };
+export class SecretDetectedError extends Error {
+  constructor(where) {
+    super(`refusing to persist an unredacted credential-shaped value in ${where}`);
+    this.name = "SecretDetectedError";
+    this.code = "secret_detected";
+  }
+}
+
+/**
+ * Redact a value destined for durable storage, then verify the redaction worked.
+ *
+ * This is the last gate before bytes hit disk, and it exists because
+ * redactDeep's coverage is only as good as its pattern list. Stores call this
+ * instead of trusting that.
+ *
+ * The check is deliberately "did redaction leave anything behind?" -- tested by
+ * re-running the redactor over the serialised result -- rather than a hard-coded
+ * list of prefixes here. That keeps it correct as patterns are added. An earlier
+ * version grepped for `GOCSPX-` and `Bearer ` and threw on every *successfully
+ * redacted* value, because the masks themselves contain those prefixes.
+ *
+ * Note this is the one function here that throws. `redact` and `redactDeep` never
+ * do, on purpose: a redaction failure must not block logging. Refusing to write
+ * is different -- losing a record is recoverable, persisting a secret is not.
+ */
+export function redactVerified(value, where = "record") {
+  const redacted = redactDeep(value);
+  const json = JSON.stringify(redacted);
+  if (json !== undefined && redact(json) !== json) throw new SecretDetectedError(where);
+  return redacted;
+}
+
+export default { redact, redactDeep, redactVerified, SecretDetectedError };

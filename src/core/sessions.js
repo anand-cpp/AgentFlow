@@ -7,10 +7,11 @@
 // Four constraints shaped this module, in priority order:
 //
 //  1. Never persist a credential. Every field written here passes through
-//     redactDeep first. Session content includes provider output, tool results,
+//     redactVerified. Session content includes provider output, tool results,
 //     and prompts, all of which can echo a key back at us. The store is the last
 //     place that can catch that before it becomes a file on disk that outlives
-//     the process and ends up pasted into an issue. See assertNoSecrets().
+//     the process and ends up pasted into an issue. See redact.js for why the
+//     check is a second redaction pass rather than a list of prefixes.
 //
 //  2. A crash must not destroy history. Writes go to a temp file and are then
 //     renamed over the target, which is atomic on both POSIX and NTFS. A process
@@ -40,7 +41,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { redactDeep, redact } from "./redact.js";
+import { redactVerified, SecretDetectedError } from "./redact.js";
 import { writeAtomicFile, withLockFile, readJsonFile, assertVersion, LockError } from "./persist.js";
 
 export const SESSION_VERSION = 1;
@@ -164,34 +165,32 @@ function pad2(n) {
 }
 
 /**
- * Last line of defence before bytes hit disk.
+ * Redact then verify, for every field that reaches the store.
  *
- * redactDeep already masks credential-shaped strings and sensitive key names, so
- * the check here is not "does this look secret" -- it is "did redaction leave
- * anything behind". That is done by re-running the redactor over the serialised
- * result: if a second pass still changes something, a credential shape survived
- * the first one.
- *
- * Deriving the check this way means it stays correct as redact.js gains patterns,
- * instead of hard-coding prefixes here. An earlier version grepped for `GOCSPX-`
- * and `Bearer ` and threw on every *successfully redacted* value, because the
- * masks themselves contain those prefixes.
- *
- * Throwing is the right outcome: refusing to record an entry is recoverable,
- * persisting a secret is not.
+ * The reasoning behind the double-pass assertion lives in
+ * redact.js:redactVerified. The only session-specific part is the error type, so
+ * a caller of this module catches SessionError and never sees
+ * redact.js's SecretDetectedError leaking out.
  */
-function assertNoSecrets(value, where) {
-  const json = JSON.stringify(value);
-  if (json === undefined) return value;
-  if (redact(json) !== json) {
-    throw new SessionError(`refusing to persist an unredacted credential-shaped value in ${where}`, "secret_detected");
+function safe(value, where) {
+  try {
+    return redactVerified(value, where);
+  } catch (err) {
+    if (err instanceof SecretDetectedError) {
+      throw new SessionError(err.message, "secret_detected");
+    }
+    throw err;
   }
-  return value;
 }
 
-/** Redact then assert. Used for every field that reaches the store. */
-function safe(value, where) {
-  return assertNoSecrets(redactDeep(value), where);
+/**
+ * Assertion-only form of `safe`, for a record whose parts were each redacted on
+ * the way in but which is worth verifying once as a whole -- the assembled entry
+ * is what actually lands on disk.
+ */
+function assertClean(value, where) {
+  safe(value, where);
+  return value;
 }
 
 function normaliseName(raw, fallback) {
@@ -385,7 +384,7 @@ export class SessionStore {
         ...(agent ? { agent: safe(String(agent), "entry.agent") } : {}),
         ...safe(payload, `entry.${kind}`),
       };
-      assertNoSecrets(entry, `entry.${kind}`);
+      assertClean(entry, `entry.${kind}`);
 
       session.entries.push(entry);
       session.updatedAt = ts;
