@@ -5,8 +5,18 @@ Last updated: 2026-10-04
 Upstream repository:
 decolua/9router
 
-Private vulnerability report:
-BLOCKED
+PRIVATE REPORTING:
+AVAILABLE TO OUTSIDE REPORTER
+
+PRIVATE REPORTING FROM THIS ENVIRONMENT:
+BLOCKED - authenticated GitHub web session is unavailable
+
+REASON:
+GitHub's private vulnerability report form exists and is enabled, but this
+environment has no authenticated browser session and `gh` is not authenticated.
+
+DOCUMENTED SECURITY POLICY:
+NOT FOUND
 
 Report identifier:
 NONE - no submission was created
@@ -20,10 +30,19 @@ NONE - no ticket was created
 Credential rotation:
 NOT VERIFIED
 
+CREDENTIALS:
+STILL LIVE / NOT ROTATED
+
+PUBLIC ISSUE:
+NOT CREATED
+
+PUBLIC ADVISORY:
+NOT PUBLISHED
+
 GitHub alert:
 OPEN (secret-scanning alert #1, resolution: none)
 
-Security gate:
+SECURITY GATE:
 BLOCKED
 
 Feature work:
@@ -31,26 +50,57 @@ NOT STARTED
 
 ---
 
-## Why both submissions are blocked
+## Status distinction that matters
 
-### Private vulnerability report
+The reporting **route exists and is enabled**. What is blocked is **automated
+submission from this machine**, not the availability of private reporting. An
+earlier revision of this file said only "Private vulnerability report: BLOCKED",
+which could be read as claiming no private route exists. That reading was wrong
+and is corrected here.
 
-GitHub private vulnerability reporting is **enabled** on `decolua/9router`
-(verified: `GET /repos/decolua/9router/private-vulnerability-reporting` ->
-`{"enabled":true}`). The reporting form exists but is only usable from an
-authenticated GitHub web session:
+To be explicit: an outside reporter can file a private report for
+`decolua/9router`. Doing so requires only a signed-in GitHub browser session.
 
-- `https://github.com/decolua/9router/security/advisories/new` redirects to
-  `https://github.com/login?return_to=...` (HTTP 200 on the login page, zero
-  `textarea` elements present).
+## Evidence that the route is real
+
+Verified 2026-10-04. A control experiment was used to distinguish a real but
+auth-gated route from a nonexistent one:
+
+| Route | Result |
+| --- | --- |
+| `/decolua/9router/security` | HTTP 200, no redirect, contains "Report a vulnerability" |
+| `/decolua/9router/security/advisories/new` | redirects to `/login?return_to=...` |
+| `/decolua/9router/zzz-not-a-real-page-9f2a` (control) | HTTP 404 |
+| `/decolua/9router/security/advisories/zzz-nope-4b7c/edit` (control) | HTTP 404 |
+
+The controls return 404 rather than redirecting, so the login redirect on the
+advisory route demonstrates the route exists and is gated behind authentication,
+rather than being a generic catch-all.
+
+Further confirmation:
+
+- The public `/security` page links "Report a vulnerability" to
+  `https://github.com/decolua/9router/security/advisories/new`.
+- `GET /repos/decolua/9router/private-vulnerability-reporting` returns
+  `{"enabled": true}`.
+- `https://github.com/decolua/9router/security/advisories` returns HTTP 200.
+  (An earlier revision probed the misspelled path `/security/advories`, which
+  returns 404; the correct listing path is `/security/advisories`.)
+
+For public repositories GitHub renders this content at `/security` rather than as
+a "Security" tab in the repository navigation, which is why the affordance is not
+always visible from the file listing.
+
+## Why automated submission is blocked from this environment
+
 - The GitHub CLI is not authenticated: `gh auth status` reports "You are not
   logged into any GitHub hosts".
-- No Chrome or Edge cookie store exists on this machine, so no reusable browser
-  session is available.
-- There is no REST endpoint that lets an outside reporter create a private
-  vulnerability report. The `security-advisories` endpoints require write access
-  to the repository; our collaborator permission on `decolua/9router` is `403`
-  (none), and that would publish an advisory rather than file a private report.
+- No Chrome or Edge cookie store exists on this machine, so no reusable
+  authenticated browser session is available.
+- No REST endpoint lets an outside reporter create a private vulnerability
+  report. The `security-advisories` endpoints require write access to the
+  repository; our collaborator permission on `decolua/9router` is `403` (none),
+  and that path would publish an advisory rather than file a private report.
 
 No public issue was opened and no public advisory was published. Substituting a
 public disclosure would restate the credentials and was not done.
@@ -100,15 +150,18 @@ counts.
 
 ## Required human actions
 
-1. Sign in to GitHub in a browser, then submit
-   `UPSTREAM_DISCLOSURE.md` via
-   `https://github.com/decolua/9router/security/advisories/new`.
-   This is the only supported private-reporting route.
-2. Submit `GITHUB_SUPPORT_REQUEST.md` through
+1. Sign in to GitHub in a browser, open
+   `https://github.com/decolua/9router/security`, click "Report a
+   vulnerability", and submit `UPSTREAM_DISCLOSURE.md`. This is the maintainer's
+   own sanctioned private channel and the recommended route.
+2. Ask decolua to revoke/rotate all six credentials currently exposed at their
+   HEAD plus the two inherited values. Only the credential owner can do this,
+   and it is the step that actually removes the risk.
+3. Submit `GITHUB_SUPPORT_REQUEST.md` through
    `https://support.github.com/contact` from a signed-in browser session, to
-   request garbage collection of the retained objects.
-3. Ask decolua to revoke/rotate all six credentials currently exposed at their
-   HEAD plus the two inherited values. Only the credential owner can do this.
+   request garbage collection of the retained objects. This is lower priority
+   than rotation: the retained objects are worthless once the values are
+   invalid.
 4. Keep alert #1 open until rotation is confirmed. Do not disable the
    `secrets-exposure` CI gate before then.
 
