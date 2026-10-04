@@ -10,5 +10,6 @@ import "../commands/config.js";
 import "../commands/init.js";
 import "../commands/dashboard.js";
 import "../commands/logs.js";
+import "../commands/route.js";
 
 export { defineCommand, getCommand, getCommands } from "../cli/registry.js";
