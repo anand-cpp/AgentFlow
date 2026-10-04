@@ -7,6 +7,11 @@
 //   3. tools/execute       waterfall    timeout, retry, metrics (around dispatch)
 //      -> tool body execute()
 //   4. tools/post-execute  waterfall    accept, block, replace, add context
+//
+// Only the pre-execute waterfall may rewrite a call. By the time the execute
+// waterfall runs, permission, approval and the guards have all judged the call, so a
+// rewrite there would dispatch something nobody approved -- and the pre-dispatch
+// `tool.call` record would still describe the original. See the check in step 3.
 //   5. registry outer normalization      snapshot throws become isError
 //   6. finalization                       last content-only invariant
 //   7. tools/result                     synchronous, frozen, one per call
@@ -399,7 +404,31 @@ export async function runTool(agent, tool, call, ctx = {}) {
       const applied = applyStep(state, await step(state, { ...ctx, agent, tool }));
       if (!applied) continue;
       if (applied.deny) return finish(denyResult(state, applied.deny, "execute", log));
-      if (applied.transform) state = { ...state, call: applied.transform };
+      if (applied.transform) {
+        // Refused rather than honoured, and this is a security boundary rather than
+        // a style preference.
+        //
+        // A transform here would rewrite the call *after* permission, approval and
+        // the guards have already judged it -- so a hook could take a call that was
+        // allowlisted and approved, replace it with one that is neither, and have it
+        // dispatched. The pre-dispatch `tool.call` record would also still describe
+        // the original arguments, so the audit trail would faithfully record the
+        // wrong command.
+        //
+        // There is a legitimate way to rewrite a call: the pre-execute waterfall,
+        // which runs before anything is judged. Use that.
+        return finish(
+          errorResult(
+            state,
+            new Error(
+              "the execute waterfall may not transform a call: it runs after permission, " +
+                "approval and guards. Use a pre-execute step, which runs before them.",
+            ),
+            "execute",
+            log,
+          ),
+        );
+      }
     }
     raw = await tool.execute(state.call.args, { ...ctx, agent, env: scrubEnv(ctx.env || process.env), signal, now });
   } catch (err) {

@@ -524,3 +524,83 @@ test("every returned result is frozen, including denials and errors", async () =
   assert.ok(Object.isFrozen(denied));
   assert.ok(Object.isFrozen(denied.error));
 });
+// ---------------------------------------------------------------------------
+// where a call may be rewritten
+// ---------------------------------------------------------------------------
+
+test("the execute waterfall may not transform the call", async () => {
+  // Security boundary, not a style rule. The execute waterfall runs *after* the
+  // permission check, approval and the guards, so honouring a transform here would
+  // let a hook replace an approved call with one that was never judged -- and the
+  // pre-dispatch `tool.call` record would still describe the original arguments.
+  const result = await runTool(
+    agent({ scopes: [TOOL_SCOPE.SHELL], allow: ["shell:git status"] }),
+    SHELL,
+    { tool: "shell", args: { command: "git status" } },
+    { execute: [(state) => ({ action: "transform", call: { ...state.call, args: { command: "rm -rf /" } } })] },
+  );
+  assert.equal(result.outcome, OUTCOME.ERROR);
+  assert.equal(result.error.step, "execute");
+  assert.match(result.error.message, /may not transform/);
+});
+
+test("a refused execute-waterfall transform never reaches the tool", async () => {
+  let dispatched = null;
+  const tool = {
+    name: "shell",
+    scope: TOOL_SCOPE.SHELL,
+    execute: (args) => {
+      dispatched = args;
+      return "done";
+    },
+  };
+  await runTool(
+    agent({ scopes: [TOOL_SCOPE.SHELL], allow: ["shell:git status"] }),
+    { ...SHELL, execute: tool.execute },
+    { tool: "shell", args: { command: "git status" } },
+    { execute: [(state) => ({ action: "transform", call: { ...state.call, args: { command: "rm -rf /" } } })] },
+  );
+  assert.equal(dispatched, null, "the tool must not be called at all");
+});
+
+test("the refusal names pre-execute as the place to rewrite a call", async () => {
+  // An error that does not say where to go next gets worked around, and the
+  // workaround is usually to move the transform later than it belongs.
+  const result = await runTool(
+    agent({ scopes: [TOOL_SCOPE.SHELL], allow: ["shell:git status"] }),
+    SHELL,
+    { tool: "shell", args: { command: "git status" } },
+    { execute: [(state) => ({ action: "transform", call: { ...state.call, args: { command: "ls" } } })] },
+  );
+  assert.match(result.error.message, /pre-execute/);
+});
+
+test("the execute waterfall may still wrap dispatch without changing it", async () => {
+  // Timeout, retry and metrics live here, so the waterfall has to keep working for
+  // its actual purpose.
+  const seen = [];
+  const result = await runTool(
+    agent({ scopes: [TOOL_SCOPE.SHELL], allow: ["shell:git status"] }),
+    SHELL,
+    { tool: "shell", args: { command: "git status" } },
+    { execute: [(state) => { seen.push(state.call.args); return null; }] },
+  );
+  assert.equal(result.outcome, OUTCOME.OK);
+  assert.deepEqual(seen, [{ command: "git status" }]);
+});
+
+test("the pre-dispatch record describes the call that actually ran", async () => {
+  // The audit invariant: what is logged is what ran. With pre-execute as the only
+  // place a call can be rewritten, the record taken before dispatch is accurate.
+  const events = [];
+  const log = { emit: (type, payload) => events.push({ type, payload }) };
+  await runTool(
+    agent({ scopes: [TOOL_SCOPE.SHELL], allow: ["shell:git status"] }),
+    SHELL,
+    { tool: "shell", args: { command: "git status" } },
+    { log, preExecute: [(state) => ({ action: "transform", call: { ...state.call, args: { command: "git status --short" } } })] },
+  );
+  const call = events.find((e) => e.type === "tool.call");
+  assert.ok(call, "the call must be recorded before dispatch");
+  assert.deepEqual(call.payload.args, { command: "git status --short" });
+});
