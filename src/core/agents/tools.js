@@ -32,6 +32,7 @@
 
 import { containsSecret } from "../redact.js";
 import { TOOL_SCOPE } from "./registry.js";
+import { safeErrorDetails } from "./tool-errors.js";
 
 // Env var names matching any of these are dropped from a spawned command's
 // environment. Broad on purpose: a false positive costs a tool one env var it
@@ -479,6 +480,11 @@ function denyResult(state, reason, step, log) {
 
 function errorResult(state, err, step, log) {
   log.emit("tool.error", { tool: state.call.tool, scope: state.call.scope, message: err?.message, step });
+  // A tool's own structured details are carried across when it offered them: a
+  // read that refused an oversized file should be able to say how large it was,
+  // and a shell timeout which limit fired. Scalars only (see safeErrorDetails), so
+  // this cannot widen what a result is able to carry into a session or an event.
+  const details = safeErrorDetails(err);
   return {
     outcome: OUTCOME.ERROR,
     tool: state.call.tool,
@@ -487,7 +493,7 @@ function errorResult(state, err, step, log) {
     contexts: [],
     approved: Boolean(state.approval?.granted),
     attempt: null,
-    error: { code: err?.code || "tool_error", message: err?.message || String(err), step },
+    error: { code: err?.code || "tool_error", message: err?.message || String(err), step, ...(details || {}) },
   };
 }
 
