@@ -158,9 +158,11 @@ verifying a full-history bundle backup and that the three feature branches were
 all already merged. `--force-with-lease` pinned the expected pre-purge tip so the
 push could not clobber an unexpected intervening commit.
 
-### Verification
+### Verification — the clone is clean, the platform is not
 
-- A **fresh clone** of the rewritten `origin/main` contains 13 commits, and a
+Verified:
+
+- A **fresh clone** of the rewritten `origin/main` contains 14 commits, and a
   literal search for all four values across every one of them returns zero hits.
 - `node scripts/scan-secrets.mjs --history` reports clean over the fresh clone.
 - The tip tree is byte-identical to the pre-purge tip — the rewrite changed
@@ -168,18 +170,33 @@ push could not clobber an unexpected intervening commit.
 - The three stale feature branches, which also carried the pre-purge commits,
   were deleted from `origin`. Only `main` is published.
 
+**Not verified — and in fact false.** A clean clone is *not* evidence that the
+credentials are gone. This repository is public, and GitHub still serves the
+pre-purge commits and their blobs through the REST API:
+
+    GET /repos/anand-cpp/AgentFlow/commits/6b38c80d          -> 200
+    GET /repos/anand-cpp/AgentFlow/contents/open-sse/providers/registry/windsurf.js?ref=6b38c80d
+        -> 200, and the response contains the live Firebase key
+
+This is reproducible with no authentication at all. The git protocol refuses to
+fetch those object ids, which is what made the purge look successful; the API
+does not, because force-pushing rewrites *refs* and does not delete objects.
+The credentials have been publicly recoverable since the commit was pushed.
+
+Do not treat "the clone is clean" as remediation. Check the API.
+
 ### Still outstanding — and why the alert stays open
 
-1. **The credentials are not rotated.** They belong to a third party; only their
-   owner can invalidate them. Purging our copy does not revoke them, and anyone
-   who cloned the repository before this date still holds working values.
-2. **GitHub's alert `#1` is deliberately left `open`.** Marking it `revoked`
-   would assert a rotation that has not happened. It should be closed only after
-   upstream confirms rotation.
-3. **GitHub-side retention.** Deleting branches and force-pushing rewrites refs,
-   but the platform may retain unreachable objects and pull-request refs for a
-   period. If the alert persists after upstream rotation, ask GitHub Support to
-   garbage-collect. This is not verifiable from the client.
+1. **Rotate the credentials. Treat this as urgent.** They belong to a third
+   party, so only their owner can invalidate them, and the values are readable
+   by anyone on the internet right now. Purging our copy never revoked them.
+2. **Ask GitHub Support to garbage-collect the unreachable objects.** Ref
+   rewrites are not sufficient on their own; only the platform can drop the
+   blobs. Reference the pre-purge commit ids above.
+3. **GitHub alert `#1` is deliberately left `open`.** Every resolution reason
+   GitHub offers would be a false statement: the credential has not been
+   revoked, is not a test fixture, and *is* a real secret. Closing it would
+   erase the only signal that steps 1 and 2 are still pending.
 
 Disclosure to upstream `decolua` is drafted and must be sent by a maintainer; the
 private vulnerability reporting flow for another repository is web-only and has
