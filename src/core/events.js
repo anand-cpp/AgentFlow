@@ -41,6 +41,7 @@ export const EVENTS = {
   AGENT_START: "agent.start",
   AGENT_STOP: "agent.stop",
   AGENT_ERROR: "agent.error",
+  AGENT_STATE: "agent.state",
   // Agent runtime lifecycle. Added alongside the three above rather than
   // replacing them: those names are already in the wild and events.js treats a
   // rename as a breaking change to anyone's log queries. The runtime emits the

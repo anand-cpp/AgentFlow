@@ -345,6 +345,18 @@ function normaliseContract(value, field) {
   if (value === null || value === undefined) return contract;
   if (typeof value !== "object") throw new AgentDefinitionError(`${field} must be an object`, field);
 
+  // Idempotence guard. The object form is ambiguous: it is both "a map of field
+  // specs" and, once normalised, "a contract". Without this check, registering an
+  // already-defined agent (which the registry does) re-parses its own output as a
+  // field map and turns `fields` and `unknownFields` into two required-looking
+  // fields named after the contract's own keys. That failure is silent and turns
+  // up much later as "unknown field text".
+  if (Array.isArray(value.fields) && value.fields.every((f) => f && typeof f.name === "string")) {
+    contract.fields = value.fields.map((f) => ({ ...f }));
+    contract.unknownFields = value.unknownFields ?? "reject";
+    return contract;
+  }
+
   const entries = Array.isArray(value) ? value.map((f) => [f?.name, f]) : Object.entries(value);
   for (const [name, spec] of entries) {
     if (typeof name !== "string" || !/^[a-z][a-zA-Z0-9_]*$/.test(name)) {
