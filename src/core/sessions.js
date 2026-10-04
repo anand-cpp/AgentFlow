@@ -41,6 +41,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { redactDeep, redact } from "./redact.js";
+import { writeAtomicFile, withLockFile, readJsonFile, assertVersion, LockError } from "./persist.js";
 
 export const SESSION_VERSION = 1;
 
@@ -213,7 +214,6 @@ export class SessionStore {
     this.now = now;
     this.lockStaleMs = lockStaleMs;
     this.lockTimeoutMs = lockTimeoutMs;
-    this._tmpCounter = 0;
   }
 
   fileFor(id) {
@@ -228,81 +228,23 @@ export class SessionStore {
     fs.mkdirSync(this.dir, { recursive: true });
   }
 
-  /**
-   * Atomic write. The temp file lives in the same directory so the rename stays
-   * on one filesystem, which is what makes it atomic -- a cross-device rename
-   * degrades to copy-then-delete and could leave a partial file.
-   */
+  // The three primitives below now live in ./persist.js, shared with the
+  // Blackboard store. These wrappers exist so the store keeps its own
+  // domain-specific error types: callers catch SessionLockedError, not LockError.
+
   writeAtomic(file, data) {
-    this.ensureDir();
-    this._tmpCounter += 1;
-    const tmp = `${file}.${process.pid}.${this._tmpCounter}.tmp`;
-    try {
-      fs.writeFileSync(tmp, data, { encoding: "utf8", mode: 0o600 });
-      fs.renameSync(tmp, file);
-    } catch (err) {
-      try {
-        fs.unlinkSync(tmp);
-      } catch {
-        /* the write already failed; a stray temp file is not worth masking it */
-      }
-      throw err;
-    }
+    return writeAtomicFile(file, data);
   }
 
-  /**
-   * Advisory lock around read-modify-write.
-   *
-   * `wx` fails if the file exists, which is the atomic test. A lock older than
-   * `lockStaleMs` is treated as abandoned and broken, because a crashed process
-   * must not wedge every future write to that session. Returns the callback's
-   * value; the lock is always released.
-   *
-   * Takes a lock *path* rather than a session id so it can also guard the
-   * non-session bookkeeping file (the id high-water mark), which has no id.
-   */
   withLockFile(lockFile, label, fn) {
-    this.ensureDir();
-    const deadline = Date.now() + this.lockTimeoutMs;
-    let fd = null;
-
-    for (;;) {
-      try {
-        fd = fs.openSync(lockFile, "wx");
-        break;
-      } catch (err) {
-        if (err.code !== "EEXIST") throw err;
-
-        let stale = false;
-        try {
-          stale = Date.now() - fs.statSync(lockFile).mtimeMs > this.lockStaleMs;
-        } catch {
-          stale = true; // vanished between open and stat: retry immediately
-        }
-        if (stale) {
-          try {
-            fs.unlinkSync(lockFile);
-          } catch {
-            /* another process broke it first, which is fine */
-          }
-          continue;
-        }
-        if (Date.now() >= deadline) throw new SessionLockedError(label);
-        // Busy-wait: reservations and appends are both short, and a sleep keeps
-        // this dependency-free. The lock is held for a single JSON write.
-        sleepMs(5);
-      }
-    }
-
     try {
-      return fn();
-    } finally {
-      try {
-        if (fd !== null) fs.closeSync(fd);
-        fs.unlinkSync(lockFile);
-      } catch {
-        /* releasing must never mask the caller's own error */
-      }
+      return withLockFile(lockFile, label, fn, {
+        staleMs: this.lockStaleMs,
+        timeoutMs: this.lockTimeoutMs,
+      });
+    } catch (err) {
+      if (err instanceof LockError) throw new SessionLockedError(label);
+      throw err;
     }
   }
 
@@ -399,15 +341,14 @@ export class SessionStore {
   /** Read + parse. Distinguishes "absent" from "present but unreadable". */
   read(id) {
     const file = this.fileFor(id);
-    let raw;
-    try {
-      raw = fs.readFileSync(file, "utf8");
-    } catch (err) {
-      if (err.code === "ENOENT") throw new SessionNotFoundError(id);
-      throw err;
+    const result = readJsonFile(file);
+
+    if (!result.ok) {
+      if (result.reason === "missing") throw new SessionNotFoundError(id);
+      throw new SessionCorruptError(id, file, result.error);
     }
     try {
-      return migrate(JSON.parse(raw), file);
+      return assertVersion(result.value, SESSION_VERSION, file);
     } catch (err) {
       throw new SessionCorruptError(id, file, err);
     }
@@ -615,30 +556,6 @@ function defaultNameFor(objective, id) {
   if (!text) return `session ${id.slice(4, 18)}`;
   const firstLine = text.split("\n")[0].slice(0, 60).trim();
   return firstLine || `session ${id.slice(4, 18)}`;
-}
-
-/**
- * Forward-compatible loader.
- *
- * A file written by a newer AgentFlow is refused rather than coerced: silently
- * downgrading a v2 session to v1 would drop fields this version does not
- * understand, and losing an agent's findings is worse than refusing to read it.
- */
-function migrate(parsed, file) {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("session file is not an object");
-  }
-  if (parsed.version === SESSION_VERSION) return parsed;
-  if (typeof parsed.version !== "number") throw new Error("session file has no version field");
-  if (parsed.version > SESSION_VERSION) {
-    throw new Error(`session file version ${parsed.version} is newer than supported ${SESSION_VERSION} (${file})`);
-  }
-  throw new Error(`session file version ${parsed.version} predates the supported version ${SESSION_VERSION} (${file})`);
-}
-
-function sleepMs(ms) {
-  const shared = new SharedArrayBuffer(4);
-  Atomics.wait(new Int32Array(shared), 0, 0, ms);
 }
 
 export { ENTRY_KINDS, SESSION_ID_RE };
