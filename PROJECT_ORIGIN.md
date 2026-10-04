@@ -43,7 +43,9 @@ source tree; they belong to upstream and are not this project's to redistribute.
 
 ## Retained from upstream (MIT, attribution required)
 
-The routing and provider engine is the substantive foundation:
+The routing and provider engine is the substantive foundation. Status is
+recorded honestly: *Inherited* means the files are on `main` as imported;
+*Not yet imported* means it exists upstream and is still to be brought across.
 
 | Component | Path | Status |
 |---|---|---|
@@ -51,26 +53,49 @@ The routing and provider engine is the substantive foundation:
 | Request handler, retry, token refresh | `open-sse/handlers/chatCore.js` | Inherited |
 | Per-provider executors | `open-sse/executors/` | Inherited |
 | Format translators | `open-sse/translator/` | Inherited |
-| Provider registry (~125 providers) | `open-sse/providers/registry/` | Inherited |
+| Provider registry (89 providers registered) | `open-sse/providers/registry/` | Inherited |
 | `tool_result` token compression | `open-sse/rtk/` | Inherited |
-| SQLite persistence layer | `src/lib/db/` | Inherited |
-| OAuth provider flows | `src/lib/oauth/` | Inherited |
-| Standalone server + client-IP hardening | `custom-server.js` | Inherited |
-| Test suite | `tests/` | Inherited |
+| CLI entry point | `bin/aflow.js` | Adapted from upstream CLI |
+| SQLite persistence layer | `src/lib/db/` | Not yet imported |
+| OAuth provider flows | `src/lib/oauth/` | Not yet imported |
+| Standalone server + client-IP hardening | `custom-server.js` | Not yet imported |
+| Test suite | `tests/` | Not yet imported |
+
+### Modifications made to inherited code
+
+All of these replace hardcoded third-party credentials with environment-sourced
+values. Each is annotated in the file itself.
+
+| File | Change |
+|---|---|
+| `open-sse/providers/shared.js` | Added `oauthClientFromEnv()` / `oauthClientConfigured()`; added per-provider OAuth clients for Google, Antigravity, iFlow, Windsurf |
+| `open-sse/providers/registry/gemini.js` | Inline OAuth client replaced with imported constant |
+| `open-sse/providers/registry/gemini-cli.js` | Inline OAuth client replaced with imported constant |
+| `open-sse/providers/registry/antigravity.js` | Inline OAuth client replaced with imported constant |
+| `open-sse/providers/registry/iflow.js` | Hardcoded iFlow OAuth client id/secret replaced with env-sourced client |
+| `open-sse/providers/registry/windsurf.js` | Hardcoded Windsurf OAuth client id and Firebase API key replaced with env-sourced values |
+
+Credential shapes removed: Google OAuth client id/secret, Antigravity OAuth
+client id/secret, iFlow OAuth client id/secret, Windsurf OAuth client id, and a
+Windsurf Firebase web API key. See `SECURITY.md` for how the last two were
+missed by the initial targeted scan and caught by a broader sweep.
 
 ## Newly written for AgentFlow
 
 No upstream equivalent exists for any of the following:
 
 - Terminal CLI command router and command surface
-- Agent runtime and built-in agents
-- Agent orchestration
-- Tool registry and permission/approval system
-- Plugin architecture
-- Session manager and conversation history
-- Provider adapter interface and provider-neutral model registry
-- Routing policy engine with observable structured events
-- `doctor` diagnostics, structured logging, secret redaction
+- Terminal CLI command router and command surface — **built**
+- `doctor` diagnostics, secret redaction, TUI dashboard — **built**
+- `aflow` bin entry, config hierarchy with documented precedence — **built**
+- Committed-credential scanner run in CI — **built**
+- Agent runtime and built-in agents — not started
+- Agent orchestration — not started
+- Tool registry and permission/approval system — not started
+- Plugin architecture — not started
+- Session manager and conversation history — not started
+- Routing policy engine with observable structured events — not started
+- Bundled standalone gateway (so AgentFlow does not require 9Router running) — not started
 
 ## Architectural references studied (no code incorporated)
 
@@ -90,5 +115,8 @@ included in this project.
 
 ## Status
 
-Pre-release. Audit phase complete; implementation not yet started. See `AUDIT/` for the full
-evidence base and `AUDIT/FEATURE_AUDIT.md` for verified capabilities and known gaps.
+Pre-release (`0.1.0`). Audit phase complete. The routing engine and the
+`aflow` CLI are built, tested (43 passing), and published; the standalone
+gateway, agent runtime, tools, permissions, plugins, and sessions are not yet
+built. See `AUDIT/` for the full evidence base and `AUDIT/FEATURE_AUDIT.md` for
+verified capabilities and known gaps.

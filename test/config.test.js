@@ -116,6 +116,44 @@ test("unrecognised boolean env value falls back to the default", () => {
   assert.equal(config.json, DEFAULTS.json);
 });
 
+test("--no-color flag reaches config.noColor", () => {
+  // The parser keeps flags dashed; config keys are camelCase. A mismatch here
+  // silently disabled the documented precedence chain.
+  const { config } = resolveConfig({ flags: { "no-color": true }, env: {}, cwd: os.tmpdir() });
+  assert.equal(config.noColor, true);
+});
+
+test("AGENTFLOW_NO_COLOR is honoured", () => {
+  const { config } = resolveConfig({ flags: {}, env: { AGENTFLOW_NO_COLOR: "1" }, cwd: os.tmpdir() });
+  assert.equal(config.noColor, true);
+});
+
+test("every documented env var is mapped to a real config key", () => {
+  // Guards against the ENV_MAP/DEFAULTS drift that left AGENTFLOW_NO_COLOR
+  // declared in DEFAULTS but unreachable from the environment.
+  const samples = {
+    AGENTFLOW_BASE_URL: "http://example:1",
+    AGENTFLOW_API_KEY: "fixture",
+    AGENTFLOW_PROBE_TIMEOUT_MS: "1234",
+    AGENTFLOW_DEFAULT_MODEL: "some/model",
+    AGENTFLOW_THEME: "dark",
+    AGENTFLOW_JSON: "true",
+    AGENTFLOW_QUIET: "true",
+    AGENTFLOW_VERBOSE: "true",
+    AGENTFLOW_NO_COLOR: "true",
+  };
+  const { config } = resolveConfig({ flags: {}, env: samples, cwd: os.tmpdir() });
+  assert.equal(config.baseUrl, "http://example:1");
+  assert.equal(config.apiKey, "fixture");
+  assert.equal(config.probeTimeoutMs, 1234);
+  assert.equal(config.defaultModel, "some/model");
+  assert.equal(config.theme, "dark");
+  assert.equal(config.json, true);
+  assert.equal(config.quiet, true);
+  assert.equal(config.verbose, true);
+  assert.equal(config.noColor, true);
+});
+
 test("sources are recorded for inspection", () => {
   const dir = tmpdir("src");
   fs.writeFileSync(path.join(dir, ".agentflow.json"), JSON.stringify({ theme: "x" }));

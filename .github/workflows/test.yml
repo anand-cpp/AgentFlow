@@ -1,0 +1,73 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A new push supersedes an in-flight run for the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20 is the documented floor; 22 and 24 catch drift before users do.
+        node: ["20", "22", "24"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # No lockfile is committed: the CLI has zero runtime dependencies, and
+      # this working tree contains a 9Router Next.js build under .next/ whose
+      # package.json would drag 590 packages into any generated lockfile.
+      # See .gitignore.
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Tests must not require network or credentials
+        env:
+          # Deliberately empty: the suite must pass with no gateway running
+          # and no API key set. A test that needs either is a broken test.
+          AGENTFLOW_API_KEY: ""
+          AGENTFLOW_BASE_URL: "http://127.0.0.1:1"
+        run: npm test
+
+      # Guards the published artefact. Push protection caught the OAuth leak on
+      # an earlier history; keep the check local so it is caught in review
+      # rather than at push time.
+      - name: No committed credentials
+        env:
+          AGENTFLOW_API_KEY: ""
+          AGENTFLOW_BASE_URL: "http://127.0.0.1:1"
+        run: node scripts/scan-secrets.mjs
+
+      - name: CLI runs
+        env:
+          AGENTFLOW_API_KEY: ""
+          AGENTFLOW_BASE_URL: "http://127.0.0.1:1"
+        run: |
+          node bin/aflow.js --version
+          node bin/aflow.js --help
+          # Must fail cleanly against a dead gateway rather than throwing.
+          if node bin/aflow.js --base-url http://127.0.0.1:1 doctor; then
+            echo "::error::doctor exited 0 against a dead gateway"
+            exit 1
+          fi
+          # Must report an unknown command, not silently succeed.
+          if node bin/aflow.js definitely-not-a-command; then
+            echo "::error::unknown command exited 0"
+            exit 1
+          fi

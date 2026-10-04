@@ -2,6 +2,12 @@
 // Chat = Codeium gRPC-web protobuf:
 //   POST {base}  Content-Type: application/grpc-web+proto
 //   Service: exa.language_server_pb.LanguageServerService / GetChatMessage
+import { WINDSURF_OAUTH_CLIENT, WINDSURF_FIREBASE_API_KEY } from "../shared.js";
+
+// AgentFlow change: upstream hardcoded the Windsurf OAuth client id and
+// Firebase API key here. Replaced with environment-sourced values, matching
+// the Google, Antigravity, and iFlow fixes. Derived from 9Router @ a99cf572
+// (MIT); see THIRD_PARTY_NOTICES.md.
 export default {
   id: "windsurf",
   alias: "ws",
@@ -36,8 +42,8 @@ export default {
   //  3) Firebase JWT (eyJ...) → same RegisterUser exchange as #1
   //  4) Devin auth1_... → self-serve chain → ide_token used as apiKey on server.self-serve.windsurf.com
   oauth: {
-    clientId: "3GUryQ7ldAeKEuD2obYnppsnmj58eP5u",
-    firebaseApiKey: "AIzaSyDsOl-1XpT5err0Tcn0TFFod1H8gVGIycY",
+    clientId: WINDSURF_OAUTH_CLIENT.clientId,
+    firebaseApiKey: WINDSURF_FIREBASE_API_KEY,
     firebaseSignInUrl: "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword",
     registerUrl: "https://register.windsurf.com/exa.seat_management_pb.SeatManagementService/RegisterUser",
     apiServerUrl: "https://server.codeium.com",
