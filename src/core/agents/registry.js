@@ -183,6 +183,11 @@ function normaliseToolPolicy(value, field = "tools") {
     scopes: [],
     allow: [],
     deny: [],
+    // Entries that may proceed only with explicit approval. Separate from
+    // `allow` because "these run, everything else in this scope asks" is the
+    // policy almost every real agent wants, and it cannot be expressed by
+    // scope-level approval alone.
+    ask: [],
     requireApproval: [],
     maxCalls: LIMITS.maxToolCalls,
   };
@@ -200,6 +205,7 @@ function normaliseToolPolicy(value, field = "tools") {
   policy.scopes = asStringArray(value.scopes, `${field}.scopes`, { allowed: TOOL_SCOPES });
   policy.allow = asStringArray(value.allow, `${field}.allow`, { max: 128 });
   policy.deny = asStringArray(value.deny, `${field}.deny`, { max: 128 });
+  policy.ask = asStringArray(value.ask, `${field}.ask`, { max: 128 });
   policy.requireApproval = asStringArray(value.requireApproval, `${field}.requireApproval`, { max: 128 });
   policy.maxCalls = asPositiveInt(value.maxCalls, LIMITS.maxToolCalls, `${field}.maxCalls`, { max: 10_000 });
   return policy;

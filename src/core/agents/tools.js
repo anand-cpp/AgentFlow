@@ -218,25 +218,43 @@ export function evaluatePermission(agent, tool, call, { approver = null } = {}) 
   }
 
   const allow = (policy.allow || []).map(parseEntry).filter(Boolean);
+  const ask = (policy.ask || []).map(parseEntry).filter(Boolean);
 
   // The outer gate: a scope the agent was never granted. Entries naming their own
   // scope imply the grant, so a policy of only `allow` entries still works.
-  const granted = new Set([...(policy.scopes || []), ...allow.map((e) => e.scope)]);
+  const granted = new Set([...(policy.scopes || []), ...allow.map((e) => e.scope), ...ask.map((e) => e.scope)]);
   if (!granted.has(toolScope)) {
     return { decision: "deny", reason: `scope ${toolScope} is not granted to ${agent?.id ?? "the agent"}` };
   }
 
-  const needsApproval = (policy.requireApproval || []).includes(toolScope);
-  if (needsApproval && !approver) {
-    return { decision: "deny", reason: `scope ${toolScope} requires approval and no approver is available` };
+  // Order matters and is the whole policy:
+  //   deny               -> refused outright; nothing overrides it
+  //   scope approval     -> the whole scope asks, allowlist included
+  //   allow entry        -> proceeds silently
+  //   ask entry          -> proceeds only with approval
+  //   otherwise          -> refused
+  //
+  // Scope-level approval dominating the allowlist is deliberate: "nothing in this
+  // scope runs without a human" has to mean *nothing*, or it means nothing.
+  //
+  // `ask` is the other half, and it is what makes a narrow allowlist practical --
+  // `allow: ["shell:git status"]` plus `ask: ["shell:*"]` gives an agent that can
+  // run `git status` freely while `npm publish` still prompts. Scope-level
+  // approval cannot express that; it would drag `git status` into the prompt too.
+  if ((policy.requireApproval || []).includes(toolScope)) {
+    if (!approver) return { decision: "deny", reason: `scope ${toolScope} requires approval and no approver is available` };
+    return { decision: "ask", reason: `scope ${toolScope} requires approval` };
   }
 
   for (const entry of allow) {
     if (entryMatches(entry, call, toolScope)) {
-      return needsApproval
-        ? { decision: "ask", reason: `scope ${toolScope} requires approval`, matched: entry.value }
-        : { decision: "allow", reason: "matched an allow entry", matched: entry.value };
+      return { decision: "allow", reason: "matched an allow entry", matched: entry.value };
     }
+  }
+
+  if (ask.some((e) => entryMatches(e, call, toolScope))) {
+    if (!approver) return { decision: "deny", reason: `${toolScope} requires approval and no approver is available` };
+    return { decision: "ask", reason: `matched an ask entry for ${toolScope}` };
   }
 
   return { decision: "deny", reason: `no allow entry covers this ${toolScope} call` };
