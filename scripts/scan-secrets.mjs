@@ -7,16 +7,34 @@
 // This is a shape-and-context check, not a full entropy analyser. It is
 // deliberately narrow: a false positive here blocks a push, and a scanner that
 // cries wolf gets disabled.
+//
+// Two modes, because they answer different questions:
+//
+//   (default)     scan the working tree -- "is the current checkout clean?"
+//   --history     scan every blob reachable from any ref -- "did a secret ever
+//                 get committed?"
+//
+// The history mode exists because of a real miss. This scanner reported "clean"
+// on a repository whose git history contained a hardcoded Google API key in
+// open-sse/providers/registry/windsurf.js. The rule that should have caught it
+// was correct and present; the file had simply already been scrubbed at HEAD by
+// the time the scanner first ran. A working-tree scan cannot see that class of
+// problem, which is exactly the class that ends up as a public GitHub secret
+// scanning alert.
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-
-const ROOT = process.cwd();
+import { fileURLToPath } from "node:url";
 
 // Files whose whole job is to contain credential shapes: the redactor's
-// patterns, and tests that assert the redactor masks them.
+// patterns, the scanner's own rules, and tests that assert masking.
+//
+// Note that test/scan-secrets.test.js is deliberately NOT allowlisted: it builds
+// its fixtures from fragments at runtime, so it contains no credential-shaped
+// literal and the scanner can scan it honestly. An allowlist entry for a test
+// file is a hole someone can later hide a real key in.
 const ALLOWLIST = new Set([
   path.normalize("src/core/redact.js"),
   path.normalize("test/redact.test.js"),
@@ -40,7 +58,7 @@ const MAX_BYTES = 1_500_000;
 // digits, so a random base64 blob still trips the rule.
 const PATH_LIKE = /^[A-Za-z_][A-Za-z0-9_]*(?:\/[A-Za-z_][A-Za-z0-9_]*)+$/;
 
-const RULES = [
+export const RULES = [
   {
     name: "google-oauth-client-secret",
     // Real GOCSPX values are base64url with mixed case. The placeholder used in
@@ -65,9 +83,12 @@ const RULES = [
   },
   {
     name: "firebase-web-api-key",
-    // `AIza` + 35 chars. Lower risk than an OAuth secret (Firebase keys ship in
-    // client bundles), but hardcoding one still pins a fork to someone else's
-    // Firebase project — which is exactly what the Windsurf registry did.
+    // `AIza` + exactly 35 chars, which is the real Google API key shape. The
+    // length is exact rather than a range on purpose: a range would also match
+    // this scanner's own regex source and other incidental `AIza` text.
+    //
+    // Lower risk than an OAuth secret (Firebase keys ship in client bundles),
+    // but hardcoding one still pins a fork to someone else's Firebase project.
     re: /\bAIza[0-9A-Za-z_-]{35}\b/g,
     isFixture: (m) => /EXAMPLE|REDACTED|PLACEHOLDER/i.test(m),
   },
@@ -97,40 +118,77 @@ const RULES = [
   },
 ];
 
-function isTextFile(file) {
-  const ext = path.extname(file).toLowerCase();
+function isTextPath(relPath, abs) {
+  const ext = path.extname(relPath || abs).toLowerCase();
   if (BINARY_EXT.has(ext)) return false;
-  if (ext === ".md") return true;
+  return true;
+}
+
+/**
+ * Scan one blob of text. Returns findings with real 1-based line numbers.
+ *
+ * Exported so the rules can be tested directly. The tests build fixtures from
+ * fragments at runtime rather than embedding credential literals, which is what
+ * lets this file stay out of ALLOWLIST.
+ */
+export function scanText(text, { file = "<text>", allowlist = ALLOWLIST } = {}) {
+  if (allowlist.has(path.normalize(file))) return [];
+
+  const findings = [];
+  const lines = String(text).split("\n");
+
+  for (const rule of RULES) {
+    const flags = rule.re.flags.includes("g") ? rule.re.flags : `${rule.re.flags}g`;
+    const re = new RegExp(rule.re.source, flags);
+
+    for (let i = 0; i < lines.length; i += 1) {
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(lines[i])) !== null) {
+        if (rule.isFixture(m[0])) continue;
+        // One finding per rule per line is enough to act on.
+        findings.push({ file, line: i + 1, rule: rule.name });
+        break;
+      }
+    }
+  }
+  return findings;
+}
+
+function isTextFile(abs) {
+  if (!isTextPath(null, abs)) return false;
   let buf;
   try {
-    buf = fs.readFileSync(file);
+    buf = fs.readFileSync(abs);
   } catch {
     return false;
   }
   if (buf.length > MAX_BYTES) return false;
-  // Reject anything with a NUL byte early.
   if (buf.includes(0)) return false;
   return true;
 }
 
-function trackedFiles() {
-  let out;
-  try {
-    out = execFileSync("git", ["ls-files", "-z"], {
-      cwd: ROOT,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-    });
-  } catch {
-    return null; // not a git repo (or git unavailable): fall back to a walk
-  }
-  return out.split("\0").filter(Boolean);
+function git(args, opts = {}) {
+  // execFileSync returns a Buffer only when `encoding` is omitted; passing
+  // "buffer" is not a valid encoding. Binary reads need it left off.
+  const { binary = false, ...rest } = opts;
+  const options = { maxBuffer: 1024 * 1024 * 1024, ...rest };
+  if (!binary) options.encoding = "utf8";
+  return execFileSync("git", args, options);
 }
 
-function walkFiles() {
+function trackedFiles(root) {
+  try {
+    return git(["ls-files", "-z"], { cwd: root }).split("\0").filter(Boolean);
+  } catch {
+    return null; // not a git repo, or git unavailable
+  }
+}
+
+function walkFiles(root) {
   const out = [];
   const skip = new Set([".git", "node_modules", ".next", "dist", "coverage"]);
-  const stack = [ROOT];
+  const stack = [root];
   while (stack.length) {
     const dir = stack.pop();
     let entries;
@@ -149,43 +207,164 @@ function walkFiles() {
   return out;
 }
 
-const rel = (abs) => path.relative(ROOT, abs);
-const candidates = trackedFiles() ?? walkFiles().map(rel);
+/** Scan the current checkout. */
+export function scanWorkingTree(root = process.cwd()) {
+  const relPaths = trackedFiles(root) ?? walkFiles(root).map((p) => path.relative(root, p));
+  const findings = [];
 
-const findings = [];
-for (const relPath of candidates) {
-  if (ALLOWLIST.has(path.normalize(relPath))) continue;
-  const abs = path.isAbsolute(relPath) ? relPath : path.join(ROOT, relPath);
-  if (!isTextFile(abs)) continue;
+  for (const relPath of relPaths) {
+    const abs = path.isAbsolute(relPath) ? relPath : path.join(root, relPath);
+    if (!isTextFile(abs)) continue;
+    findings.push(...scanText(fs.readFileSync(abs, "utf8"), { file: relPath }));
+  }
+  return { findings, scanned: relPaths.length };
+}
 
-  const text = fs.readFileSync(abs, "utf8");
-  const lines = text.split("\n");
-  for (const rule of RULES) {
-    const re = new RegExp(rule.re.source, rule.re.flags.includes("g") ? rule.re.flags : `${rule.re.flags}g`);
-    for (const line of lines) {
-      re.lastIndex = 0;
-      let m;
-      while ((m = re.exec(line)) !== null) {
-        if (rule.isFixture(m[0])) continue;
-        findings.push({ file: relPath, line: line.slice(0, m.index + 1).split("\n").length, rule: rule.name });
-        break; // one finding per rule per line is enough
-      }
+/**
+ * Scan every blob reachable from the given refs.
+ *
+ * Blobs are deduplicated by object id before reading, so a file that never
+ * changed across 500 commits is scanned once, not 500 times. Findings are
+ * reported against the path the blob had in at least one commit that contains
+ * it, which is what a maintainer needs in order to act.
+ *
+ * Ref scoping matters here. This repository also carries local `master` and
+ * `upstream/*` refs that mirror 9Router's full history, containing well over a
+ * thousand credential-shaped strings in documentation that were never published
+ * here. Scanning every ref buries the one finding that matters. The default is
+ * therefore the published refs (refs/remotes/origin/*), because that is what
+ * GitHub scans and what a leak actually costs.
+ */
+export function scanHistory(root = process.cwd(), refs = null) {
+  let targets = refs;
+  if (!targets || targets.length === 0) {
+    // Scope to the *published* remote, not every remote. This repo also has
+    // `upstream/*` tracking refs mirroring 9Router's full history; those were
+    // never pushed here, and including them buries the real findings under
+    // upstream's documentation examples.
+    try {
+      const published = git(["for-each-ref", "--format=%(refname)", "refs/remotes/origin/"], { cwd: root })
+        .split("\n")
+        .filter(Boolean);
+      targets = published.length ? published : ["HEAD"];
+    } catch {
+      targets = ["HEAD"];
     }
   }
+
+  let objects;
+  try {
+    objects = git(["rev-list", "--objects", ...targets], { cwd: root });
+  } catch (err) {
+    return { findings: [], scanned: 0, refs: targets, error: `cannot read history for ${targets.join(", ")}` };
+  }
+
+  // "<sha> [<path>]" — path is absent for commits/trees.
+  const pathsBySha = new Map();
+  const shas = [];
+  for (const line of objects.split("\n")) {
+    if (!line) continue;
+    const sp = line.indexOf(" ");
+    const sha = sp === -1 ? line : line.slice(0, sp);
+    const p = sp === -1 ? "" : line.slice(sp + 1);
+    if (!/^[0-9a-f]{40,64}$/.test(sha)) continue;
+    if (!pathsBySha.has(sha)) {
+      pathsBySha.set(sha, new Set());
+      shas.push(sha);
+    }
+    if (p) pathsBySha.get(sha).add(p);
+  }
+  if (shas.length === 0) return { findings: [], scanned: 0, refs: targets };
+
+  const typeBySha = new Map(
+    git(["cat-file", "--batch-check"], {
+      cwd: root,
+      input: shas.join("\n") + "\n",
+    })
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => {
+        const [sha, type] = l.split(" ");
+        return [sha, type];
+      })
+  );
+
+  const blobShas = shas.filter((s) => typeBySha.get(s) === "blob");
+  if (blobShas.length === 0) return { findings: [], scanned: 0, refs: targets };
+
+  // Stream the blobs through one `git cat-file --batch` process.
+  const raw = git(["cat-file", "--batch"], {
+    cwd: root,
+    input: Buffer.from(blobShas.join("\n") + "\n"),
+    binary: true,
+  }).toString("binary");
+
+  const findings = [];
+  let off = 0;
+  let scanned = 0;
+  for (const sha of blobShas) {
+    const nl = raw.indexOf("\n", off);
+    if (nl === -1) break;
+    const header = raw.slice(off, nl);
+    const m = /^([0-9a-f]+) blob (\d+)$/.exec(header);
+    if (!m) break;
+    const size = Number(m[2]);
+    const start = nl + 1;
+    const body = raw.slice(start, start + size);
+    off = start + size + 1; // trailing newline
+
+    if (size > MAX_BYTES || body.includes("\0")) continue;
+    const text = Buffer.from(body, "binary").toString("utf8");
+    scanned += 1;
+
+    // Attribute the blob to the first path it was known by, so a finding points
+    // somewhere a maintainer can look.
+    const paths = [...pathsBySha.get(sha)];
+    const relPath = paths[0] ?? `<blob ${sha.slice(0, 8)}>`;
+    if (!isTextPath(relPath, relPath)) continue;
+    findings.push(...scanText(text, { file: relPath }));
+  }
+
+  return { findings, scanned, refs: targets };
 }
 
-if (findings.length === 0) {
-  console.log(`scan-secrets: clean (${candidates.length} tracked files scanned)`);
-  process.exit(0);
+function report(findings, scanned, label) {
+  if (findings.length === 0) {
+    console.log(`scan-secrets: clean (${scanned} ${label} scanned)`);
+    return 0;
+  }
+  console.error(`scan-secrets: ${findings.length} potential committed credential(s)\n`);
+  for (const f of findings) console.error(`  ${f.file}:${f.line}  ${f.rule}`);
+  console.error(
+    "\nIf a hit is intentional (a detection pattern or synthetic fixture), add the\n" +
+      "path to ALLOWLIST in scripts/scan-secrets.mjs with a comment explaining why.\n" +
+      "Otherwise: revoke the credential first, then remove it from the commit.\n" +
+      "Removing it from HEAD is not enough if --history finds it; the object is\n" +
+      "still reachable and GitHub will keep alerting on it."
+  );
+  return 1;
 }
 
-console.error(`scan-secrets: ${findings.length} potential committed credential(s)\n`);
-for (const f of findings) {
-  console.error(`  ${f.file}:${f.line}  ${f.rule}`);
+function main(argv) {
+  const history = argv.includes("--history");
+  if (history) {
+    const { findings, scanned, error } = scanHistory(process.cwd());
+    if (error) {
+      console.error(`scan-secrets: ${error}`);
+      return 1;
+    }
+    return report(findings, scanned, "reachable blobs");
+  }
+  const { findings, scanned } = scanWorkingTree(process.cwd());
+  return report(findings, scanned, "tracked files");
 }
-console.error(
-  "\nIf a hit is intentional (a detection pattern or synthetic fixture), add the\n" +
-    "path to ALLOWLIST in scripts/scan-secrets.mjs with a comment explaining why.\n" +
-    "Otherwise: revoke the credential first, then remove it from the commit."
-);
-process.exit(1);
+
+// Only run when invoked directly, so the tests can import the rules.
+const invokedDirectly =
+  process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+
+if (invokedDirectly) {
+  process.exit(main(process.argv.slice(2)));
+}
+
+export default { RULES, scanText, scanWorkingTree, scanHistory };
