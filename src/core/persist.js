@@ -87,6 +87,36 @@ export function writeAtomicFile(file, data) {
   }
 }
 
+/** Identity of a lock file, or null when it cannot be stat-ed at all. */
+function observeLock(file) {
+  try {
+    const st = fs.statSync(file);
+    return { dev: st.dev, ino: st.ino, mtimeMs: st.mtimeMs };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether an observed lock may be broken.
+ *
+ * Breaking a stale lock is the one destructive thing this module does, and it is
+ * only safe when the file about to be unlinked is provably the same file that was
+ * observed to be stale. A lock that could not be observed, or one whose identity
+ * has changed since the observation, belongs to a writer that may be running
+ * right now: the previous holder released and a new holder acquired between the
+ * failed open and the stat. Unlinking that hands two writers the lock at once,
+ * and two writers inside one read-modify-write is how an update is lost with no
+ * error anywhere.
+ *
+ * `fresh` is a second observation taken immediately before the unlink.
+ */
+export function canBreakLock(observed, fresh, staleMs, now = Date.now()) {
+  if (observed === null || fresh === null) return false;
+  if (now - observed.mtimeMs <= staleMs) return false;
+  return fresh.dev === observed.dev && fresh.ino === observed.ino && fresh.mtimeMs === observed.mtimeMs;
+}
+
 /**
  * Run `fn` while holding an exclusive lock on `lockFile`.
  *
@@ -104,27 +134,51 @@ export function withLockFile(lockFile, label, fn, { staleMs = 10_000, timeoutMs 
       fd = fs.openSync(lockFile, "wx");
       break;
     } catch (err) {
-      if (err.code !== "EEXIST") throw err;
+      // EEXIST is the atomic "somebody holds this". Windows reports a held lock
+      // as EPERM/EACCES instead, because the holder has the file open, so those
+      // mean the same thing here and must wait rather than propagate.
+      if (err.code !== "EEXIST" && err.code !== "EPERM" && err.code !== "EACCES") throw err;
 
-      let stale = false;
+      let observed = null;
       try {
-        stale = Date.now() - fs.statSync(lockFile).mtimeMs > staleMs;
-      } catch {
-        // Vanished between open and stat: retry immediately.
-        stale = true;
+        const st = fs.statSync(lockFile);
+        observed = { dev: st.dev, ino: st.ino, mtimeMs: st.mtimeMs };
+      } catch (statErr) {
+        // Not contention, and not staleness: the lock is unreadable for some
+        // reason other than being absent. Surface the open failure it masked.
+        if (statErr.code !== "ENOENT") throw err;
       }
 
-      if (stale) {
-        try {
-          fs.unlinkSync(lockFile);
-        } catch {
-          // Another process broke it first, which is fine.
-        }
+      const waitOrFail = () => {
+        if (Date.now() >= deadline) throw new LockError(label);
+        sleepMs(5);
+      };
+
+      // Absent: we lost the race for it between the failed open and this stat.
+      // That is not evidence it was abandoned, so observe again and never unlink.
+      if (observed === null) {
+        waitOrFail();
         continue;
       }
 
-      if (Date.now() >= deadline) throw new LockError(label);
-      sleepMs(5);
+      // Live: wait for the holder.
+      if (Date.now() - observed.mtimeMs <= staleMs) {
+        waitOrFail();
+        continue;
+      }
+
+      // Stale, so it must be broken -- but only the exact file just judged
+      // stale. Re-observe immediately before unlinking and let canBreakLock
+      // refuse if a new holder has taken over in the meantime.
+      if (canBreakLock(observed, observeLock(lockFile), staleMs)) {
+        try {
+          fs.unlinkSync(lockFile);
+        } catch {
+          // Another writer broke it first, which is fine: observe again.
+        }
+        continue;
+      }
+      waitOrFail();
     }
   }
 
@@ -187,4 +241,4 @@ export function appendLine(file, line) {
   fs.appendFileSync(file, `${line}\n`, { encoding: "utf8", mode: 0o600 });
 }
 
-export default { writeAtomicFile, withLockFile, readJsonFile, assertVersion, appendLine, LockError, RecordVersionError };
+export default { writeAtomicFile, withLockFile, readJsonFile, assertVersion, appendLine, canBreakLock, LockError, RecordVersionError };
