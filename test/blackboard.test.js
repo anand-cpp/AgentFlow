@@ -734,19 +734,17 @@ test("summary includes only the tail of long lists", () => {
 });
 
 test("summary reports how many records were dropped", () => {
-  const { store: _ } = tmp();
+  const { dir, projectRoot } = tmp("blackboard-trim");
   const small = new BlackboardStore({
-    dir: path.join(os.tmpdir(), `aflow-trim-${process.pid}`),
-    projectRoot: path.join(os.tmpdir(), `aflow-trim-project-${process.pid}`),
+    dir: path.join(dir, "state"),
+    projectRoot,
     maxRecords: 3,
   });
-  void _;
   small.create();
   for (let i = 0; i < 10; i += 1) small.recordFinding({ title: `finding ${i}` });
 
   assert.equal(small.summary().openFindings.length, 3);
   assert.equal(small.summary().dropped.findings, 7);
-  fs.rmSync(small.dir, { recursive: true, force: true });
 });
 
 // ---------------------------------------------------------------------------
