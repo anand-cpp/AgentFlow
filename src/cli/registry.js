@@ -24,4 +24,24 @@ export function commandNames() {
   return getCommands().map((c) => c.name);
 }
 
-export default { defineCommand, getCommand, getCommands, commandNames };
+/**
+ * Union of every flag that takes a value, across all commands.
+ *
+ * The argv parser needs to know this *before* it has identified the command,
+ * because deciding whether `--limit 4` consumes `4` requires the answer before
+ * the scan reaches it. Taking the union is a deliberate over-approximation:
+ * it can only make a flag consume a value that would otherwise be a stray
+ * positional, never the reverse.
+ *
+ * The alternative — a two-pass parse that resolves the command first — breaks
+ * on exactly the ambiguous input this exists to handle.
+ */
+export function valueFlagNames() {
+  const out = new Set();
+  for (const c of COMMANDS.values()) {
+    for (const f of c.valueFlags || []) out.add(f);
+  }
+  return out;
+}
+
+export default { defineCommand, getCommand, getCommands, commandNames, valueFlagNames };
