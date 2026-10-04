@@ -114,6 +114,70 @@ provenance and must never be pushed.
 
 ---
 
+## Credential leak in published history - unresolved
+
+GitHub raised a public secret scanning alert (`Google API Key`) against
+`open-sse/providers/registry/windsurf.js`. The source file is clean at `HEAD`;
+the key exists only in history, in the two commits that imported the provider
+engine before it was scrubbed.
+
+| Ref | Commits containing the key |
+| --- | --- |
+| `origin/main` | `6b38c80d` (import), `274bf6c3` (scrub) |
+
+A second finding, an iFlow OAuth client secret in
+`open-sse/providers/registry/iflow.js`, is in the same two commits.
+
+Verify what is actually published:
+
+    node scripts/scan-secrets.mjs --history
+
+### Why a working-tree scan did not catch it
+
+The scanner reported `clean` on a repository that contained the key. Two
+independent reasons, and the first is the important one:
+
+1. **It only read the working tree.** `git ls-files` cannot see an object that
+   was committed and later replaced. The rule that should have fired was
+   present and correct - `AIza` plus exactly 35 characters is the real shape,
+   and it matches. It simply never read the blob that held the key, because by
+   the time the scanner first ran the file had already been scrubbed.
+2. **Its only validation was a fixture written to match its own regex.** That
+   is circular. It proved the code ran, not that it detected anything real.
+
+GitHub's own push protection did not catch it either. The earlier claim in this
+file - that push protection caught the OAuth leak - was wrong, and has been
+corrected.
+
+### What changed
+
+- `scripts/scan-secrets.mjs` gained `--history`, which scans every blob
+  reachable from `refs/remotes/origin/*`. Blobs are deduplicated by object id,
+  so a file unchanged across many commits is read once.
+- Ref scoping is deliberate: this repository also carries local `master` and
+  `upstream/*` tracking refs mirroring 9Router's full history, which contain
+  over a thousand credential-shaped strings in documentation that were never
+  published here. Scanning every ref buried the two real findings in noise.
+- `test/scan-secrets.test.js` asserts each rule against a fixture of the real
+  shape and length, including the exact 39-character Google key, and asserts
+  that `--history` finds a secret which was scrubbed from `HEAD`. Fixtures are
+  assembled from fragments at runtime so the test file holds no credential
+  literal and needs no allowlist exemption.
+- Line numbers in findings were always reported as `1`; they are now correct.
+- CI runs `--history` in a separate job with `fetch-depth: 0`.
+
+### What is still required
+
+Removing a value from `HEAD` does not remove it from history. Two things remain
+and neither is done by a code change:
+
+1. **Rotate the credentials.** These belong to a third party. Only their owner
+   can invalidate them.
+2. **Purge the objects**, by rewriting history and force-pushing every affected
+   ref, or by asking GitHub Support to garbage-collect unreachable objects.
+
+Until both happen, GitHub will keep the alert open and the keys remain
+recoverable by anyone who clones the repository.
 ## Supported versions
 
 | Version | Supported |
