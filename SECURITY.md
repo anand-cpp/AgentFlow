@@ -114,23 +114,76 @@ provenance and must never be pushed.
 
 ---
 
-## Credential leak in published history - unresolved
+## Credential leak in published history — objects purged, rotation outstanding
 
 GitHub raised a public secret scanning alert (`Google API Key`) against
-`open-sse/providers/registry/windsurf.js`. The source file is clean at `HEAD`;
-the key exists only in history, in the two commits that imported the provider
-engine before it was scrubbed.
+`open-sse/providers/registry/windsurf.js`. The source file was clean at `HEAD`,
+but the key existed in the two commits that imported the provider engine before
+it was scrubbed. A second finding, an iFlow OAuth client secret in
+`open-sse/providers/registry/iflow.js`, was in the same commits.
 
-| Ref | Commits containing the key |
-| --- | --- |
-| `origin/main` | `6b38c80d` (import), `274bf6c3` (scrub) |
+**This has since been purged from published history.** The table below records
+the pre-purge state, because the old commit ids are what appear in the alert and
+in any third party's clone:
 
-A second finding, an iFlow OAuth client secret in
-`open-sse/providers/registry/iflow.js`, is in the same two commits.
+| Ref | Pre-purge commits containing the key | Post-purge |
+| --- | --- | --- |
+| `origin/main` | `6b38c80d` (import), `274bf6c3` (scrub) | rewritten — `ca597252`, `9e7fa037` |
 
 Verify what is actually published:
 
     node scripts/scan-secrets.mjs --history
+
+### What was purged, and how the list was derived
+
+Four literals were replaced across two files:
+
+| File | Field | Note |
+| --- | --- | --- |
+| `registry/windsurf.js` | `firebaseApiKey` | the key GitHub flagged |
+| `registry/windsurf.js` | `clientId` | OAuth client id — public by design |
+| `registry/iflow.js` | `clientSecret` | a real secret |
+| `registry/iflow.js` | `clientId` | OAuth client id — public by design |
+
+The list came from diffing the import commit against the scrub commit, **not**
+from the scanner. That distinction is the whole point: the scanner's rule for
+Google OAuth secrets matches a `GOCSPX-` prefix, and the iFlow secret carries no
+prefix, so the scanner never flagged that value by shape. Trusting the scanner's
+own output to define the purge list would have left a live credential behind
+while reporting success. The two `clientId` values are not secrets; they were
+purged anyway, since removing them costs nothing and they fingerprint upstream.
+
+Rewrite performed with `git filter-repo --replace-text` over `main`, after
+verifying a full-history bundle backup and that the three feature branches were
+all already merged. `--force-with-lease` pinned the expected pre-purge tip so the
+push could not clobber an unexpected intervening commit.
+
+### Verification
+
+- A **fresh clone** of the rewritten `origin/main` contains 13 commits, and a
+  literal search for all four values across every one of them returns zero hits.
+- `node scripts/scan-secrets.mjs --history` reports clean over the fresh clone.
+- The tip tree is byte-identical to the pre-purge tip — the rewrite changed
+  history only, never content.
+- The three stale feature branches, which also carried the pre-purge commits,
+  were deleted from `origin`. Only `main` is published.
+
+### Still outstanding — and why the alert stays open
+
+1. **The credentials are not rotated.** They belong to a third party; only their
+   owner can invalidate them. Purging our copy does not revoke them, and anyone
+   who cloned the repository before this date still holds working values.
+2. **GitHub's alert `#1` is deliberately left `open`.** Marking it `revoked`
+   would assert a rotation that has not happened. It should be closed only after
+   upstream confirms rotation.
+3. **GitHub-side retention.** Deleting branches and force-pushing rewrites refs,
+   but the platform may retain unreachable objects and pull-request refs for a
+   period. If the alert persists after upstream rotation, ask GitHub Support to
+   garbage-collect. This is not verifiable from the client.
+
+Disclosure to upstream `decolua` is drafted and must be sent by a maintainer; the
+private vulnerability reporting flow for another repository is web-only and has
+no API.
 
 ### Why a working-tree scan did not catch it
 
@@ -168,16 +221,9 @@ corrected.
 
 ### What is still required
 
-Removing a value from `HEAD` does not remove it from history. Two things remain
-and neither is done by a code change:
+Rotation and GitHub-side garbage collection — see
+[Still outstanding](#still-outstanding--and-why-the-alert-stays-open) above.
 
-1. **Rotate the credentials.** These belong to a third party. Only their owner
-   can invalidate them.
-2. **Purge the objects**, by rewriting history and force-pushing every affected
-   ref, or by asking GitHub Support to garbage-collect unreachable objects.
-
-Until both happen, GitHub will keep the alert open and the keys remain
-recoverable by anyone who clones the repository.
 ## Supported versions
 
 | Version | Supported |
