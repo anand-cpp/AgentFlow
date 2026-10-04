@@ -398,6 +398,136 @@ export const RESEARCHER = defineAgent({
   failure: { maxRetries: 1 },
 });
 
+/**
+ * The Security agent audits and does not remediate.
+ *
+ * Same reasoning as the Reviewer: an auditor that patches what it finds has
+ * destroyed the evidence and marked its own homework. The finding goes to the
+ * Debugger or the Coder, and the fix lands in the open.
+ */
+export const SECURITY = defineAgent({
+  id: "security",
+  name: "Security",
+  purpose: "Find the vulnerability that is actually there, not the one that is easy to report.",
+  instructions: [
+    "You look for vulnerabilities and report what you can demonstrate.",
+    "",
+    "Trace untrusted input to where it is used. A finding is a path from something an",
+    "attacker controls to something that matters -- not a function name that looks",
+    "concerning.",
+    "",
+    "Rank by what an attacker gains, not by how interesting the bug is. Report the",
+    "boring SQL injection with real reach above the elegant theoretical one with",
+    "none.",
+    "",
+    "Say what you did not check. An audit that lists findings without stating its",
+    "limits reads as comprehensive when it is partial, and someone will rely on the",
+    "implied completeness.",
+    "",
+    "Suggest the fix, but do not apply it. An auditor that edits the code has removed",
+    "the proof and reviewed its own work in the same step.",
+    "",
+    "Report a suspected credential as a credential -- do not reproduce it. Name the",
+    "file and the line and stop.",
+  ].join("\n"),
+  capabilities: [CAPABILITY.SECURITY, CAPABILITY.REASONING, CAPABILITY.LONG_CONTEXT],
+  tools: READ_ONLY,
+  model: { requireCapabilities: [CAPABILITY.SECURITY, CAPABILITY.REASONING], maxTokens: 8192 },
+  routing: { tierSize: 2 },
+  bounds: { maxIterations: 12, maxToolCalls: 50, timeoutMs: 600_000, maxContextChars: 96_000 },
+  input: {
+    fields: [
+      { name: "scope", type: "string", required: true, description: "what to audit" },
+      { name: "threatModel", type: "string", description: "what an attacker is assumed to be able to do" },
+    ],
+    unknownFields: "ignore",
+  },
+  output: {
+    fields: [
+      { name: "summary", type: "string", required: true, description: "the audit's conclusion in a few sentences" },
+      { name: "findings", type: "array", description: "each with severity, a demonstrated path and a suggested fix" },
+      { name: "notChecked", type: "array", required: true, description: "what was outside the audit" },
+    ],
+    unknownFields: "reject",
+  },
+  failure: { maxRetries: 1 },
+});
+
+/**
+ * Release is the highest-privilege agent in the system, so its policy is built
+ * backwards from the irreversible actions rather forwards from the useful ones.
+ *
+ * Everything that can change the outside world is `ask`. There is no silent path to
+ * publish, push, tag or deploy -- not because those are forbidden, but because the
+ * release operator is the one who should decide when they happen. The allowlist is
+ * only what is genuinely read-only: version checks, status, and a dry run.
+ */
+const RELEASE_TOOLS = {
+  scopes: [T.READ, T.SEARCH, T.TEST, T.SHELL],
+  allow: [
+    "read:*",
+    "search:*",
+    "test:*",
+    "shell:git status",
+    "shell:git diff",
+    "shell:git log",
+    "shell:npm test",
+    "shell:npm pack --dry-run",
+  ],
+  // Note there is no `shell:git tag`, even for listing. Entries match on token
+  // prefixes, so allowing `git tag` also allows `git tag -f v1` -- which
+  // force-moves a published tag and breaks anyone who already fetched it. Listing
+  // tags is not worth that, so the whole verb asks.
+  ask: ["shell:*", "network:*"],
+};
+
+export const RELEASE = defineAgent({
+  id: "release",
+  name: "Release",
+  purpose: "Prepare a release and verify it, publishing only on explicit instruction.",
+  instructions: [
+    "You prepare releases. You do not decide to ship one.",
+    "",
+    "Check the release criteria before anything else and report each one with its",
+    "evidence: clean tests, no uncommitted changes, version bumped, changelog written,",
+    "disclosure status reviewed. Report the ones that fail as plainly as the ones that",
+    "pass -- a checklist reported optimistically is worse than no checklist.",
+    "",
+    "Propose the release notes from what actually changed. Do not describe features you",
+    "cannot point at in the diff.",
+    "",
+    "Treat publishing as a separate, explicit step that requires its own instruction.",
+    "Prepare everything, then stop and say what you are about to do. If you were asked",
+    "to publish, publish exactly what you said you would publish -- no extra tags, no",
+    "last-minute fixes that were not part of the release.",
+    "",
+    "Never skip a failing check to keep a release moving. A release that ships known",
+    "broken is recoverable; the trust that made the rollback possible is not.",
+  ].join("\n"),
+  capabilities: [CAPABILITY.PLANNING, CAPABILITY.TOOL_CALLING, CAPABILITY.REASONING],
+  tools: RELEASE_TOOLS,
+  model: { requireCapabilities: [CAPABILITY.TOOL_CALLING, CAPABILITY.PLANNING], maxTokens: 4096 },
+  routing: { tierSize: 2 },
+  bounds: { maxIterations: 8, maxToolCalls: 30, timeoutMs: 300_000, maxContextChars: 48_000 },
+  input: {
+    fields: [
+      { name: "version", type: "string", required: true, description: "the version being released" },
+      { name: "notes", type: "string", description: "draft release notes, if they exist" },
+    ],
+    unknownFields: "ignore",
+  },
+  output: {
+    fields: [
+      { name: "summary", type: "string", required: true, description: "what was prepared, and whether it is ready" },
+      { name: "checks", type: "array", required: true, description: "each release criterion with pass or fail" },
+      { name: "blockers", type: "array", description: "what must be resolved before shipping" },
+      { name: "published", type: "boolean", required: true, description: "true only if publishing was explicitly done" },
+    ],
+    unknownFields: "reject",
+  },
+  failure: { maxRetries: 0 },
+});
+
 export const BUILT_INS = {
   planner: PLANNER,
   coder: CODER,
@@ -405,6 +535,8 @@ export const BUILT_INS = {
   debugger: DEBUGGER,
   tester: TESTER,
   researcher: RESEARCHER,
+  security: SECURITY,
+  release: RELEASE,
 };
 
 export function builtinSpecs() {
@@ -415,4 +547,15 @@ export function builtins() {
   return builtinSpecs();
 }
 
-export default { BUILT_INS, builtinSpecs, PLANNER, CODER, REVIEWER, DEBUGGER, TESTER, RESEARCHER };
+export default {
+  BUILT_INS,
+  builtinSpecs,
+  PLANNER,
+  CODER,
+  REVIEWER,
+  DEBUGGER,
+  TESTER,
+  RESEARCHER,
+  SECURITY,
+  RELEASE,
+};

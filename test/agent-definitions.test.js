@@ -10,7 +10,7 @@ import { BUILT_INS, builtinSpecs } from "../src/core/agents/definitions.js";
 import { TOOL_SCOPE, CAPABILITY, AgentRegistry, AgentConflictError } from "../src/core/agents/registry.js";
 import { evaluatePermission } from "../src/core/agents/tools.js";
 
-const EXPECTED = ["planner", "coder", "reviewer", "debugger", "tester", "researcher"];
+const EXPECTED = ["planner", "coder", "reviewer", "debugger", "tester", "researcher", "security", "release"];
 
 const TOOL_SCOPE_OF = {
   shell: TOOL_SCOPE.SHELL,
@@ -212,6 +212,62 @@ test("the researcher cannot write or run commands", () => {
   assert.equal(permits("researcher", "shell", { command: "npm test" }, yes).decision, "deny");
 });
 
+test("the security agent audits without editing", () => {
+  // An auditor that patches what it finds has destroyed the evidence and marked
+  // its own homework.
+  assert.equal(permits("security", "read_file", { path: "src/x.js" }).decision, "allow");
+  assert.equal(permits("security", "write_file", { path: "src/x.js" }).decision, "deny");
+  assert.equal(permits("security", "shell", { command: "npm test" }).decision, "deny");
+});
+
+test("the security agent must report what it did not check", () => {
+  // An audit without stated limits reads as comprehensive when it is partial.
+  const fields = new AgentRegistry(builtinSpecs()).get("security").output.fields;
+  const notChecked = fields.find((f) => f.name === "notChecked");
+  assert.ok(notChecked, "security must declare a `notChecked` field");
+  assert.equal(notChecked.required, true);
+});
+
+test("the release agent has no silent path to anything irreversible", () => {
+  const release = new AgentRegistry(builtinSpecs()).get("release");
+  for (const command of ["npm publish", "git push origin main", "gh release create", "git tag -f v1", "npm run deploy"]) {
+    for (const approver of [null, yes]) {
+      assert.notEqual(permits("release", "shell", { command }, approver).decision, "allow",
+        `release must not silently run ${command}`);
+    }
+  }
+  // Including the read-only commands it *is* allowed, to prove the check above
+  // is actually evaluating something.
+  assert.equal(permits("release", "shell", { command: "git status" }).decision, "allow");
+  assert.equal(permits("release", "shell", { command: "npm pack --dry-run" }).decision, "allow");
+});
+
+test("the release agent reports whether it actually published", () => {
+  // Same device as the tester's `ran`: the contract makes an unearned success
+  // unreportable.
+  const published = new AgentRegistry(builtinSpecs()).get("release").output.fields.find((f) => f.name === "published");
+  assert.ok(published, "release must declare a `published` field");
+  assert.equal(published.required, true);
+});
+
+test("the release agent has the tightest bounds in the system", () => {
+  // Highest privilege, fewest attempts: a release loop that retries on its own is a
+  // release loop nobody asked for.
+  const registry = new AgentRegistry(builtinSpecs());
+  const release = registry.get("release");
+  assert.equal(release.failure.maxRetries, 0);
+  assert.ok(release.bounds.maxToolCalls < registry.get("debugger").bounds.maxToolCalls);
+  assert.ok(release.bounds.maxToolCalls < registry.get("coder").bounds.maxToolCalls);
+});
+
+test("agents with write access are exactly the ones meant to have it", () => {
+  // A cross-check rather than a per-agent list: if a new agent quietly gains write
+  // it shows up here even if someone forgot to update the table above.
+  const registry = new AgentRegistry(builtinSpecs());
+  const writers = registry.ids().filter((id) => registry.get(id).tools.scopes.includes(TOOL_SCOPE.WRITE));
+  assert.deepEqual(writers.sort(), ["coder", "debugger", "tester"]);
+});
+
 test("a shell allowlist entry does not permit a chained command", () => {
   assert.equal(permits("coder", "shell", { command: "git status; rm -rf /" }, yes).decision, "ask");
 });
@@ -228,6 +284,8 @@ test("each agent declares capabilities that match what it does", () => {
     debugger: [CAPABILITY.REASONING, CAPABILITY.TOOL_CALLING],
     tester: [CAPABILITY.CODING, CAPABILITY.TOOL_CALLING],
     researcher: [CAPABILITY.RESEARCH, CAPABILITY.LONG_CONTEXT],
+    security: [CAPABILITY.SECURITY, CAPABILITY.REASONING],
+    release: [CAPABILITY.PLANNING, CAPABILITY.TOOL_CALLING],
   };
   for (const [id, expected] of Object.entries(expectations)) {
     const agent = new AgentRegistry(builtinSpecs()).get(id);
