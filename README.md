@@ -87,10 +87,41 @@ that via `AGENTFLOW_API_KEY` or leave it unset to probe anonymously.
 | `aflow status` | Cheap health check, safe for a status bar |
 | `aflow config` | Resolved config, and which layer each value came from |
 | `aflow init` | Write a starter project config |
+| `aflow sessions` | Persistent sessions: start, resume, inspect, annotate |
+| `aflow route` | Run a prompt through the fallback cascade, with a receipt |
+| `aflow logs` | Read the structured event log |
 | `aflow dashboard` | Interactive terminal dashboard |
 
 Every command takes `--json` for machine-readable output, so AgentFlow scripts
 cleanly instead of asking you to parse a table.
+
+### Sessions
+
+A session is one unit of work that outlives the process, so the next command —
+or the next agent — continues instead of starting from zero.
+
+```bash
+aflow sessions new "fix the routing cascade" --model oc/muse
+aflow sessions note ses_20261004T071530123Z_a1b2c3 "cascade now falls through" --as coder
+aflow sessions resume                    # picks up the current session
+aflow sessions inspect ses_20261004T071530123Z_a1b2c3 --entries 0
+```
+
+Sessions are stored one JSON file per session under the platform state directory
+(`AGENTFLOW_STATE_DIR`, or the XDG/`LOCALAPPDATA` equivalent). Each file is
+written to a temporary file and renamed over the target, so a process killed
+mid-write leaves the previous version intact rather than a truncated one. A file
+that fails to parse is reported as corrupt and left untouched — a damaged session
+may be the only surviving record of real work, so the store will not overwrite it
+to tidy things up.
+
+Entries cover conversation turns, tool calls and results, routing decisions,
+errors, agent attribution, and Blackboard references. Concurrent appends from
+several agents take a lock and re-read inside it, so parallel work does not lose
+entries.
+
+Everything written passes through the same redaction as the event log, and a
+credential-shaped value that survives redaction is refused rather than stored.
 
 ### Dashboard
 

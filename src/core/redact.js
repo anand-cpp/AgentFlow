@@ -12,6 +12,12 @@
 const PATTERNS = [
   // Order matters: more specific first so a JWT isn't partially masked.
   { name: "google-oauth-secret", re: /GOCSPX-[A-Za-z0-9_-]{10,}/g, mask: "GOCSPX-***" },
+  // Firebase/Google API keys: `AIza` + exactly 35. Pinned to the exact length to
+  // match scripts/scan-secrets.mjs, so incidental `AIza` text (including this
+  // comment and the scanner's own regex source) is not masked. Lower risk than
+  // an OAuth secret -- these ship in client bundles -- but hardcoding one still
+  // pins a fork to someone else's Firebase project.
+  { name: "google-api-key", re: /\bAIza[0-9A-Za-z_-]{35}\b/g, mask: "AIza***" },
   { name: "github-token", re: /\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}/g, mask: "github_***" },
   { name: "jwt", re: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, mask: "eyJ***" },
   { name: "sk-key", re: /\bsk-[A-Za-z0-9_-]{16,}\b/g, mask: "sk-***" },
