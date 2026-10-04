@@ -9,7 +9,7 @@
 // `aflow --help` instant.
 
 import { Output } from "./output.js";
-import { getCommand, getCommands } from "./registry.js";
+import { getCommand, getCommands, valueFlagNames } from "./registry.js";
 import { resolveConfig } from "../config/index.js";
 import { setColor, bold, dim } from "./ui.js";
 
@@ -21,13 +21,22 @@ const GLOBAL_FLAGS = new Set([
   "no-color", "port", "model", "base-url",
 ]);
 
+// Always value-taking, regardless of which command is running.
+const ALWAYS_VALUE_FLAGS = new Set(["port", "model", "base-url"]);
+
 /**
  * Split argv into global flags and the command + its args.
  * Global flags may appear before or after the command name.
+ *
+ * Value-taking flags come from the union declared by registered commands. A
+ * hardcoded list here was a real bug: `--limit 4` and `--type route.fallback`
+ * were parsed as `--limit=true` with the value left as a stray positional, so
+ * `--limit 4` became the number 1 and `--type X` matched nothing at all.
  */
-export function parseArgv(argv) {
+export function parseArgv(argv, valueFlags = new Set()) {
   const flags = {};
   const rest = [];
+  const takesValue = (key) => ALWAYS_VALUE_FLAGS.has(key) || valueFlags.has(key);
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -45,7 +54,7 @@ export function parseArgv(argv) {
       }
       if (val === null) {
         // Boolean flags never consume the next token; value flags do.
-        if (["port", "model", "base-url"].includes(key) && i + 1 < argv.length) {
+        if (takesValue(key) && i + 1 < argv.length) {
           val = argv[++i];
         } else {
           val = true;
@@ -56,7 +65,7 @@ export function parseArgv(argv) {
       const map = { h: "help", v: "version", q: "quiet", p: "port" };
       const key = map[a.slice(1)] || a.slice(1);
       let val = true;
-      if (["port", "model", "base-url"].includes(key) && i + 1 < argv.length) {
+      if (takesValue(key) && i + 1 < argv.length) {
         val = argv[++i];
       }
       flags[key] = val;
@@ -104,7 +113,7 @@ function renderHelp(commands) {
 export const VERSION = "0.1.0";
 
 export async function run(argv) {
-  const { commandName, args, flags } = parseArgv(argv);
+  const { commandName, args, flags } = parseArgv(argv, valueFlagNames());
 
   if (flags["no-color"] || flags.color === false) setColor(false);
   else if (process.env.NO_COLOR !== undefined) setColor(false);
