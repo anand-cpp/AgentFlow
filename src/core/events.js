@@ -41,6 +41,21 @@ export const EVENTS = {
   AGENT_START: "agent.start",
   AGENT_STOP: "agent.stop",
   AGENT_ERROR: "agent.error",
+  // Agent runtime lifecycle. Added alongside the three above rather than
+  // replacing them: those names are already in the wild and events.js treats a
+  // rename as a breaking change to anyone's log queries. The runtime emits the
+  // granular set below; the three legacy names stay declared for compatibility.
+  AGENT_CONTEXT_LOADED: "agent.context_loaded",
+  AGENT_MODEL_SELECTED: "agent.model_selected",
+  AGENT_TOOL_REQUESTED: "agent.tool_requested",
+  AGENT_TOOL_APPROVED: "agent.tool_approved",
+  AGENT_TOOL_COMPLETED: "agent.tool_completed",
+  AGENT_OUTPUT: "agent.output",
+  AGENT_FAILED: "agent.failed",
+  AGENT_RETRYING: "agent.retrying",
+  AGENT_COMPLETED: "agent.completed",
+  AGENT_CANCELLED: "agent.cancelled",
+  AGENT_PERMISSION_DENIED: "agent.permission_denied",
   PLUGIN_LOAD: "plugin.load",
   PLUGIN_ERROR: "plugin.error",
   SESSION_START: "session.start",

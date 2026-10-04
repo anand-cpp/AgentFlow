@@ -97,4 +97,32 @@ export function redactVerified(value, where = "record") {
   return redacted;
 }
 
-export default { redact, redactDeep, redactVerified, SecretDetectedError };
+/**
+ * Would redacting this value change it?
+ *
+ * The complement to redactVerified, which answers a narrower question: "did
+ * redaction leave anything behind?". This one answers "was there anything to
+ * redact in the first place?".
+ *
+ * The distinction matters wherever masking is the wrong answer. A log wants the
+ * redacted copy. An agent's instructions do not -- silently replacing a
+ * credential with `***` leaves a working-looking agent whose system prompt is
+ * quietly wrong, and the failure surfaces as bad model behaviour a long way from
+ * the cause. There, "refuse to register" is the honest outcome.
+ *
+ * Not a substitute for redactVerified on the write path: a caller can still get
+ * this wrong, and this predicate does not run the redaction twice to prove it.
+ */
+export function containsSecret(value) {
+  let before;
+  try {
+    before = JSON.stringify(value);
+  } catch {
+    // Unserialisable input is not something we can claim is safe.
+    return true;
+  }
+  if (before === undefined) return false;
+  return redact(before) !== before;
+}
+
+export default { redact, redactDeep, redactVerified, containsSecret, SecretDetectedError };

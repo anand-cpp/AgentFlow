@@ -160,5 +160,11 @@ test("nullLog discards without touching the filesystem", () => {
 test("event names are unique and stable", () => {
   const values = Object.values(EVENTS);
   assert.equal(new Set(values).size, values.length, "duplicate event name");
-  for (const v of values) assert.match(v, /^[a-z]+\.[a-z]+$/, `${v} should be namespaced`);
+  // One namespace segment, then a snake_case verb. The verb is allowed more than
+  // one word because most agent lifecycle events are genuinely compound
+  // (`agent.context_loaded`, `agent.model_selected`) and flattening them to
+  // `agent.contextloaded` would be less readable, not more consistent. What the
+  // regex is here to catch is an unnamespaced or camelCase name, which would
+  // break `aflow logs --type` queries.
+  for (const v of values) assert.match(v, /^[a-z]+\.[a-z_]+$/, `${v} should be namespaced`);
 });
