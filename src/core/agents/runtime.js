@@ -225,7 +225,7 @@ export class AgentRuntime {
    * result object. A caller that has to catch four exception types to learn that
    * the agent stopped will eventually handle one of them wrong.
    */
-  async run({ agentId, task = null, sessionId = null, signal = null, extra = null } = {}) {
+  async run({ agentId, task = null, sessionId = null, signal = null, extra = null, depth = 0 } = {}) {
     const startedAt = this.now();
     const id = String(agentId ?? "").trim();
     // Declared out here so the catch path can name the agent even when the failure
@@ -243,10 +243,14 @@ export class AgentRuntime {
       cancelled: false,
       iterations: 0,
       toolCalls: 0,
+      depth,
+      maxDepth: agent ? agent.bounds.maxDepth : null,
       model: null,
       plan: null,
       output: null,
       toolResults: [],
+      // Every state the run passed through, not just the final one.
+      states: [],
       error: null,
       events: [],
       startedAt,
@@ -268,6 +272,14 @@ export class AgentRuntime {
       // a caller forced to catch it separately will forget.
       agent = this.resolve(id);
       const bounds = agent.bounds;
+
+      // Recursion depth, checked before any work happens rather than at the end.
+      // An agent that delegates to another agent is a bounded recursion, and the
+      // bound has to be a real number the caller can rely on rather than a comment
+      // saying "avoid infinite loops".
+      if (depth > bounds.maxDepth) {
+        throw new AgentBoundError("maxDepth", bounds.maxDepth, depth);
+      }
 
       // --- context -------------------------------------------------------
       this.transition(result, STATE.CONTEXT_LOADING, agent);
@@ -306,12 +318,33 @@ export class AgentRuntime {
       // cheap and an unresolvable one should fail before anything is dispatched.
       const plan = resolveModelPlan(agent, { catalogue: this.catalogue, hints: this.hints });
       result.plan = plan;
-      emit(EVENTS.AGENT_MODEL_SELECTED, {
+      // Deliberately *not* AGENT_MODEL_SELECTED. Nothing has been selected yet --
+      // this is the candidate set. The event that claims a model was chosen is
+      // emitted below, after the Router returns a winner. Emitting "selected" here
+      // meant the log recorded a selection that could then contradict the receipt.
+      emit(EVENTS.AGENT_ROUTE_PLANNED, {
         agentId: agent.id,
         pinned: plan.pinned,
         candidates: plan.candidates,
         reason: explainPlan(plan),
       });
+
+      // The agent's own retry budget, applied to the cascade. The Router bounds
+      // itself by the candidate list it is given, which is not the same thing: an
+      // agent declaring `maxRetries: 0` means "do not try a second provider on its
+      // own initiative", and a 40-model catalogue would otherwise have retried
+      // forty times against a declaration of zero.
+      //
+      // `routing.maxAttempts: 0` means unset rather than "none" -- it is the
+      // registry default, and reading it as a hard zero would silently disable
+      // provider fallback for every agent that did not think to set it.
+      const byRetries = agent.failure.maxRetries + 1;
+      const maxAttempts =
+        agent.routing.maxAttempts > 0 ? Math.min(agent.routing.maxAttempts, byRetries) : byRetries;
+      const tiers =
+        maxAttempts >= plan.tiers.reduce((n, t) => n + t.models.length, 0)
+          ? plan.tiers
+          : capTiers(plan.tiers, maxAttempts);
 
       // One router for the whole execution. `currentPrompt` is read by the execute
       // closure, which is safe because `route()` is awaited before it changes
@@ -319,7 +352,7 @@ export class AgentRuntime {
       // memory, so a retry loop would keep re-trying a provider that just failed.
       let currentPrompt = buildPrompt(agent, context, task, 1);
       const router = new Router({
-        tiers: plan.tiers,
+        tiers,
         execute: (modelId, { signal: s }) =>
           this.complete(this.config, modelId, currentPrompt, {
             timeoutMs: bounds.timeoutMs,
@@ -365,6 +398,13 @@ export class AgentRuntime {
         }
 
         result.model = receipt.model;
+        emit(EVENTS.AGENT_MODEL_SELECTED, {
+          agentId: agent.id,
+          model: receipt.model,
+          tier: receipt.tier,
+          iteration,
+          candidates: plan.candidates,
+        });
         emit(EVENTS.AGENT_OUTPUT, { agentId: agent.id, model: receipt.model, iteration });
 
         // The deadline is re-checked after the call, not only before it. A budget
@@ -440,6 +480,10 @@ export class AgentRuntime {
 
   transition(result, state, agent) {
     result.state = state;
+    // Recorded on the result as well as the log. The log is best-effort and can be
+    // unavailable, truncated or filtered; a receipt that only lives in the log is a
+    // receipt that does not exist when someone is reconstructing why a run stopped.
+    result.states.push(state);
     try {
       this.log?.emit?.(EVENTS.AGENT_STATE, { agentId: agent?.id ?? null, state });
     } catch {
@@ -495,6 +539,23 @@ export class AgentRuntime {
    */
   persist(result, agent, sessionId) {
     const board = this.blackboard;
+
+    // The full outcome, not just the summary text. An implementation note saying
+    // "fixed the routing cascade" is close to useless a week later; the summary
+    // plus the model that produced it plus the files is what makes the Blackboard
+    // worth reading.
+    const outcome = {
+      agentId: agent.id,
+      model: result.model,
+      state: result.state,
+      completed: result.completed,
+      iterations: result.iterations,
+      toolCalls: result.toolCalls,
+      durationMs: result.durationMs ?? null,
+      output: result.output ?? null,
+      error: result.error ?? null,
+    };
+
     if (board && typeof board.recordImplementation === "function") {
       try {
         board.recordImplementation({
@@ -502,6 +563,10 @@ export class AgentRuntime {
           files: result.output?.files || [],
           sessionId: sessionId || null,
         });
+        // The Blackboard is keyed by project, so the Session has to be able to find
+        // its way back to it. Without the reference the two stores are related only
+        // by coincidence of timing.
+        if (sessionId && typeof board.id === "string") result.blackboardRef = board.id;
       } catch (err) {
         result.persistError = `blackboard: ${err.message}`;
       }
@@ -510,12 +575,7 @@ export class AgentRuntime {
     const sessions = this.sessions;
     if (sessions && sessionId) {
       try {
-        sessions.append(
-          sessionId,
-          ENTRY_KIND.AGENT,
-          { agentId: agent.id, model: result.model, output: result.output },
-          { agent: agent.id }
-        );
+        sessions.append(sessionId, ENTRY_KIND.AGENT, outcome, { agent: agent.id });
       } catch (err) {
         result.persistError = [result.persistError, `session: ${err.message}`].filter(Boolean).join("; ");
       }
@@ -536,11 +596,18 @@ export class AgentRuntime {
       result.state = STATE.FAILED;
     }
     result.error = { code, message: err?.message || String(err) };
-    emit(
-      EVENTS.AGENT_FAILED,
-      { agentId: agent?.id ?? null, code, message: result.error.message, timedOut: result.timedOut, cancelled: result.cancelled },
-      "error"
-    );
+    // Three distinct terminal events rather than one AGENT_FAILED carrying flags.
+    // A single event with `timedOut: true` invites every consumer to read one field
+    // and treat a timeout as a failure -- which is exactly the conflation the
+    // orthogonal state on the result exists to prevent, reappearing at the event
+    // layer where it is harder to notice.
+    if (result.timedOut) {
+      emit(EVENTS.AGENT_ERROR, { agentId: agent?.id ?? null, code, message: result.error.message, kind: "timeout" }, "error");
+    } else if (result.cancelled) {
+      emit(EVENTS.AGENT_CANCELLED, { agentId: agent?.id ?? null, code, message: result.error.message }, "warn");
+    } else {
+      emit(EVENTS.AGENT_FAILED, { agentId: agent?.id ?? null, code, message: result.error.message }, "error");
+    }
     return this.finish(result);
   }
 
@@ -549,6 +616,27 @@ export class AgentRuntime {
     result.durationMs = result.finishedAt - result.startedAt;
     return Object.freeze(result);
   }
+}
+
+/**
+ * Truncate a tier list to `budget` models in preference order.
+ *
+ * Tiers are truncated rather than models dropped from inside a tier: the tier *is*
+ * the preference signal the requirements resolver computed, so keeping tier 1 intact
+ * and trimming tier 3 preserves "these are equivalent, those are worse". Dropping a
+ * single model from the front of a tier would quietly change which models were
+ * treated as equals.
+ */
+function capTiers(tiers, budget) {
+  const out = [];
+  let left = budget;
+  for (const tier of tiers) {
+    if (left <= 0) break;
+    const models = tier.models.slice(0, left);
+    if (models.length) out.push({ ...tier, models });
+    left -= models.length;
+  }
+  return out;
 }
 
 /**

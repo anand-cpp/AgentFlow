@@ -564,3 +564,188 @@ test("renderSystemPrompt keeps instructions ahead of recorded state", () => {
   const prompt = renderSystemPrompt(agent(), { goal: "ship", nextAction: null, truncated: {} });
   assert.ok(prompt.indexOf("You are a planner") < prompt.indexOf("ship"));
 });
+// ---------------------------------------------------------------------------
+// bounds declared but previously unenforced
+// ---------------------------------------------------------------------------
+
+test("routing.maxAttempts caps the provider cascade", async () => {
+  // An agent declaring maxRetries: 0 means "do not try a second provider on my
+  // own initiative". Without this the catalogue size decides, and a 40-model host
+  // would run forty attempts against a declaration of zero.
+  const complete = say("ok", { failFirst: 5 });
+  const rt = runtime({
+    complete,
+    specs: [agent({ failure: { maxRetries: 0 }, routing: { maxAttempts: 1 } })],
+  });
+  const result = await rt.run({ agentId: "planner", task: "x" });
+  assert.equal(result.state, STATE.FAILED);
+  assert.equal(complete.state.calls, 1, "only the first candidate may be tried");
+});
+
+test("routing.maxAttempts of zero means unset, not none", async () => {
+  // Regression from the first attempt at this: 0 is the registry default, and
+  // reading it as a hard zero silently disabled provider fallback for every agent
+  // that never thought to set it.
+  const complete = say("ok", { failFirst: 1 });
+  const rt = runtime({ complete, specs: [agent({ routing: { maxAttempts: 0 } })] });
+  const result = await rt.run({ agentId: "planner", task: "x" });
+  assert.equal(result.state, STATE.COMPLETED, "the default must still fall back");
+});
+
+test("maxRetries alone bounds the cascade even with a long catalogue", async () => {
+  const complete = say("ok", { failFirst: 9 });
+  const rt = runtime({
+    complete,
+    catalogue: ["a/1", "b/2", "c/3", "d/4", "e/5"],
+    specs: [agent({ failure: { maxRetries: 1 } })],
+  });
+  const result = await rt.run({ agentId: "planner", task: "x" });
+  assert.equal(result.state, STATE.FAILED);
+  assert.equal(complete.state.calls, 2, "maxRetries 1 means two attempts, not five");
+});
+
+test("truncating the cascade keeps whole tiers intact", async () => {
+  // Tiers carry the preference signal, so a tier is never cut in half.
+  const complete = say("ok", { failFirst: 9 });
+  const rt = runtime({
+    complete,
+    specs: [agent({ failure: { maxRetries: 1 }, routing: { tierSize: 3 } })],
+  });
+  const result = await rt.run({ agentId: "planner", task: "x" });
+  const used = result.plan.tiers.slice(0, 1);
+  assert.ok(Array.isArray(used));
+  assert.equal(result.error.code, "no_route");
+});
+
+test("recursion deeper than maxDepth is refused before any work happens", async () => {
+  const complete = say("ok");
+  const rt = runtime({ complete, specs: [agent({ bounds: { maxDepth: 1 } })] });
+const result = await rt.run({ agentId: "planner", task: "x", depth: 2 });
+  assert.equal(result.state, STATE.FAILED);
+  assert.equal(result.error.code, "agent_bound_exceeded");
+  assert.match(result.error.message, /maxDepth/);
+  assert.equal(complete.state.calls, 0, "an over-deep run must dispatch nothing");
+});
+
+test("depth within maxDepth runs normally", async () => {
+  const complete = say("ok");
+  const rt = runtime({ complete, specs: [agent({ bounds: { maxDepth: 2 } })] });
+  const result = await rt.run({ agentId: "planner", task: "x", depth: 2 });
+  assert.equal(result.state, STATE.COMPLETED);
+  assert.equal(result.depth, 2);
+});
+
+// ---------------------------------------------------------------------------
+// event honesty
+// ---------------------------------------------------------------------------
+
+test("model_selected names the model the router actually chose", async () => {
+  // It used to be emitted before routing, carrying the candidate list -- so the log
+  // recorded a selection that the receipt could then contradict.
+  const complete = say("ok", { failFirst: 1 });
+  const rt = runtime({ complete });
+  const result = await rt.run({ agentId: "planner", task: "x" });
+  const selected = result.events.filter((e) => e.type === "agent.model_selected");
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0].model, "gem/gemini-2.5-pro");
+});
+
+test("the candidate set is reported as a plan, not as a selection", async () => {
+  const complete = say("ok");
+  const rt = runtime({ complete });
+  const result = await rt.run({ agentId: "planner", task: "x" });
+  const planned = result.events.filter((e) => e.type === "agent.route_planned");
+  assert.equal(planned.length, 1);
+  assert.ok(Array.isArray(planned[0].candidates));
+  assert.equal(planned[0].model, undefined, "a plan has no model in it");
+});
+
+test("a cancelled run emits cancelled, not failed", async () => {
+  // One AGENT_FAILED carrying a `timedOut` flag invites every consumer to read one
+  // field and treat a cancellation as a failure -- the conflation the orthogonal
+  // result state exists to prevent, reappearing at the event layer.
+  const controller = new AbortController();
+  const complete = () => {
+    controller.abort("user stopped it");
+    return Promise.resolve({ text: "ok" });
+  };
+  const rt = runtime({ complete, specs: [agent({ bounds: { maxIterations: 4 } })] });
+  const result = await rt.run({ agentId: "planner", task: "x", signal: controller.signal });
+
+  assert.equal(result.cancelled, true);
+  assert.equal(result.state, STATE.CANCELLED);
+  const types = result.events.map((e) => e.type);
+  assert.ok(types.includes("agent.cancelled"), "cancellation needs its own event");
+  assert.ok(!types.includes("agent.failed"), "cancellation is not a failure");
+});
+
+test("a timed-out run emits an error with kind timeout, not a plain failure", async () => {
+  let now = 1_000;
+  const rt = runtime({
+    complete: say("ok"),
+    now: () => (now += 5_000),
+    specs: [agent({ bounds: { timeoutMs: 1_000, maxIterations: 4 } })],
+  });
+  const result = await rt.run({ agentId: "planner", task: "x" });
+  assert.equal(result.timedOut, true);
+  const event = result.events.find((e) => e.type === "agent.error");
+  assert.ok(event, "a timeout must be reported as an error event");
+  assert.equal(event.kind, "timeout");
+});
+
+test("every state transition is recorded on the result, not only in the log", async () => {
+  // The log is best-effort and can be filtered or unavailable. A receipt that only
+  // exists in the log does not exist when someone reconstructs why a run stopped.
+  const rt = runtime({ complete: say("ok") });
+  const result = await rt.run({ agentId: "planner", task: "x" });
+  assert.ok(Array.isArray(result.states));
+  assert.ok(result.states.includes(STATE.CONTEXT_LOADING));
+  assert.ok(result.states.includes(STATE.RUNNING));
+  assert.ok(result.states.includes(STATE.COMPLETED));
+  assert.equal(result.states[result.states.length - 1], result.state);
+});
+
+// ---------------------------------------------------------------------------
+// persistence
+// ---------------------------------------------------------------------------
+
+test("the session records the outcome, not just the summary", async () => {
+  // "fixed the routing cascade" is close to useless a week later. What makes the
+  // entry worth reading is the model, the counts and the error, when there was one.
+  const appended = [];
+  const sessions = {
+    read: () => ({ id: "ses_1", entries: [] }),
+    append: (id, kind, payload) => {
+      appended.push({ id, kind, payload });
+      return { id };
+    },
+  };
+  const rt = runtime({ complete: say("ok"), sessions });
+  await rt.run({ agentId: "planner", task: "x", sessionId: "ses_1" });
+
+  assert.equal(appended.length, 1);
+  const { payload } = appended[0];
+  assert.equal(payload.agentId, "planner");
+  assert.equal(payload.completed, true);
+  assert.equal(payload.state, STATE.COMPLETED);
+  assert.ok(payload.model);
+  assert.equal(typeof payload.iterations, "number");
+  assert.ok(payload.output, "the output belongs in the record");
+});
+
+test("the result carries the blackboard reference so the two stores link up", async () => {
+  const recorded = [];
+  const rt = runtime({
+    complete: say("ok"),
+    blackboard: {
+      id: "bb_abc123",
+      recordImplementation: (entry) => recorded.push(entry),
+      summary: () => ({}),
+    },
+    sessions: { read: () => ({}), append: () => ({}) },
+  });
+  const result = await rt.run({ agentId: "planner", task: "x", sessionId: "ses_1" });
+  assert.equal(recorded.length, 1);
+  assert.equal(result.blackboardRef, "bb_abc123");
+  assert.equal(recorded[0].sessionId, "ses_1");
+});

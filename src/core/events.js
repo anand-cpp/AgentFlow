@@ -48,6 +48,11 @@ export const EVENTS = {
   // granular set below; the three legacy names stay declared for compatibility.
   AGENT_CONTEXT_LOADED: "agent.context_loaded",
   AGENT_MODEL_SELECTED: "agent.model_selected",
+  // The candidate set, emitted before routing. Separate from `model_selected` on
+  // purpose: nothing has been selected at this point, and an event named
+  // "selected" that fires before the choice invites a reader to trust a selection
+  // the router may never make.
+  AGENT_ROUTE_PLANNED: "agent.route_planned",
   AGENT_TOOL_REQUESTED: "agent.tool_requested",
   AGENT_TOOL_APPROVED: "agent.tool_approved",
   AGENT_TOOL_COMPLETED: "agent.tool_completed",
