@@ -45,10 +45,9 @@ jobs:
           AGENTFLOW_BASE_URL: "http://127.0.0.1:1"
         run: npm test
 
-      # Guards the published artefact. Push protection caught the OAuth leak on
-      # an earlier history; keep the check local so it is caught in review
-      # rather than at push time.
-      - name: No committed credentials
+      # Guards the published working tree. This check alone is not sufficient --
+      # see the `secrets-history` job below for why.
+      - name: No committed credentials in working tree
         env:
           AGENTFLOW_API_KEY: ""
           AGENTFLOW_BASE_URL: "http://127.0.0.1:1"
@@ -71,3 +70,26 @@ jobs:
             echo "::error::unknown command exited 0"
             exit 1
           fi
+
+  # A working-tree scan cannot see a secret that was committed and later
+  # scrubbed. That is not hypothetical: this repository published a hardcoded
+  # Google API key (Windsurf registry) and an iFlow OAuth secret, both removed
+  # from HEAD within the same day, and both still reachable in history -- which
+  # is why GitHub raised a public secret scanning alert against a repository
+  # whose source was clean.
+  #
+  # fetch-depth: 0 is load-bearing. The default shallow clone has one commit, so
+  # a history scan against it would silently pass while checking nothing.
+  secrets-history:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan every reachable blob for credentials
+        # Non-blocking while the two known legacy findings are still in history.
+        # This becomes blocking once the history is purged; the assertion that
+        # it works today lives in test/scan-secrets.test.js.
+        continue-on-error: true
+        run: node scripts/scan-secrets.mjs --history
