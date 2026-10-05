@@ -28,6 +28,13 @@ export const DEFAULTS = Object.freeze({
   probeTimeoutMs: 15000,
   // Model used when a command needs one and none was given.
   defaultModel: null,
+  // Declared capability hints, keyed by model id, e.g.
+  //   "modelHints": { "openai/gpt-5": { "toolCalling": true, "capabilities": ["coding"] } }
+  // The router only *infers* a few capabilities from a model id; anything it
+  // cannot infer (tool calling above all) is unroutable until declared here. Left
+  // empty by default because a wrong hint means an agent runs with tools it cannot
+  // call, and silence is the safer default.
+  modelHints: {},
   // Minimum confidence before doctor reports a provider as reachable.
   theme: "auto",
   // Emit structured JSON on stdout instead of human-readable text.

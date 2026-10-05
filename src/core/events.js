@@ -55,7 +55,17 @@ export const EVENTS = {
   AGENT_ROUTE_PLANNED: "agent.route_planned",
   AGENT_TOOL_REQUESTED: "agent.tool_requested",
   AGENT_TOOL_APPROVED: "agent.tool_approved",
+  // The three terminal tool states, separated rather than folded into
+  // AGENT_TOOL_COMPLETED with a status field. AGENT_TOOL_COMPLETED fires for every
+  // call that returned a result object, including refusals and failures -- it means
+  // "the pipeline finished", not "it worked". A consumer that has to check a status
+  // field to learn whether a tool failed is doing the same work the event type was
+  // supposed to do for it, and a dashboard built on the lazy version reports a
+  // refusal as a success.
+  AGENT_TOOL_STARTED: "agent.tool_started",
   AGENT_TOOL_COMPLETED: "agent.tool_completed",
+  AGENT_TOOL_FAILED: "agent.tool_failed",
+  AGENT_TOOL_CANCELLED: "agent.tool_cancelled",
   AGENT_OUTPUT: "agent.output",
   AGENT_FAILED: "agent.failed",
   AGENT_RETRYING: "agent.retrying",
