@@ -202,9 +202,28 @@ export class ProviderHealth {
   }
 
   getProviderStatus(provider) {
-    if (!provider) return { status: PROVIDER_STATUS.UNKNOWN };
-    const rec = this._providers.get(String(provider));
-    if (!rec) return { status: PROVIDER_STATUS.UNKNOWN };
+    const key = provider == null ? "" : String(provider);
+    const rec = key ? this._providers.get(key) : null;
+    if (!rec) {
+      return {
+        provider: key || null,
+        status: PROVIDER_STATUS.UNKNOWN,
+        circuitState: CIRCUIT_STATE.CLOSED,
+        consecutiveFailures: 0,
+        failureCount: 0,
+        successCount: 0,
+        openedAt: null,
+        halfOpenAllowedAt: null,
+        nextProbeAt: null,
+        lastSuccessAt: null,
+        lastFailureAt: null,
+        lastProbeAt: null,
+        lastOutcome: null,
+        lastFailureType: null,
+        backoffMs: 0,
+        history: [],
+      };
+    }
     const cb = rec.cb.stateInfo;
     return {
       provider: rec.provider,
