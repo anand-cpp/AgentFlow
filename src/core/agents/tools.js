@@ -352,25 +352,39 @@ export async function runTool(agent, tool, call, ctx = {}) {
     }
 
     // Permission, then approval, then guards. See the ordering note at the top.
-    const verdict = evaluatePermission(agent, tool, state.call, { approver });
-    if (verdict.decision === "deny") {
-      return finish(denyResult(state, verdict.reason, "pre-execute", log));
-    }
-    if (verdict.decision === "ask") {
-      let approved = false;
-      try {
-        approved = (await approver(state.call, tool)) === true;
-      } catch {
-        // Fail closed. An approver that crashes -- a closed dialog, a dead TTY,
-        // a lost connection -- must never read as consent. Strict `=== true` too:
-        // a UI returning 1 or "yes" has not answered the question that was asked.
-        approved = false;
+const verdict = evaluatePermission(agent, tool, state.call, { approver });
+      if (verdict.decision === "deny") {
+        notify(ctx.onDecision, state, { decision: "deny", granted: false, reason: verdict.reason });
+        return finish(denyResult(state, verdict.reason, "pre-execute", log));
       }
-      state.approval = { granted: approved, reason: verdict.reason };
-      if (!approved) {
-        return finish(denyResult(state, "approval was not granted", "pre-execute", log));
+      if (verdict.decision === "ask") {
+        let approved = false;
+        try {
+          approved = (await approver(state.call, tool)) === true;
+        } catch {
+          // Fail closed. An approver that crashes -- a closed dialog, a dead TTY,
+          // a lost connection -- must never read as consent. Strict `=== true` too:
+          // a UI returning 1 or "yes" has not answered the question that was asked.
+          approved = false;
+        }
+        state.approval = { granted: approved, reason: verdict.reason };
+        // Announced here, at the instant the authority settles, rather than by the
+        // caller after runTool returns. The caller cannot know the outcome before it
+        // happens, so a post-hoc event necessarily arrives after the tool has already
+        // run -- and an event log that reads `started` before `approved` is not
+        // describing the order things happened in. Observation only: the decision was
+        // made above and this hook cannot change it.
+        notify(ctx.onDecision, state, {
+          decision: "ask",
+          granted: approved,
+          reason: verdict.reason,
+        });
+        if (!approved) {
+          return finish(denyResult(state, "approval was not granted", "pre-execute", log));
+        }
+      } else {
+        notify(ctx.onDecision, state, { decision: "allow", granted: null, reason: null });
       }
-    }
 
     // Step 2: monotonic guards. May only remove authority.
     for (const guard of guards) {
@@ -394,6 +408,12 @@ export async function runTool(agent, tool, call, ctx = {}) {
     // The attempt is recorded before dispatch, not after.
     attempt = { tool: state.call.tool, scope: state.call.scope, args: state.call.args };
     log.emit("tool.call", attempt);
+    // And so is the fact that execution is beginning. This is the only point in the
+    // pipeline at which "started" is true: permission, approval and the guards have
+    // all cleared, and the tool body has not yet run. A caller that emitted it before
+    // asking for permission would be reporting a call as started that is about to be
+    // refused -- which is how a log ends up claiming work happened that never did.
+    notify(ctx.onDispatch, state, { phase: "dispatch" });
   } catch (err) {
     return finish(errorResult(state, err, "pre-execute", log));
   }
@@ -498,8 +518,40 @@ function errorResult(state, err, step, log) {
 }
 
 function nullLog() {
-  return { emit() { return null; }, errorCount: 0 };
-}
+    return { emit() { return null; }, errorCount: 0 };
+  }
+
+  /**
+   * Tell a caller what the pipeline just decided, at the moment it decided.
+   *
+   * Two hooks, both strictly observers: `onDecision` at the permission verdict, and
+   * `onDispatch` at the moment the tool body is about to run. They exist because the
+   * caller cannot know either fact in advance, and reconstructing them afterwards
+   * gives the wrong answer -- a "started" event emitted before permission was
+   * requested reports work that may never have happened.
+   *
+   * Observation only. The hooks run after the fact is fixed and return nothing the
+   * pipeline consults, so adding them cannot turn one decision point into two -- which
+   * is the failure this whole module exists to prevent. A hook that throws is
+   * swallowed for the same reason a throwing logger is: an observer that can take
+   * down a run it is only watching has the wrong power.
+   */
+  function notify(hook, state, info) {
+    if (typeof hook !== "function") return;
+    try {
+      hook({
+        ...info,
+        tool: state.call.tool,
+        scope: state.call.scope,
+        // The call as judged, not as requested. Only pre-execute may transform, and
+        // it has already run at this point, so this is the exact call that is about
+        // to run or has just been refused.
+        args: state.call.args,
+      });
+    } catch {
+      /* an observer must not be able to fail the call it observes */
+    }
+  }
 
 export default {
   runTool,

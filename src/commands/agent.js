@@ -31,6 +31,8 @@ import { defineCommand } from "../cli/registry.js";
 import { builtinSpecs } from "../core/agents/definitions.js";
 import { AgentRegistry, TOOL_SCOPE } from "../core/agents/registry.js";
 import { AgentRuntime, STATE } from "../core/agents/runtime.js";
+import { resolveWorkspaceRoot, ROOT_SOURCE } from "../core/agents/workspace.js";
+import { createRealTools } from "../core/agents/real-tools.js";
 import { Router } from "../core/routing.js";
 import { complete, listModels } from "../core/gateway.js";
 import { EventLog, defaultLogPath } from "../core/events.js";
@@ -49,6 +51,24 @@ function usage(message) {
 
 function registry() {
   return new AgentRegistry(builtinSpecs());
+}
+
+/**
+ * Declared model hints, defensively normalised.
+ *
+ * `checkRequirements` treats a hint as a capability grant, so a malformed entry must
+ * not throw here: a typo in config would otherwise turn "this model is missing a
+ * capability" into "the CLI crashed", and the operator would be debugging the wrong
+ * thing. Non-object entries are dropped rather than passed on.
+ */
+function modelHints(config) {
+  const raw = config?.modelHints;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [modelId, hint] of Object.entries(raw)) {
+    if (modelId && hint && typeof hint === "object" && !Array.isArray(hint)) out[modelId] = hint;
+  }
+  return out;
 }
 
 /**
@@ -270,98 +290,189 @@ function makeApprover(flags) {
 // ---------------------------------------------------------------------------
 
 async function runSub(args, flags, out, config) {
-  const [id, ...rest] = args;
-  if (!id) throw usage('which agent: aflow agent run <id> "the task"');
+const [id, ...rest] = args;
+if (!id) throw usage('which agent: aflow agent run <id> "the task"');
 
-  const task = rest.join(" ").trim() || (flags.task ? String(flags.task) : "");
-  if (!task) throw usage('nothing to do: aflow agent run <id> "the task"');
+const task = rest.join(" ").trim() || (flags.task ? String(flags.task) : "");
+if (!task) throw usage('nothing to do: aflow agent run <id> "the task"');
 
-  const reg = registry();
-  const agent = reg.get(id);
+const reg = registry();
+const agent = reg.get(id);
 
-  const log = new EventLog({
-    file: flags["log-file"] || config.logPath || defaultLogPath(),
-    level: config.logLevel,
-  });
+// Resolved once, here, and validated before anything is dispatched. The model
+// never names this: containment has to be a fact about the run, not a value the
+// model supplied, or an agent that wanted a wider root would simply ask for one.
+// `--workspace` is explicit, `--project` is the next fallback, and the process
+// cwd is the last. Whichever wins is printed, because "which tree did this run
+// touch" is the first question anyone asks afterwards.
+const workspace = resolveWorkspaceRoot({
+explicit: flags.workspace ? String(flags.workspace) : null,
+projectRoot: flags.project ? String(flags.project) : null,
+cwd: process.cwd(),
+});
 
-  // The catalogue is best-effort context for the routing receipt -- it lets a 404
-  // be told apart from a bad credential. A failure here is not a reason to refuse
-  // to run.
-  let catalogue = [];
+const log = new EventLog({
+  file: flags["log-file"] || config.logPath || defaultLogPath(),
+  level: config.logLevel,
+});
+
+// The catalogue is best-effort context for the routing receipt -- it lets a 404
+// be told apart from a bad credential. A failure here is not a reason to refuse
+// to run.
+let catalogue = [];
+try {
+  catalogue = await listModels(config);
+} catch {
+  /* optional */
+}
+
+const sessions = new SessionStore({
+  dir: flags["state-dir"] ? String(flags["state-dir"]) : defaultSessionsDir(),
+});
+
+const blackboard = new BlackboardStore({
+  dir: flags["blackboard-dir"] ? String(flags["blackboard-dir"]) : defaultBlackboardDir(),
+  // Scoped to the same tree the tools are confined to. Two roots would let the
+  // Blackboard record work the tools could not have reached, or vice versa.
+  projectRoot: workspace.root,
+});
+// Created on first use for a project. Every write below is a no-op against a
+// missing Blackboard, so without this the first agent run in a fresh checkout
+// records a session and silently records no project state -- and the silence is
+// indistinguishable from "nothing happened".
+if (!blackboard.exists()) {
   try {
-    catalogue = await listModels(config);
-  } catch {
-    /* optional */
+    blackboard.create({ goal: task, objective: `first agent run in ${workspace.root}` });
+  } catch (err) {
+    log.emit("agent.blackboard_unavailable", { error: err?.message ?? String(err) }, "warn");
   }
+}
 
-  // One runtime per run. It builds its own Router from the resolved plan, which is
-  // what keeps the health cache alive across iterations of a single task.
-  const runtime = new AgentRuntime({
-    registry: reg,
-    complete: (cfg, modelId, prompt, opts) => complete(cfg, modelId, prompt, opts),
-    catalogue,
-    log,
-    config,
-    approver: makeApprover(flags),
-    blackboard: new BlackboardStore({
-      dir: flags["blackboard-dir"] ? String(flags["blackboard-dir"]) : defaultBlackboardDir(),
-      projectRoot: flags.project ? String(flags.project) : process.cwd(),
-    }),
-    sessions: new SessionStore({ dir: flags["state-dir"] ? String(flags["state-dir"]) : defaultSessionsDir() }),
-  });
+// A run with no session would leave the tool calls it made in no retrievable
+// place, so one is created rather than skipped. Continuing an existing session
+// still takes precedence: `--session` means "add to this", and silently
+// starting a second store for the same task would split its history in two.
+let sessionId = flags.session ? String(flags.session) : null;
+if (!sessionId) {
+  try {
+    const created = sessions.create({
+      objective: task,
+      projectRoot: workspace.root,
+      agents: [agent.id],
+    });
+    sessionId = created?.id ?? null;
+  } catch (err) {
+    // A session that cannot be written is a degraded run, not a failed one: the
+    // task may still complete, and refusing to start would make a full disk look
+    // like a broken agent. The reason travels on the result below.
+    log.emit("agent.session_unavailable", { error: err?.message ?? String(err) }, "warn");
+  }
+}
 
-  const result = await runtime.run({
-    agentId: agent.id,
-    task,
-    sessionId: flags.session ? String(flags.session) : null,
-  });
+// One runtime per run. It builds its own Router from the resolved plan, which is
+// what keeps the health cache alive across iterations of a single task.
+const runtime = new AgentRuntime({
+  registry: reg,
+  // The real implementations, keyed by the same names the registry's allowlist
+  // refers to. Passing an empty Map here -- which is what this used to do --
+  // meant every tool call resolved to "no such tool", so the whole permission
+  // waterfall was unreachable from the CLI.
+  tools: createRealTools(),
+  complete: (cfg, modelId, prompt, opts) => complete(cfg, modelId, prompt, opts),
+  catalogue,
+  // The user's declared capability metadata. Without it an agent that requires
+  // `tool_calling` can never be routed -- inference cannot reach that fact --
+  // so the CLI refused to run tool-using agents no matter how healthy the
+  // gateway was. Declared here rather than inferred so the source of every
+  // capability decision stays inspectable.
+  hints: modelHints(config),
+  log,
+  config,
+  approver: makeApprover(flags),
+  workspaceRoot: workspace,
+  blackboard,
+  sessions,
+});
 
-  return out.init(
-    { agentId: agent.id, task, result },
-    (r) => {
-      const res = r.result;
-      const lines = [heading(bold(`aflow agent run ${r.agentId}`)), ""];
+const result = await runtime.run({
+  agentId: agent.id,
+  task,
+  sessionId,
+});
 
-      // The four outcomes are orthogonal, so they are reported as four separate
-      // facts. A run that both timed out and failed a contract is not "timed out" --
-      // that reading loses the second fact.
-      const facts = [];
-      if (res.completed) facts.push(green("completed"));
-      if (res.timedOut) facts.push(yellow("timed out"));
-      if (res.cancelled) facts.push(yellow("cancelled"));
-      if (!res.completed && !res.timedOut && !res.cancelled) facts.push(red("failed"));
+// Awaited, not returned. `out.init` returns a promise, so a bare `return` would
+// hand the exit code back as a resolved promise nobody reads -- and this function
+// would always look like it succeeded.
+await out.init(
+  { agentId: agent.id, task, sessionId, workspace: workspace.describe(), result },
+  (r) => {
+    const res = r.result;
+    const lines = [heading(bold(`aflow agent run ${r.agentId}`)), ""];
 
-      lines.push(
-        `${bold("outcome")}  ${facts.join(dim(", "))}   ${dim(`${res.iterations} iteration(s), ${res.toolCalls} tool call(s), ${res.model ?? "no model"}`)}`,
-      );
+    // The four outcomes are orthogonal, so they are reported as four separate
+    // facts. A run that both timed out and failed a contract is not "timed out" --
+    // that reading loses the second fact.
+    const facts = [];
+    if (res.completed) facts.push(green("completed"));
+    if (res.timedOut) facts.push(yellow("timed out"));
+    if (res.cancelled) facts.push(yellow("cancelled"));
+    if (!res.completed && !res.timedOut && !res.cancelled) facts.push(red("failed"));
 
-      if (res.error) lines.push(`${bold("error")}     ${red(String(res.error.message ?? res.error))}`);
+    lines.push(
+      `${bold("outcome")}  ${facts.join(dim(", "))}   ${dim(`${res.iterations} iteration(s), ${res.toolCalls} tool call(s), ${res.model ?? "no model"}`)}`,
+    );
 
-      if (res.output) {
-        lines.push("", bold("output"));
-        lines.push(`  ${bold("summary")}  ${res.output.summary ?? ""}`);
-        for (const [key, value] of Object.entries(res.output)) {
-          if (key === "summary" || value === null || value === undefined) continue;
-          lines.push(`  ${dim(key.padEnd(14))} ${formatValue(value)}`);
+    if (res.error) lines.push(`${bold("error")}     ${red(String(res.error.message ?? res.error))}`);
+    // Printed because it is the fact that makes the rest of the output auditable:
+    // which tree the tools were confined to, and how that was decided.
+    lines.push(`${bold("workspace")} ${r.workspace.root} ${dim(`(${r.workspace.source})`)}`);
+    // A symlinked checkout resolving somewhere else is expected, but surprising
+    // if unmentioned -- so it is mentioned rather than left to be discovered.
+    if (r.workspace.linked) {
+      lines.push(dim(`           asked for ${r.workspace.requested}`));
+    }
+    if (r.sessionId) lines.push(`${bold("session")}   ${dim(r.sessionId)}`);
+    if (res.persistError) lines.push(`${bold("persist")}   ${yellow(res.persistError)}`);
+
+    if (res.output) {
+      lines.push("", bold("output"));
+      lines.push(`  ${bold("summary")}  ${res.output.summary ?? ""}`);
+      for (const [key, value] of Object.entries(res.output)) {
+        if (key === "summary" || value === null || value === undefined) continue;
+        lines.push(`  ${dim(key.padEnd(14))} ${formatValue(value)}`);
+      }
+    }
+
+    // The bounded records, not `toolResults`. Those carry the payloads, which are
+    // already in the session; this display is for "what did it do", and printing
+    // a 256KB read into a terminal would answer neither question.
+    if (res.toolExecutions?.length) {
+      lines.push("", bold("tools"));
+      for (const t of res.toolExecutions) {
+        const mark =
+          t.status === "ok" ? green("ok") : t.status === "denied" ? yellow("denied") : red(t.status);
+        const detail = t.errorMessage || t.summary || "";
+        lines.push(`  ${mark.padEnd(18)} ${dim(t.tool.padEnd(20))} ${dim(truncate(detail, 70))}`);
+        if (t.truncated?.output) {
+          lines.push(`  ${" ".repeat(18)} ${dim(`output bounded at ${t.truncated.limit ?? "?"} bytes`)}`);
         }
       }
+    }
 
-      if (res.toolResults.length) {
-        lines.push("", bold("tools"));
-        for (const t of res.toolResults) {
-          const mark = t.outcome === "ok" ? green("ok") : t.outcome === "denied" ? yellow("denied") : red(t.outcome);
-          lines.push(`  ${mark.padEnd(18)} ${dim(t.tool)} ${dim(truncate(t.reason ?? "", 70))}`);
-        }
-      }
+  lines.push("", dim(`state: ${res.state}`));
+  if (res.plan) {
+    lines.push(dim(`tried: ${(res.plan.attempts ?? res.plan.candidates ?? []).length} model(s)`));
+  }
+  lines.push(dim(`detail: aflow agent run ${r.agentId} "${truncate(r.task, 50)}" --json`));
+  return lines.join("\n");
+},
+);
 
-      lines.push("", dim(`state: ${res.state}`));
-      if (res.plan) {
-        lines.push(dim(`tried: ${(res.plan.attempts ?? res.plan.candidates ?? []).length} model(s)`));
-      }
-      lines.push(dim(`detail: aflow agent run ${r.agentId} "${truncate(r.task, 50)}" --json`));
-      return lines.join("\n");
-    },
-  );
+// The exit code is the last thing `run` returns, after the output. A failed run that
+// exits 0 is worse than one that exits 1: it makes `aflow agent run` usable in a
+// `&&` chain or a CI step while silently doing nothing, and the printed report is
+// the only thing that says otherwise.
+return result.completed ? 0 : NOT_COMPLETED;
 }
 
 function formatValue(value) {
@@ -382,51 +493,59 @@ function formatValue(value) {
 // ---------------------------------------------------------------------------
 
 export const agentCommand = defineCommand("agent", {
-  summary: "run and inspect the built-in agents",
-  valueFlags: ["task", "session", "state-dir", "blackboard-dir", "project", "log-file"],
-  usage: `aflow agent [list]
-  aflow agent show <id>
-  aflow agent run <id> "<task>" [--session ID] [--yes | --deny]
+    summary: "run and inspect the built-in agents",
+    valueFlags: ["task", "session", "state-dir", "blackboard-dir", "project", "workspace", "log-file"],
+    usage: `aflow agent [list]
+    aflow agent show <id>
+    aflow agent run <id> "<task>" [--session ID] [--workspace PATH] [--yes | --deny]
 
-  list    the built-in agents and what each may do
-  show    one agent's declaration: scopes, allowlist, gates, bounds, contracts
-  run     execute an agent against a task
+    list    the built-in agents and what each may do
+    show    one agent's declaration: scopes, allowlist, gates, bounds, contracts
+    run     execute an agent against a task
 
-  --session ID          continue an existing session (adds its context)
-  --state-dir PATH      where sessions live
-  --blackboard-dir PATH where the blackboard lives
-  --project PATH        project root, for blackboard scoping
-  --yes                 approve every gated tool action without asking
-  --deny                refuse every gated tool action
-  --json                machine-readable output
+    --session ID          continue an existing session (adds its context)
+    --workspace PATH      the only tree the tools may read or write
+    --state-dir PATH      where sessions live
+    --blackboard-dir PATH where the blackboard lives
+    --project PATH        project root, for blackboard scoping
+    --yes                 approve every gated tool action without asking
+    --deny                refuse every gated tool action
+    --json                machine-readable output
 
-Exit codes: 0 completed, 1 failed/timed out/cancelled, 2 usage.
+  Exit codes: 0 completed, 1 failed/timed out/cancelled, 2 usage.
 
-The built-in agents:
+  Every run gets a session, created for you if you did not name one, so the tool calls
+  it made stay retrievable afterwards. Pass --session ID to continue an existing one.
 
-  planner      turn an objective into a checkable plan          read-only
-  coder        implement a change and show evidence              writes, asks
-  reviewer     judge a change against its intent                read-only
-  debugger     find the actual cause, then fix that              writes, asks
-  tester       prove it works, or prove exactly that it does not writes, asks
-  researcher   answer from evidence, say how confident           read-only, network asks
-  security     find the vulnerability that is actually there     read-only
-  release      prepare and verify; publish only when told       asks about everything
+  The workspace defaults to --project, then to the current directory, and is resolved
+  to a physical path before anything runs. It is not negotiable from inside a run: a
+  model that could choose its own root could choose a wider one.
 
-Approval is interactive on a terminal. Without one, gated actions are refused --
-run with --yes if you mean it.
+  The built-in agents:
 
-An agent's scopes decide what it may do. Its instructions do not. The model is the
-untrusted party, so "do not push" in a prompt is not a control and is not treated as
-one; a control is an entry in the allowlist.
+    planner      turn an objective into a checkable plan          read-only
+    coder        implement a change and show evidence              writes, asks
+    reviewer     judge a change against its intent                read-only
+    debugger     find the actual cause, then fix that              writes, asks
+    tester       prove it works, or prove exactly that it does not writes, asks
+    researcher   answer from evidence, say how confident           read-only, network asks
+    security     find the vulnerability that is actually there     read-only
+    release      prepare and verify; publish only when told       asks about everything
 
-Examples
-  aflow agent
-  aflow agent show coder
-  aflow agent run planner "add a health endpoint"
-  aflow agent run coder "fix the null deref in routing.js" --json
+  Approval is interactive on a terminal. Without one, gated actions are refused --
+  run with --yes if you mean it.
 
-Nothing is dispatched to a provider by list or show.`,
+  An agent's scopes decide what it may do. Its instructions do not. The model is the
+  untrusted party, so "do not push" in a prompt is not a control and is not treated as
+  one; a control is an entry in the allowlist.
+
+  Examples
+    aflow agent
+    aflow agent show coder
+    aflow agent run planner "add a health endpoint"
+    aflow agent run coder "fix the null deref in routing.js" --workspace . --json
+
+  Nothing is dispatched to a provider by list or show.`,
   run: async ({ args, flags, out, config }) => {
     const [sub = "list", ...rest] = args;
     try {
