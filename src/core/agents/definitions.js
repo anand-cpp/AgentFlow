@@ -34,9 +34,6 @@ const T = TOOL_SCOPE;
  */
 const READ_ONLY = { scopes: [T.READ, T.SEARCH], allow: ["read:*", "search:*"] };
 
-/** Read, plus write for agents whose job is to change files. */
-const READ_WRITE = { ...READ_ONLY, scopes: [T.READ, T.SEARCH, T.WRITE], allow: ["read:*", "search:*", "write:*"] };
-
 export const PLANNER = defineAgent({
   id: "planner",
   name: "Planner",

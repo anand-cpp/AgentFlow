@@ -25,9 +25,9 @@ import { redactDeep } from "../redact.js";
 import { ENTRY_KIND } from "../sessions.js";
 import { SEVERITY, FINDING_SOURCE } from "../blackboard.js";
 import { resolveModelPlan, explainPlan } from "./requirements.js";
-import { buildAgentContext, renderContext, ContextError } from "./context.js";
+import { buildAgentContext, renderContext } from "./context.js";
 import { runTool, OUTCOME } from "./tools.js";
-import { AgentError, AgentNotFoundError } from "./registry.js";
+import { AgentNotFoundError } from "./registry.js";
 import { WorkspaceRoot } from "./workspace.js";
 
 /**

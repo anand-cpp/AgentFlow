@@ -199,6 +199,7 @@ function normaliseName(raw, fallback) {
   if (!s) return fallback;
   // Control characters would corrupt the terminal and the JSONL echo of a
   // session; strip them rather than trusting input that ends up in a TUI.
+  // eslint-disable-next-line no-control-regex -- matching control chars is the intent
   const cleaned = s.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
   return cleaned.slice(0, MAX_NAME_LENGTH) || fallback;
 }

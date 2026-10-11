@@ -11,7 +11,6 @@
 
 import { redactDeep } from "../redact.js";
 import {
-  ATTACK_VECTOR,
   ATTACK_VECTOR_SPECS,
   CRUCIBLE_ATTACK_SCHEMA,
   CRUCIBLE_SCHEMA_VERSION,
@@ -180,7 +179,7 @@ function parseAttackJson(text) {
  * proposals and several vectors loses at most one lens and can still report the
  * rest -- and can report that it lost one.
  */
-async function runOneAttack({ proposal, proposalId, vector, domain, completeFn, modelId, config, opts }) {
+async function runOneAttack({ proposal, vector, domain, completeFn, modelId, config, opts }) {
   const prompt = buildCruciblePrompt({ proposal, vector, domain });
   let text;
   try {

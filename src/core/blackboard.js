@@ -183,7 +183,7 @@ export class BlackboardNotFoundError extends BlackboardError {
 }
 
 export class BlackboardCorruptError extends BlackboardError {
-  constructor(file, cause) {
+  constructor(file) {
     super(`blackboard state at ${file} is unreadable and was left untouched`, "corrupt");
     this.name = "BlackboardCorruptError";
   }
@@ -388,7 +388,7 @@ export class BlackboardStore {
     }
     try {
       return assertVersion(result.value, BLACKBOARD_VERSION, file);
-    } catch (err) {
+    } catch {
       throw new BlackboardCorruptError(file);
     }
   }
