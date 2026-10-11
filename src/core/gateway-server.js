@@ -1,4 +1,4 @@
-// Standalone in-repo gateway server.
+﻿// Standalone in-repo gateway server.
 //
 // AgentFlow has always been a CLIENT: it talks to an external 9Router-derived
 // gateway over an OpenAI-compatible API. That is a real deployment tax -- the
@@ -46,6 +46,160 @@ export const GATEWAY_DEFAULTS = Object.freeze({
   host: "127.0.0.1",
   ollamaUrl: "http://127.0.0.1:11434",
 });
+
+// ---------------------------------------------------------------------------
+// Remote provider registry
+//
+// The gateway is OpenAI-compatible on the wire, and so are the hosted providers
+// it forwards to -- Groq, Cerebras, Mistral, Gemini (through its OpenAI-
+// compatible endpoint), and OpenRouter all accept POST /chat/completions with a
+// Bearer key. So a remote request needs no translation at all: resolve the
+// provider, attach its key, and pipe. Only the local Ollama backend needs
+// translation, because only Ollama does not speak OpenAI natively.
+//
+// Keys are read from the environment at request time and never copied onto the
+// instance, so a config dump, a process listing, or an error body cannot show a
+// provider credential the gateway never held.
+// ---------------------------------------------------------------------------
+
+export const PROVIDERS = Object.freeze({
+  groq: {
+    baseUrl: "https://api.groq.com/openai/v1",
+    envKeys: ["GROQ_API_KEY"],
+    models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"],
+  },
+  cerebras: {
+    baseUrl: "https://api.cerebras.ai/v1",
+    envKeys: ["CEREBRAS_API_KEY"],
+    models: ["llama3.1-8b", "llama3.1-70b", "qwen-3-32b"],
+  },
+  mistral: {
+    baseUrl: "https://api.mistral.ai/v1",
+    envKeys: ["MISTRAL_API_KEY"],
+    models: ["mistral-small-latest", "mistral-large-latest", "open-mistral-nemo", "codestral-latest"],
+  },
+  gemini: {
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    envKeys: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+    models: ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
+  },
+  openrouter: {
+    baseUrl: "https://openrouter.ai/api/v1",
+    envKeys: ["OPENROUTER_API_KEY"],
+    models: ["auto", "meta-llama/llama-3.3-70b-instruct:free", "mistralai/mistral-7b-instruct:free"],
+  },
+  ollama: {
+    baseUrl: GATEWAY_DEFAULTS.ollamaUrl,
+    envKeys: [],
+    models: [],
+    local: true,
+  },
+});
+
+const GATEWAY_USER_AGENT = `AgentFlow-Gateway/${GATEWAY_VERSION}`;
+
+// Heuristics for a model id that carries *no* provider prefix. Deliberately
+// narrow: a wrong guess silently routes a request to the wrong place, so we only
+// claim ids whose shape is distinctive, and only when that provider has a key.
+// Anything unmatched stays local.
+const MODEL_PATTERNS = [
+  { provider: "gemini", re: /^gemini-/i },
+  { provider: "mistral", re: /^(mistral-|codestral|open-mistral|open-mixtral|pixtral)/i },
+  { provider: "cerebras", re: /^llama3\.\d/i },
+  { provider: "groq", re: /^(llama-|mixtral|gemma|deepseek-)/i },
+];
+
+/**
+ * Thrown when a request names a remote provider whose API key is absent.
+ *
+ * Carries the provider and the env var(s) that would fix it, so the message is
+ * actionable -- "set GROQ_API_KEY" rather than "unauthorized" -- while still
+ * never containing a key.
+ */
+export class ProviderAuthMissingError extends Error {
+  constructor(provider, envKeys = []) {
+    const need =
+      envKeys.length <= 1
+        ? envKeys[0] || "an API key"
+        : `${envKeys[0]} (or ${envKeys.slice(1).join(", ")})`;
+    super(`Provider ${provider} requires ${need} to be set in environment`);
+    this.name = "ProviderAuthMissingError";
+    this.code = "provider_auth_missing";
+    this.provider = provider;
+    this.envKeys = [...envKeys];
+  }
+}
+
+/** First non-empty credential among a provider's accepted env vars. */
+function resolveProviderKey(spec, env) {
+  for (const envKey of spec?.envKeys || []) {
+    const value = env?.[envKey];
+    if (typeof value === "string" && value.trim()) return { key: value.trim(), envKey };
+  }
+  return { key: null, envKey: null };
+}
+
+/**
+ * Shallow-merge provider overrides over the built-in registry.
+ *
+ * Merging per provider (not replacing the whole table) lets a test point one
+ * provider at a mock port while keeping every other provider's key rules and
+ * catalogue intact.
+ */
+export function mergeProviders(overrides = {}) {
+  const out = {};
+  for (const [name, spec] of Object.entries(PROVIDERS)) out[name] = { ...spec };
+  for (const [name, spec] of Object.entries(overrides || {})) {
+    out[name] = { ...(out[name] || {}), ...spec };
+  }
+  return out;
+}
+
+/**
+ * Decide which upstream answers a chat request.
+ *
+ * A `<provider>/<model>` prefix wins and is stripped from the upstream model id.
+ * A known-prefix remote with no key is a hard error, because the user asked for
+ * that provider explicitly. A bare model id is matched against provider-shaped
+ * names heuristically; an unmatched id -- or a heuristic match with no
+ * credential -- falls back to local Ollama. The returned `apiKey` stays in
+ * process memory and must never be logged or reflected to a client.
+ */
+export function resolveTargetProvider(modelId, env = process.env, providers = PROVIDERS) {
+  const id = typeof modelId === "string" ? modelId : "";
+
+  const slash = id.indexOf("/");
+  if (slash > 0) {
+    const prefix = id.slice(0, slash);
+    const spec = providers[prefix];
+    if (spec) {
+      const model = id.slice(slash + 1);
+      if (spec.local) {
+        return { provider: prefix, model, baseUrl: spec.baseUrl, apiKey: null, local: true };
+      }
+      const { key } = resolveProviderKey(spec, env);
+      if (!key) throw new ProviderAuthMissingError(prefix, spec.envKeys || []);
+      return { provider: prefix, model, baseUrl: spec.baseUrl, apiKey: key, local: false };
+    }
+  }
+
+  for (const { provider, re } of MODEL_PATTERNS) {
+    if (!re.test(id)) continue;
+    const spec = providers[provider];
+    if (!spec || spec.local) continue;
+    const { key } = resolveProviderKey(spec, env);
+    if (!key) continue; // shaped like a remote model, but no credential to use
+    return { provider, model: id, baseUrl: spec.baseUrl, apiKey: key, local: false };
+  }
+
+  return {
+    provider: "ollama",
+    model: id,
+    baseUrl: providers.ollama?.baseUrl ?? GATEWAY_DEFAULTS.ollamaUrl,
+    apiKey: null,
+    local: true,
+  };
+}
 
 // Where the gateway looks on the local Ollama. Ollama's native API is used for
 // both: /api/tags lists installed models, /api/chat produces completions and
@@ -430,7 +584,7 @@ export class GatewayServer {
     // operator *meant* to expose the server. Say so rather than staying silent.
     if (this.apiKey && isLoopbackHost(this.host)) {
       this.log?.warn?.(
-        "API key configured but server bound to loopback — consider setting serverHost to 0.0.0.0 for remote access."
+        "API key configured but server bound to loopback ΓÇö consider setting serverHost to 0.0.0.0 for remote access."
       );
     }
 
@@ -721,9 +875,13 @@ export default {
   GatewayServer,
   GatewayPortConflictError,
   GatewayInsecureError,
+  ProviderAuthMissingError,
   assertSecureBind,
   GATEWAY_VERSION,
   GATEWAY_DEFAULTS,
+  PROVIDERS,
+  mergeProviders,
+  resolveTargetProvider,
   defaultServerDir,
   normaliseOllamaModels,
   newCompletionId,
