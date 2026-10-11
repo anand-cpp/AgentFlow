@@ -79,7 +79,7 @@ export function parseArgv(argv, valueFlags = new Set()) {
   return { commandName, args: rest, flags };
 }
 
-function renderVersion(config) {
+function renderVersion(_config) {
   return `${bold("aflow")} ${VERSION}\n${dim("terminal-first AI routing and agent platform")}`;
 }
 

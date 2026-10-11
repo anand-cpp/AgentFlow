@@ -53,6 +53,6 @@ export default [
     },
   },
   {
-    ignores: ["node_modules/**", ".next/**", "dist/**", "build/**", "out/**", "coverage/**"],
+    ignores: ["node_modules/**", ".next/**", "dist/**", "build/**", "out/**", "coverage/**", "open-sse/**"],
   },
 ];

@@ -30,10 +30,9 @@ import readline from "node:readline/promises";
 import { defineCommand } from "../cli/registry.js";
 import { builtinSpecs } from "../core/agents/definitions.js";
 import { AgentRegistry, TOOL_SCOPE } from "../core/agents/registry.js";
-import { AgentRuntime, STATE } from "../core/agents/runtime.js";
-import { resolveWorkspaceRoot, ROOT_SOURCE } from "../core/agents/workspace.js";
+import { AgentRuntime } from "../core/agents/runtime.js";
+import { resolveWorkspaceRoot } from "../core/agents/workspace.js";
 import { createRealTools } from "../core/agents/real-tools.js";
-import { Router } from "../core/routing.js";
 import { complete, listModels } from "../core/gateway.js";
 import { EventLog, defaultLogPath } from "../core/events.js";
 import { SessionStore, defaultSessionsDir } from "../core/sessions.js";
@@ -99,7 +98,7 @@ function privilegeColor(level) {
 // list
 // ---------------------------------------------------------------------------
 
-function listSub(out, flags) {
+function listSub(out, _flags) {
   const agents = registry().list();
   return out.init(
     {

@@ -15,7 +15,7 @@
 // a TTY rather than emitting escape codes into a pipe.
 
 import readline from "node:readline";
-import { setColor, bold, dim, table, statusColor, truncate, green, red, yellow, cyan } from "../cli/ui.js";
+import { setColor, bold, dim, table, statusColor, truncate, green, red } from "../cli/ui.js";
 
 const isTTY = process.stdout.isTTY && process.stdin.isTTY;
 
@@ -105,6 +105,7 @@ export function renderFrame(state, termWidth = 100) {
 }
 
 function widthOf(s) {
+  // eslint-disable-next-line no-control-regex -- matching ANSI ESC CSI sequences is the point
   return String(s).replace(/\u001b\[[0-9;]*m/g, "").length;
 }
 

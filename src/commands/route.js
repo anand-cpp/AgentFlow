@@ -11,7 +11,7 @@
 // so it is safe to run anywhere.
 
 import { defineCommand } from "../cli/registry.js";
-import { Router, tiersFromList, classifyFailure, FAILURE } from "../core/routing.js";
+import { Router, FAILURE } from "../core/routing.js";
 import { complete, listModels } from "../core/gateway.js";
 import { EventLog, EVENTS, defaultLogPath } from "../core/events.js";
 import { bold, dim, heading, table, statusColor, green, red, yellow } from "../cli/ui.js";

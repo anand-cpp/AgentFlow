@@ -36,16 +36,7 @@ test("synthetic fixtures have the real shapes", () => {
   assert.equal(SYNTHETIC_FIREBASE.length, 39);
 });
 
-function b64(s) {
-  return Buffer.from(s, "utf8").toString("base64");
-}
-
 /** A fetch stub that serves `body` at any ref. */
-function stubRetrievable(body) {
-  return async () =>
-    new Response(JSON.stringify({ encoding: "base64", content: b64(body) }), { status: 200 });
-}
-
 function stubStatus(status) {
   return async () => new Response("", { status });
 }

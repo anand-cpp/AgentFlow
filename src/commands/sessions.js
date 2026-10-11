@@ -25,14 +25,12 @@
 // which is what those cases want. Only *usage* mistakes are handled here, with
 // exit 2.
 
-import path from "node:path";
 import process from "node:process";
 import { defineCommand } from "../cli/registry.js";
 import {
   SessionStore,
   ENTRY_KIND,
   SESSION_STATE,
-  defaultSessionsDir,
 } from "../core/sessions.js";
 import { bold, dim, heading, table, statusColor, truncate, green, yellow, cyan, red } from "../cli/ui.js";
 

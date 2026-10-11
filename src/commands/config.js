@@ -4,11 +4,11 @@
 // command prints the resolved value AND the layer that supplied it.
 
 import { defineCommand } from "../cli/registry.js";
-import { resolveConfig, projectConfigPaths, globalConfigPath, DEFAULTS } from "../config/index.js";
+import { projectConfigPaths, globalConfigPath, DEFAULTS } from "../config/index.js";
 import { redactDeep } from "../core/redact.js";
 import { bold, dim, table, heading, cyan } from "../cli/ui.js";
 
-async function runConfig({ config, out, flags }) {
+async function runConfig({ config, out, _flags }) {
   const sources = [];
   const gp = globalConfigPath();
   const fs = await import("node:fs");
@@ -17,13 +17,6 @@ async function runConfig({ config, out, flags }) {
   if (Object.keys(process.env).some((k) => k.startsWith("AGENTFLOW_"))) {
     sources.push({ layer: "environment", file: "AGENTFLOW_*" });
   }
-
-  const keys = Object.keys(DEFAULTS);
-  const entries = keys.map((k) => ({
-    key: k,
-    value: formatValue(config[k]),
-    isDefault: JSON.stringify(config[k]) === JSON.stringify(DEFAULTS[k]),
-  }));
 
   // Never echo credentials, in either output mode. `aflow config` is a
   // diagnostic people paste into issues, so an unmasked API key here would

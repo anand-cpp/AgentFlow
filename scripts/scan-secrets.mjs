@@ -346,7 +346,7 @@ export function scanHistory(root = process.cwd(), refs = null) {
   let objects;
   try {
     objects = git(["rev-list", "--objects", ...targets], { cwd: root });
-  } catch (err) {
+  } catch {
     return { findings: [], scanned: 0, refs: targets, error: `cannot read history for ${targets.join(", ")}` };
   }
 

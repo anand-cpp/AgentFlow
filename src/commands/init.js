@@ -12,6 +12,7 @@ const TEMPLATE = {
 };
 
 async function runInit({ config, out, flags, args }) {
+  void config;
   const target = args[0] || CONFIG_BASENAME;
   const dryRun = Boolean(flags["dry-run"]);
 

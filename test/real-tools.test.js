@@ -54,10 +54,6 @@ async function call(tool, args, { agent, approver = null, signal = null, workspa
   return runTool(agent, tool, { tool: tool.name, args }, { approver, signal, workspaceRoot: root });
 }
 
-function errorCode(result) {
-  return result?.error?.code ?? null;
-}
-
 /** Assert a call was refused before it touched anything, with a given reason. */
 function assertRefused(result, expected) {
   assert.equal(result.outcome, OUTCOME.ERROR, `expected an error result, got ${result.outcome}`);

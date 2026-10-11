@@ -11,6 +11,7 @@ function parseLimit(raw, fallback = 50) {
 }
 
 async function runLogs({ config, out, flags }) {
+  void config;
   const file = flags.file || defaultLogPath();
   const level = LEVELS.includes(flags.level) ? flags.level : null;
   const limit = parseLimit(flags.limit, 50);

@@ -8,7 +8,7 @@
 
 import { defineCommand } from "../cli/registry.js";
 import { ping, probeModel, getVersion } from "../core/gateway.js";
-import { projectConfigPaths, globalConfigPath } from "../config/index.js";
+import { projectConfigPaths } from "../config/index.js";
 import { bold, dim, table, heading, symbol, statusColor, green, red, yellow } from "../cli/ui.js";
 import { oauthClientConfigured } from "../../open-sse/providers/shared.js";
 import { EventLog, EVENTS, defaultLogPath } from "../core/events.js";
@@ -35,7 +35,6 @@ function checkNodeVersion() {
 
 function checkConfig() {
   const project = projectConfigPaths();
-  const global = globalConfigPath();
   const sources = [];
   if (project.length) sources.push(`${project.length} project file(s)`);
   sources.push("defaults");

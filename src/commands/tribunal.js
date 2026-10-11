@@ -30,7 +30,7 @@ import { BlackboardStore } from "../core/blackboard.js";
 import { redactDeep } from "../core/redact.js";
 import { runFullTribunal } from "../core/tribunal/stage-oracle.js";
 import { renderFightCard, renderHistoryRow } from "../core/tribunal/formatter.js";
-import { bold, dim, heading, green, yellow, red, cyan } from "../cli/ui.js";
+import { bold, dim, heading } from "../cli/ui.js";
 
 const USAGE_ERROR = 2;
 

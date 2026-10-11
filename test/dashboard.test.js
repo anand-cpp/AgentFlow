@@ -62,6 +62,7 @@ test("empty probe result is reported honestly, not hidden", () => {
 
 test("no ANSI escapes leak when colour is disabled", () => {
   const out = renderFrame(baseState, 100);
+  // eslint-disable-next-line no-control-regex -- asserting that ANSI ESC sequences are absent
   assert.ok(!/\u001b\[/.test(out), "must be plain text when colour is off");
 });
 

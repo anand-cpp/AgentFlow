@@ -58,6 +58,7 @@ export const bgYellow = (t) => paint(t, "bgYellow");
 
 /** Visible width of a string, ignoring ANSI escapes. */
 export function width(str) {
+  // eslint-disable-next-line no-control-regex -- matching ANSI ESC CSI sequences is the point
   return String(str).replace(/\u001b\[[0-9;]*m/g, "").length;
 }
 
@@ -70,6 +71,7 @@ export function pad(str, target, align = "left") {
 
 /** Truncate to `max` visible chars, preserving colour escapes roughly. */
 export function truncate(str, max) {
+  // eslint-disable-next-line no-control-regex -- matching ANSI ESC CSI sequences is the point
   const plain = String(str).replace(/\u001b\[[0-9;]*m/g, "");
   if (plain.length <= max) return str;
   if (max <= 1) return plain.slice(0, Math.max(0, max));

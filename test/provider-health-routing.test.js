@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Router, FAILURE, buildNoRouteError } from "../src/core/routing.js";
+import { Router, buildNoRouteError } from "../src/core/routing.js";
 import { ProviderHealth, PROVIDER_STATUS, CIRCUIT_STATE, FAILURE_CLASS } from "../src/core/provider-health.js";
 
 const ok = (text = "hello") => ({ choices: [{ message: { content: text } }] });

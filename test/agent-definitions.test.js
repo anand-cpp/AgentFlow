@@ -229,7 +229,7 @@ test("the security agent must report what it did not check", () => {
 });
 
 test("the release agent has no silent path to anything irreversible", () => {
-  const release = new AgentRegistry(builtinSpecs()).get("release");
+  const _release = new AgentRegistry(builtinSpecs()).get("release");
   for (const command of ["npm publish", "git push origin main", "gh release create", "git tag -f v1", "npm run deploy"]) {
     for (const approver of [null, yes]) {
       assert.notEqual(permits("release", "shell", { command }, approver).decision, "allow",

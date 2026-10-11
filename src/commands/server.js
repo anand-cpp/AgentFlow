@@ -29,7 +29,7 @@ import {
   GATEWAY_VERSION,
   GATEWAY_DEFAULTS,
 } from "../core/gateway-server.js";
-import { bold, dim, heading, table, green, red, yellow, statusColor } from "../cli/ui.js";
+import { bold, dim, heading, table, green, red, yellow } from "../cli/ui.js";
 
 const USAGE_ERROR = 2;
 
@@ -410,7 +410,7 @@ Examples
   aflow server status --json
   aflow server stop`,
   run: async ({ args, flags, config, out }) => {
-    const [sub = "status", ...rest] = args;
+    const [sub = "status"] = args;
     try {
       switch (sub) {
         case "start":

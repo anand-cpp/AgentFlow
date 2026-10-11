@@ -110,6 +110,7 @@ test("name falls back to the first line of the objective", () => {
 test("control characters are stripped from names", () => {
   const { store } = tmpStore();
   const made = store.create({ name: "bad\u0000name\u001b[31m\u007f" });
+  // eslint-disable-next-line no-control-regex -- asserting the full control range is stripped
   assert.ok(!/[\u0000-\u001f\u007f]/.test(made.name), `control chars survived: ${JSON.stringify(made.name)}`);
 });
 
@@ -216,7 +217,7 @@ test("the fixtures above are real credential shapes, not decoration", () => {
 });
 
 test("a credential in a payload never reaches disk", () => {
-  const { dir, store } = tmpStore();
+  const { store } = tmpStore();
   const made = store.create({ objective: "normal objective" });
 
   store.append(made.id, ENTRY_KIND.CONVERSATION, {
