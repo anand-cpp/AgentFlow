@@ -61,6 +61,12 @@ export const ENTRY_KIND = {
   AGENT: "agent",
   BLACKBOARD_REF: "blackboard_ref",
   CHECKPOINT: "checkpoint",
+  // Context packets and provider transitions are recorded as entries so a
+  // session is a complete, replayable record of a cross-provider handoff: the
+  // packet the continuation ran on (context) and the provider/model switch that
+  // happened and why (provider_transition).
+  CONTEXT: "context",
+  PROVIDER_TRANSITION: "provider_transition",
 };
 
 const ENTRY_KINDS = new Set(Object.values(ENTRY_KIND));
@@ -439,6 +445,41 @@ export class SessionStore {
     });
   }
 
+  /**
+   * Record a context packet entry.
+   *
+   * The packet is the continuity contract: what a resumed provider was allowed
+   * to know. Persisting it alongside the session the continuation ran on keeps
+   * the handoff replayable. The full packet is stored -- it is already bounded
+   * by the packet budget, so entry-size is a non-issue.
+   */
+  recordContext(id, packet, { agent = null } = {}) {
+    return this.append(id, ENTRY_KIND.CONTEXT, {
+      packetRef: `${packet?.identity?.session ?? id}:${packet?.metadata?.builtAt ?? "unknown"}`,
+      chars: sizeOfValue(packet),
+      budget: packet?.metadata?.budget ?? null,
+      limitSource: packet?.metadata?.limitSource ?? null,
+      truncated: packet?.metadata?.truncated ?? {},
+      sources: packet?.metadata?.sources ?? {},
+      packet: packet ?? null,
+    }, { agent });
+  }
+
+  /**
+   * Record a provider transition entry: from which provider/model a section of
+   * work moved, to which, and the failure class and reason that moved it. This
+   * is the audit trail a later reader needs to judge whether a switch was
+   * justified.
+   */
+  recordProviderTransition(id, transition, { agent = null } = {}) {
+    return this.append(id, ENTRY_KIND.PROVIDER_TRANSITION, {
+      from: transition.from ?? null,
+      to: transition.to ?? null,
+      failureClass: transition.failureClass ?? null,
+      reason: transition.reason ?? null,
+    }, { agent });
+  }
+
   setArchived(id, archived = true) {
     return this.withLock(id, () => {
       const session = this.read(id);
@@ -544,6 +585,15 @@ function applyCounter(session, kind) {
 
 function dedupeStrings(values, where) {
   return [...new Set(values.map((v) => safe(String(v), where)).map((v) => v.trim()).filter(Boolean))];
+}
+
+function sizeOfValue(value) {
+  if (value === null || value === undefined) return 0;
+  try {
+    return JSON.stringify(value)?.length ?? 0;
+  } catch {
+    return 0;
+  }
 }
 
 function normaliseAgents(agents) {

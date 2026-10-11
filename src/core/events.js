@@ -76,6 +76,25 @@ export const EVENTS = {
   PLUGIN_ERROR: "plugin.error",
   SESSION_START: "session.start",
   SESSION_END: "session.end",
+  // Context packet lifecycle. Added for the continuity milestone; the names are
+  // the API, so they are declared here like every other event a log query may
+  // depend on. context.built fires when a packet is assembled and persisted;
+  // context.truncated names what the budget omitted; context.rejected fires
+  // when a packet cannot be built (for example, when its core alone overflows).
+  CONTEXT_BUILT: "context.built",
+  CONTEXT_TRUNCATED: "context.truncated",
+  CONTEXT_REJECTED: "context.rejected",
+  // Cross-provider continuation. provider.failure and provider.fallback are the
+  // switch-side events; continuation.started/completed/failed bracket the
+  // attempt on the new provider. tool.outcome_uncertain warns before anything
+  // with an unrecorded outcome is replayed.
+  PROVIDER_FAILED: "provider.failure",
+  FALLBACK_SELECTED: "provider.fallback",
+  CONTEXT_RECONSTRUCTED: "context.reconstructed",
+  CONTINUATION_STARTED: "continuation.started",
+  CONTINUATION_COMPLETED: "continuation.completed",
+  CONTINUATION_FAILED: "continuation.failed",
+  TOOL_OUTCOME_UNCERTAIN: "tool.outcome_uncertain",
 };
 
 /**
