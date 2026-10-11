@@ -61,6 +61,7 @@ export const ENTRY_KIND = {
   AGENT: "agent",
   BLACKBOARD_REF: "blackboard_ref",
   CHECKPOINT: "checkpoint",
+  TRIBUNAL_RUN: "tribunal_run",
 };
 
 const ENTRY_KINDS = new Set(Object.values(ENTRY_KIND));

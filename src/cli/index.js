@@ -113,7 +113,7 @@ function renderHelp(commands) {
 export const VERSION = "0.1.0";
 
 export async function run(argv) {
-  const { commandName, args, flags } = parseArgv(argv, valueFlagNames());
+  let { commandName, args, flags } = parseArgv(argv, valueFlagNames());
 
   if (flags["no-color"] || flags.color === false) setColor(false);
   else if (process.env.NO_COLOR !== undefined) setColor(false);
@@ -122,6 +122,16 @@ export async function run(argv) {
   const out = new Output({ json: config.json, quiet: config.quiet, verbose: config.verbose });
 
   for (const d of diagnostics) out.warn(dim(`config: ${d}`));
+
+  // `aflow --tribunal "<proposal>"` is sugar for `aflow tribunal run`. The flag
+  // is declared value-taking by the tribunal command, so the prompt lands in
+  // flags.tribunal (not as a stray positional); promote it to a real command
+  // invocation before the generic dispatch. `--tribunal` with no value is left
+  // alone and falls through to help.
+  if (!commandName && typeof flags.tribunal === "string" && flags.tribunal.trim()) {
+    commandName = "tribunal";
+    args.unshift("run", flags.tribunal);
+  }
 
   if (flags.version && !commandName) {
     await out.init({ version: VERSION }, renderVersion);

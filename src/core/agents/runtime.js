@@ -19,6 +19,7 @@
 // decision so there is a single place to look when the answer is wrong.
 
 import { Router } from "../routing.js";
+import { ProviderHealth } from "../provider-health.js";
 import { EVENTS } from "../events.js";
 import { redactDeep } from "../redact.js";
 import { ENTRY_KIND } from "../sessions.js";
@@ -99,6 +100,12 @@ export class AgentRuntime {
     approver = null,
     blackboard = null,
     sessions = null,
+    // Optional provider-level circuit breaker. Constructed here when not supplied
+    // so cooldowns actually apply during a run: the Router accepts a
+    // `providerHealth`, but nothing ever handed it one, which left the breaker
+    // dead in every real run. Injected, never a second one -- the Router owns the
+    // policy, this only holds the memory.
+    providerHealth = null,
     guards = [],
     config = null,
     // A resolved WorkspaceRoot, or a plain string. Resolved once, here, and frozen:
@@ -119,6 +126,10 @@ export class AgentRuntime {
     this.approver = approver;
     this.blackboard = blackboard;
     this.sessions = sessions;
+    // Constructed with this runtime's clock so it stays deterministic in tests,
+    // and stored on the instance so cooldown state survives across runs -- a
+    // breaker that forgot itself between runs would not be a breaker.
+    this.providerHealth = providerHealth || new ProviderHealth({ now: this.now });
     this.guards = guards;
     this.config = config;
     this.workspace = this.#bindWorkspace(workspaceRoot);
@@ -546,6 +557,11 @@ export class AgentRuntime {
           }),
         log: this.log,
         now: this.now,
+        // The single provider-level circuit breaker for this runtime. Without
+        // this line the Router still fell back model-to-model, but a provider
+        // that had just failed three times was re-tried immediately on the next
+        // request instead of cooling down.
+        providerHealth: this.providerHealth,
       });
 
       // --- loop ----------------------------------------------------------

@@ -32,21 +32,24 @@ That distinction — **advertised** versus **working** — is the product.
 
 ## Status
 
-Early. The CLI, routing engine, dashboard, and agent runtime are in place and
-tested. A plugin loader is not built yet.
+Early, but broad. The CLI, routing engine, dashboard, agent runtime, standalone
+gateway, and the five-stage tribunal are in place and tested. A plugin loader is
+not built yet.
 
 | Area | State |
 |---|---|
-| Routing engine (`open-sse/`) | Imported from 9Router, 89 providers |
-| CLI commands | Working, 558 tests passing |
+| Routing engine (`open-sse/`) | Imported from 9Router, adapted |
+| CLI commands | Working — 13 commands, comprehensive test suite (`npm test`) |
 | Live reachability probing | Working |
 | TUI dashboard | Working |
 | Sessions | Working — durable per-project work units |
 | Blackboard | Working — durable per-project workflow state |
 | Agent runtime | Working — bounded, registry-driven, eight built-ins |
 | Tool permissions | Working — scoped allowlists, approval, guards, audit log |
+| Cross-provider failover in the runtime | Working — `AgentRuntime` constructs a `ProviderHealth` breaker and hands it to the `Router`, so a provider that just failed cools down before it is retried |
+| Standalone gateway | Working — `aflow server` runs an in-repo OpenAI-compatible gateway (local Ollama plus remote Groq, Gemini, Cerebras, Mistral, OpenRouter) with SSE translation and API-key auth |
+| Tribunal | Working — five adversarial stages (Forge, Crucible, Merge, Trial, Oracle) with a `aflow tribunal` surface |
 | Plugin loader | Not started |
-| Standalone gateway | Runs via 9Router's server; bundled gateway in progress |
 
 See [`AUDIT/FEATURE_AUDIT.md`](AUDIT/FEATURE_AUDIT.md) for the full
 capability comparison and [`AUDIT/ARCHITECTURE_AUDIT.md`](AUDIT/ARCHITECTURE_AUDIT.md)
@@ -94,8 +97,13 @@ that via `AGENTFLOW_API_KEY` or leave it unset to probe anonymously.
 | `aflow blackboard` | Durable per-project workflow state: tasks, decisions, blockers, next action |
 | `aflow agent` | The built-in agent fleet: list, inspect a declaration, run one |
 | `aflow route` | Run a prompt through the fallback cascade, with a receipt |
+| `aflow tribunal` | Run the five-stage self-adversarial tribunal on a proposal |
+| `aflow server` | Run and control the standalone in-repo gateway |
 | `aflow logs` | Read the structured event log |
 | `aflow dashboard` | Interactive terminal dashboard |
+
+`aflow fight` is an alias for `aflow tribunal run`, and a bare
+`aflow --tribunal "<proposal>"` is sugar for the same thing.
 
 Every command takes `--json` for machine-readable output, so AgentFlow scripts
 cleanly instead of asking you to parse a table.
@@ -259,6 +267,66 @@ the routing cascade" is close to useless a week later.
 
 Pass `--json` for machine-readable output, as with every command.
 
+### Tribunal
+
+A model asked to check its own work tends to agree with itself. The tribunal
+takes that as the starting problem: it treats a proposal as a defendant and runs
+it through five adversarial stages, each one allowed to kill it.
+
+```
+Forge     the proposal is reviewed by a hostile-but-fair reader
+Crucible  it is cross-examined from four attack vectors; each finding must
+          carry a falsifiable proof
+Merge     surviving proposals are synthesized into one hybrid
+Trial     the hybrid is prosecuted for regressions and scope inflation
+Oracle    a confidence gate decides: VERIFIED, INSUFFICIENT_CONFIDENCE,
+          REJECTED, or ABORTED
+```
+
+```bash
+aflow tribunal run "switch the router to a least-recently-failed order"
+aflow tribunal run "…" --domain architecture --model oc/muse
+aflow tribunal history          # past verdicts, one line each
+aflow --tribunal "…"            # same as `tribunal run`
+```
+
+Every stage is **identity-blind** — the author of a proposal is stripped before
+any model sees it — and **fail-closed**: unreadable model output becomes a named
+`INVALID_*` or `MISTRIAL` result, never a crash and never a silent pass. A
+`VERIFIED` verdict requires confidence at or above the gate's threshold, and the
+whole run is recorded in the session store so a later run can answer *what we
+decided, and how sure we were*. Pass `--record` to also write the verdict to the
+project Blackboard.
+
+The run prints a fight card — one box, one section per round, everything the
+stages found:
+
+```
+  TRIBUNAL FIGHT CARD
+  id      trib_20261011T071530000Z_a1b2c3
+  domain  code
+  ROUND 2 · CRUCIBLE  cross-examination
+  proposal-1  survival 0.60  2 finding(s)
+    P1_MAJOR  EDGE_CASES   empty catalogue returns no fallback
+  ROUND 5 · ORACLE  the gate
+   VERIFIED   confidence 96.4%
+```
+
+### Server
+
+`aflow server` runs the gateway in-repo, so AgentFlow no longer requires a
+separately-installed 9Router service. It answers the OpenAI-compatible routes
+(`/api/version`, `/v1/models`, `/v1/chat/completions`), routing completions to a
+local Ollama instance. It binds to loopback by default, and refuses to bind a
+non-local interface without an API key set out-of-band.
+
+```bash
+aflow server start           # foreground
+aflow server start --daemon  # background
+aflow server status          # reachable? pid + uptime
+aflow server stop
+```
+
 ### Dashboard
 
 `aflow dashboard` opens a full-screen TUI — no web server, no browser.
@@ -384,13 +452,16 @@ Full derivation chain, file-level provenance, and modification log:
 ## Development
 
 ```bash
-npm test          # 43 tests, no network required
+npm test          # full suite, no network required
 ```
 
-Tests cover config precedence and walk-up discovery, argument parsing,
-command registration, TUI frame rendering, and credential redaction. They do
-not hit the network — live probing is exercised by `aflow doctor` against a
-running gateway.
+Run `npm test` for the current count. Tests cover config precedence and walk-up
+discovery, argument parsing, command registration, TUI frame rendering,
+credential redaction, the session and Blackboard stores, routing and provider
+health, the agent runtime and its tools, the standalone gateway and its SSE
+translation, and all five tribunal stages including the full pipeline. They do
+not hit the network — every model provider in the suite is a deterministic mock,
+and live probing is exercised by `aflow doctor` against a running gateway.
 
 ---
 
