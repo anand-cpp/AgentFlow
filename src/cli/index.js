@@ -110,7 +110,7 @@ function renderHelp(commands) {
   return lines.join("\n");
 }
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 
 export async function run(argv) {
   let { commandName, args, flags } = parseArgv(argv, valueFlagNames());

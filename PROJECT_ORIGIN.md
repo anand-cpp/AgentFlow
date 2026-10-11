@@ -140,7 +140,7 @@ included in this project.
 
 ## Status
 
-Pre-release (`0.1.0`). Status as of 2026-10-11. The routing engine and the
+Pre-release (`0.2.0`). Status as of 2026-10-11. The routing engine and the
 `aflow` CLI are built and tested, as are the session and Blackboard stores, the
 agent runtime with its tool registry and permission system, provider health
 wired into the runtime, the standalone in-repo gateway, and all five stages of

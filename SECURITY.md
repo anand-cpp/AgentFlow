@@ -280,7 +280,7 @@ is scanned honestly rather than allowlisted.
 
 | Version | Supported |
 |---|---|
-| `0.1.x` | Yes |
+| `0.2.x` | Yes |
 
 This project is pre-1.0. Treat the CLI's output format as unstable, and pin
 the version in anything automated.

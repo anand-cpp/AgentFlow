@@ -1,6 +1,6 @@
 {
   "name": "agentflow",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Terminal-first AI routing and agent platform",
   "license": "MIT",
   "type": "module",

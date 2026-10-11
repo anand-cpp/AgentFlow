@@ -41,7 +41,7 @@ import { redact } from "./redact.js";
 // Kept in lockstep with the CLI's VERSION and package.json. Duplicated rather
 // than imported from ../cli/index.js because core/ must not depend on the CLI
 // layer (that import would drag in the whole command surface just for a string).
-export const GATEWAY_VERSION = "0.1.0";
+export const GATEWAY_VERSION = "0.2.0";
 
 export const GATEWAY_DEFAULTS = Object.freeze({
   port: 20127,

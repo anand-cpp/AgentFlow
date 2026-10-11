@@ -238,7 +238,7 @@ test("POST /v1/chat/completions forwards a non-stream request to the remote prov
     const forwarded = mock.requests.find((r) => r.url === "/chat/completions");
     assert.ok(forwarded, "the gateway must call the provider's chat endpoint");
     assert.equal(forwarded.headers.authorization, "Bearer mock-groq-key");
-    assert.equal(forwarded.headers["user-agent"], "AgentFlow-Gateway/0.1.0");
+    assert.equal(forwarded.headers["user-agent"], "AgentFlow-Gateway/0.2.0");
     const sent = JSON.parse(forwarded.body);
     assert.equal(sent.model, "llama-3.3-70b-versatile", "the prefix must be stripped before forwarding");
     assert.deepEqual(sent.messages, [{ role: "user", content: "hi" }]);
