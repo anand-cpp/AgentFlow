@@ -48,6 +48,7 @@ export const TRIAL_VECTOR = {
  * to render one (unreadable output, a transport error) -- and is kept distinct
  * so a pipeline never mistakes "we could not judge" for "it is fine".
  */
+/** @type {{ ACQUITTED: "ACQUITTED", CONVICTED_RETRY: "CONVICTED_RETRY", CONVICTED_FINAL: "CONVICTED_FINAL", MISTRIAL: "MISTRIAL" }} */
 export const TRIAL_VERDICT = {
   ACQUITTED: "ACQUITTED",
   CONVICTED_RETRY: "CONVICTED_RETRY",

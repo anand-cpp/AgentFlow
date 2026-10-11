@@ -69,6 +69,7 @@ export function resolveHints(modelId, declared = null) {
   const inferred = inferHints(modelId);
   if (!declared || typeof declared !== "object") return inferred;
 
+  /** @type {{ capabilities: string[], toolCalling?: boolean, contextWindow?: number, maxTokens?: number, provider?: string, source?: string, reason?: string }} */
   const merged = { ...inferred };
   merged.capabilities = Array.isArray(declared.capabilities)
     ? [...new Set([...inferred.capabilities, ...declared.capabilities.map(String)])]

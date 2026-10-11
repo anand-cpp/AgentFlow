@@ -224,6 +224,11 @@ export function defaultBlackboardDir() {
 // Each names the offending field, because "invalid input" with no field name is
 // unusable when an agent has to correct itself.
 
+/**
+ * @param {*} [value]
+ * @param {string} [field]
+ * @param {{ max?: number, required?: boolean }} [opts]
+ */
 function asString(value, field, { max = MAX_SHORT, required = false } = {}) {
   if (value === undefined || value === null) {
     if (required) throw new ValidationError(`${field} is required`, field);
@@ -239,6 +244,11 @@ function asString(value, field, { max = MAX_SHORT, required = false } = {}) {
   return trimmed;
 }
 
+/**
+ * @param {*} [value]
+ * @param {string} [field]
+ * @param {{ max?: number, required?: boolean }} [opts]
+ */
 function asText(value, field, { required = false } = {}) {
   return asString(value, field, { max: MAX_TEXT, required });
 }
@@ -382,7 +392,7 @@ export class BlackboardStore {
   read() {
     const file = this.stateFile();
     const result = readJsonFile(file);
-    if (!result.ok) {
+    if (result.ok === false) {
       if (result.reason === "missing") return null;
       throw new BlackboardCorruptError(file);
     }
@@ -462,6 +472,10 @@ export class BlackboardStore {
    * inside the lock. The function form exists for cases where the checkpoint
    * depends on the transition the mutator performed -- a task update cannot know
    * its previous status without reading it under the same lock.
+   */
+  /**
+   * @param {(state: any) => any} mutateFn
+   * @param {any[] | ((state: any) => any[])} [checkpoints]
    */
   mutate(mutateFn, checkpoints = []) {
     return this.withLock(() => {
@@ -555,6 +569,9 @@ export class BlackboardStore {
 
   // --- intent -------------------------------------------------------------
 
+  /**
+   * @param {{ goal?: string, objective?: string, sessionId?: string|null }} [opts]
+   */
   setIntent({ goal, objective, sessionId = null } = {}) {
     const cleanGoal = goal === undefined ? undefined : asText(goal, "goal");
     const cleanObjective = objective === undefined ? undefined : asText(objective, "objective");
@@ -579,6 +596,9 @@ export class BlackboardStore {
 
   // --- tasks --------------------------------------------------------------
 
+  /**
+   * @param {{ title?: string, detail?: string|null, dependsOn?: string[], sessionId?: string|null, commits?: string[], status?: string }} [opts]
+   */
   addTask({
     title,
     detail = null,
@@ -682,6 +702,9 @@ export class BlackboardStore {
 
   // --- decisions ----------------------------------------------------------
 
+  /**
+   * @param {{ title?: string, detail?: string|null, rationale?: string|null, kind?: string, alternatives?: string[], supersedes?: string|null, taskId?: string|null, sessionId?: string|null, commit?: string|null }} [opts]
+   */
   recordDecision({
     title,
     detail = null,
@@ -750,6 +773,9 @@ export class BlackboardStore {
 
   // --- blockers -----------------------------------------------------------
 
+  /**
+   * @param {{ title?: string, detail?: string|null, severity?: string, taskId?: string|null, sessionId?: string|null, raisedBy?: string|null }} [opts]
+   */
   recordBlocker({
     title,
     detail = null,
@@ -808,6 +834,9 @@ export class BlackboardStore {
 
   // --- bugs ---------------------------------------------------------------
 
+  /**
+   * @param {{ title?: string, detail?: string|null, severity?: string, taskId?: string|null, sessionId?: string|null, discoveredBy?: string|null }} [opts]
+   */
   recordBug({
     title,
     detail = null,
@@ -878,6 +907,9 @@ export class BlackboardStore {
 
   // --- questions ----------------------------------------------------------
 
+  /**
+   * @param {{ question?: string, detail?: string|null, taskId?: string|null, sessionId?: string|null }} [opts]
+   */
   recordQuestion({ question, detail = null, taskId = null, sessionId = null } = {}) {
     const cleanQuestion = asString(question, "question", { required: true });
     const cleanDetail = asText(detail, "detail");
@@ -923,6 +955,9 @@ export class BlackboardStore {
 
   // --- assumptions --------------------------------------------------------
 
+  /**
+   * @param {{ statement?: string, basis?: string|null, taskId?: string|null }} [opts]
+   */
   recordAssumption({ statement, basis = null, taskId = null } = {}) {
     const clean = asText(statement, "statement", { required: true });
     const cleanBasis = asText(basis, "basis");
@@ -964,6 +999,9 @@ export class BlackboardStore {
 
   // --- findings -----------------------------------------------------------
 
+  /**
+   * @param {{ title?: string, detail?: string|null, source?: string, author?: string|null, severity?: string, taskId?: string|null, sessionId?: string|null, files?: string[], status?: string }} [opts]
+   */
   recordFinding({
     title,
     detail = null,
@@ -1038,6 +1076,9 @@ export class BlackboardStore {
    * A completed review is a checkpoint, not merely another finding: the whole
    * point of recording it is that a gate was cleared by a second pair of eyes.
    */
+  /**
+   * @param {{ summary?: string, verdict?: string|null, findings?: Array, sessionId?: string|null }} [opts]
+   */
   recordReview({ summary, verdict = null, findings = [], sessionId = null } = {}) {
     const cleanSummary = asString(summary, "summary", { required: true });
     const cleanVerdict = asString(verdict, "verdict");
@@ -1085,6 +1126,9 @@ export class BlackboardStore {
    * This is a *reference* record. Contents stay in git; if the two ever diverge,
    * git is right and this is stale.
    */
+  /**
+   * @param {{ summary?: string, files?: string[], commits?: string[], sessionId?: string|null, taskId?: string|null }} [opts]
+   */
   recordImplementation({ summary, files = [], commits = [], sessionId = null, taskId = null } = {}) {
     const cleanSummary = asString(summary, "summary", { required: true });
     const fileList = asList(files, "files", { max: 64, item: asFilePath });
@@ -1125,6 +1169,9 @@ export class BlackboardStore {
    * Record a test run. The checkpoint follows the outcome: a passing run and a
    * failing run are different facts, and a timeline that cannot tell them apart
    * is not a timeline.
+   */
+  /**
+   * @param {{ suite?: string, command?: string|null, passed?: number, failed?: number, skipped?: number, durationMs?: number|null, failures?: Array, taskId?: string|null, sessionId?: string|null, commit?: string|null }} [opts]
    */
   recordTest({
     suite,
@@ -1194,6 +1241,9 @@ export class BlackboardStore {
 
   // --- evidence -----------------------------------------------------------
 
+  /**
+   * @param {{ kind?: string, ref?: string, note?: string|null, taskId?: string|null, sessionId?: string|null }} [opts]
+   */
   recordEvidence({ kind, ref, note = null, taskId = null, sessionId = null } = {}) {
     const cleanKind = asOneOf(kind, "kind", EVIDENCE_KINDS);
     const cleanRef = asString(ref, "ref", { max: 400, required: true });
@@ -1230,6 +1280,9 @@ export class BlackboardStore {
    * Setting it explicitly is the point of the subsystem. An agent that stops
    * without writing this leaves the next agent to guess, which is the exact
    * failure this module exists to prevent.
+   */
+  /**
+   * @param {{ text?: string, taskId?: string|null, sessionId?: string|null }} [opts]
    */
   setNextAction({ text, taskId = null, sessionId = null } = {}) {
     const clean = asText(text, "text", { required: true });

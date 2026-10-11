@@ -134,6 +134,12 @@ function resolveDescriptor({ explicit = null, projectRoot = null, cwd = process.
  * change mid-run" is a security property, not a style preference.
  */
 export class WorkspaceRoot {
+  /** @type {{ root: string, source: string, requested: string, linked: boolean }} */
+  _resolved;
+  /** @type {string} */
+  root;
+  /** @type {string} */
+  source;
   constructor(input = {}) {
     const resolved = resolveDescriptor(input);
     Object.defineProperty(this, "_resolved", {

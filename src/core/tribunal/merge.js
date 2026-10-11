@@ -131,7 +131,7 @@ function proposalIdOf(proposal) {
  * Build the single synthesis prompt.
  *
  * @param {object} input
- * @param {Array}  input.proposals         surviving proposals
+ * @param {Array}  [input.proposals]         surviving proposals
  * @param {Array}  [input.crucibleFindings] P0/P1 findings ({ id, severity, vector, title, ... })
  * @param {string} [input.domain]          code | architecture | idea | plan | logic
  * @returns {string}
@@ -220,9 +220,9 @@ function parseMergeJson(text) {
  * Run one synthesis.
  *
  * @param {object} input
- * @param {Array}    input.proposals
+ * @param {Array}    [input.proposals]
  * @param {Array}    [input.crucibleFindings]
- * @param {Function} input.completeFn        gateway complete(config, modelId, prompt, opts)
+ * @param {Function} [input.completeFn]        gateway complete(config, modelId, prompt, opts)
  * @param {string}   [input.modelId]
  * @param {object}   [input.options]         { config, domain, opts: { timeoutMs, maxTokens, temperature, system }, now }
  * @returns {Promise<
@@ -248,6 +248,9 @@ export async function runMerge({
   const proposalIds = list.map(proposalIdOf).filter((id) => id !== null);
   const domain = options.domain ?? "code";
 
+  /**
+   * @returns {{ status: "INVALID_MERGE", rawResponse: string|null, errors: string[], modelId: string|null, elapsed_ms: number }}
+   */
   const invalid = (rawResponse, errorList) => ({
     status: INVALID_MERGE,
     rawResponse: rawResponse ?? null,

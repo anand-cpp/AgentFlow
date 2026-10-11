@@ -217,21 +217,23 @@ export const shellTool = {
     const result = await new Promise((resolve, reject) => {
       let child;
       try {
-        child = spawn(command, argv, {
-          cwd,
-          env,
-          // The load-bearing line. No shell means `;`, `&&`, `|`, backticks and
-          // `$(...)` are ordinary characters in ordinary arguments, so approving
-          // `git status` cannot become approving `git status; rm -rf /`.
-          shell: false,
-          windowsHide: true,
-          // POSIX only. A group leader is what makes `kill(-pid)` able to reach the
-          // child *and its descendants*; without it a timeout kills one process and
-          // orphans whatever it spawned. Windows has no equivalent, and `detached`
-          // there would only detach the console, so taskkill /T does that job.
-          detached: process.platform !== "win32",
-          stdio: ["ignore", "pipe", "pipe"],
-        });
+        child = /** @type {import("node:child_process").ChildProcessWithoutNullStreams} */ (
+          spawn(command, argv, {
+            cwd,
+            env,
+            // The load-bearing line. No shell means `;`, `&&`, `|`, backticks and
+            // `$(...)` are ordinary characters in ordinary arguments, so approving
+            // `git status` cannot become approving `git status; rm -rf /`.
+            shell: false,
+            windowsHide: true,
+            // POSIX only. A group leader is what makes `kill(-pid)` able to reach the
+            // child *and its descendants*; without it a timeout kills one process and
+            // orphans whatever it spawned. Windows has no equivalent, and `detached`
+            // there would only detach the console, so taskkill /T does that job.
+            detached: process.platform !== "win32",
+            stdio: ["ignore", "pipe", "pipe"],
+          })
+        );
       } catch (err) {
         reject(
           new ToolInvocationError(TOOL_ERROR.PROCESS_FAILED, `could not start ${program}: ${err?.code || "spawn failed"}`, {
@@ -310,10 +312,11 @@ export const shellTool = {
       };
 
       child.on("error", (err) => {
+        const actualErr = /** @type {NodeJS.ErrnoException} */ (err);
         // ENOENT is the common one: the program simply is not installed. That is a
         // caller error, not an internal fault, and conflating the two makes every
         // missing binary look like a bug in the tool.
-        if (err?.code === "ENOENT") {
+        if (actualErr?.code === "ENOENT") {
           finish(
             reject,
             new ToolInvocationError(TOOL_ERROR.PROCESS_FAILED, `${program} was not found on PATH`, {
@@ -324,7 +327,7 @@ export const shellTool = {
         }
         finish(
           reject,
-          new ToolInvocationError(TOOL_ERROR.PROCESS_FAILED, `${program} could not be run: ${err?.code || "error"}`, {
+          new ToolInvocationError(TOOL_ERROR.PROCESS_FAILED, `${program} could not be run: ${actualErr?.code || "error"}`, {
             command: program,
           }),
         );

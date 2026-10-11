@@ -7,6 +7,10 @@
 import { redactDeep } from "../core/redact.js";
 
 export class GatewayError extends Error {
+  /**
+   * @param {string} [message]
+   * @param {{ status?: number|null, code?: string|null, detail?: *|null }} [opts]
+   */
   constructor(message, { status, code, detail } = {}) {
     super(message);
     this.name = "GatewayError";
@@ -29,6 +33,11 @@ function buildHeaders({ apiKey, json }) {
  * Uses AbortSignal.timeout so a hung provider cannot wedge the CLI. The
  * timeout is reported distinctly from other failures because "timed out" and
  * "refused" mean very different things to an operator.
+ */
+/**
+ * @param {object} config
+ * @param {string} pathname
+ * @param {{ method?: string, body?: *, timeoutMs?: number, json?: boolean }} [opts]
  */
 async function request(config, pathname, { method = "GET", body, timeoutMs, json = false } = {}) {
   const url = `${String(config.baseUrl).replace(/\/+$/, "")}${pathname}`;
@@ -101,6 +110,11 @@ export async function listModels(config) {
  * rather than an error. So we require actual content, and distinguish
  * "reachable but empty" from "unreachable".
  */
+/**
+ * @param {object} config
+ * @param {string} modelId
+ * @param {{ timeoutMs?: number }} [opts]
+ */
 export async function probeModel(config, modelId, { timeoutMs } = {}) {
   const started = Date.now();
   try {
@@ -169,6 +183,12 @@ export async function ping(config) {
  * An empty completion resolves with an empty string rather than throwing; the
  * router treats that as a distinct failure kind (a provider that answers 200
  * with nothing is a different problem from one that 500s).
+ */
+/**
+ * @param {object} config
+ * @param {string} modelId
+ * @param {string} prompt
+ * @param {{ timeoutMs?: number, system?: string|null, maxTokens?: number, temperature?: number|null }} [opts]
  */
 export async function complete(config, modelId, prompt, { timeoutMs, system = null, maxTokens = 1024, temperature = null } = {}) {
   const messages = [];

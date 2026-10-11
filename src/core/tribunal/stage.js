@@ -34,8 +34,8 @@ export const STAGE_OUTCOME = {
  * Review a list of candidates.
  *
  * @param {object} input
- * @param {Array}  input.candidates   [{ id, model, approach, rationale, ... }]
- * @param {Function} input.complete   gateway complete()
+ * @param {Array}  [input.candidates]   [{ id, model, approach, rationale, ... }]
+ * @param {Function} [input.complete]   gateway complete()
  * @param {object} [input.config]     passed through to complete
  * @param {number} [input.maxRevisions=1]  how many REVISE rounds a candidate may take
  * @param {object} [input.opts]       { timeoutMs, maxTokens, temperature, system }

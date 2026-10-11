@@ -54,10 +54,10 @@ function criticalFindingsFor(mergeStageResult, crucibleStageResult) {
  * Prosecute the merge once and classify the outcome.
  *
  * @param {object} input
- * @param {object}   input.mergeStageResult     the object runMergeStage() returned
+ * @param {object}   [input.mergeStageResult]     the object runMergeStage() returned
  * @param {object}   [input.crucibleStageResult] the object runCrucibleStage() returned
  * @param {Array}    [input.originalProposals]   proposals the merge drew from
- * @param {Function} input.completeFn
+ * @param {Function} [input.completeFn]
  * @param {string}   [input.modelId]
  * @param {object}   [input.options]             { maxRetries, domain, config, opts, iteration, completedAt }
  * @returns {Promise<object>}
@@ -140,6 +140,14 @@ export async function runTrialStage({
  * iteration, options }` and must return a tryable merge (a merge stage result,
  * or a bare merge report).
  *
+ * @param {object} input
+ * @param {object}   [input.mergeStageResult]     the object runMergeStage() returned
+ * @param {object}   [input.crucibleStageResult] the object runCrucibleStage() returned
+ * @param {Array}    [input.originalProposals]   proposals the merge drew from
+ * @param {Function} [input.completeFn]
+ * @param {Function} [input.mergeFn]
+ * @param {string}   [input.modelId]
+ * @param {object}   [input.options]             { maxRetries, domain, config, opts, iteration, completedAt }
  * @returns {Promise<{
  *   stage: string,
  *   finalVerdict: string,
@@ -150,6 +158,7 @@ export async function runTrialStage({
  *   completedAt: string,
  *   modelId: string|null,
  *   note?: string,
+ *   exhaustedBudget?: boolean,
  * }>}
  */
 export async function runTrialWithRetry({

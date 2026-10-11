@@ -370,6 +370,16 @@ function buildWinner(mergeReport, verdict) {
 /**
  * Compose the human-readable battle report: one round per stage, a winner, and
  * the aggregated finding ledgers.
+ *
+ * @param {object} input
+ * @param {object} [input.stage1Result]  runSelfAdversarialStage() result
+ * @param {object} [input.stage2Result]  runCrucibleStage() result
+ * @param {object} [input.stage3Result]  runMergeStage() result
+ * @param {object} [input.stage4Result]  runTrialStage() result
+ * @param {number} [input.confidence=0]
+ * @param {string} [input.verdict]
+ * @param {string} [input.domain]
+ * @returns {object}
  */
 export function generateBattleReport({
   stage1Result,

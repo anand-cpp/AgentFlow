@@ -40,7 +40,7 @@ function newTribunalId() {
  * Run the Oracle over the collected stage results.
  *
  * @param {object} input
- * @param {object} input.allStageResults  { stage1, stage2, stage3, stage4 }
+ * @param {object} [input.allStageResults]  { stage1, stage2, stage3, stage4 }
  * @param {string} [input.domain]
  * @param {object} [input.options]
  * @returns {Promise<{ stage: string, status: string, oracleResult?: object, error?: string, completedAt: string }>}
@@ -69,7 +69,7 @@ export async function runOracleStage({ allStageResults = {}, domain = "general",
  *
  * @param {object} input
  * @param {Array}    [input.proposals]  candidate proposals ({ id, model, approach, ... })
- * @param {Function} input.completeFn   gateway complete(config, modelId, prompt, opts)
+ * @param {Function} [input.completeFn]   gateway complete(config, modelId, prompt, opts)
  * @param {string}   [input.modelId]    advisor/attacker/synthesizer/prosecutor model
  * @param {string}   [input.domain]     code | architecture | idea | plan | logic
  * @param {object}   [input.options]    { maxRevisions, vectors, minSurvivalScore, maxRetries, config, opts, completedAt, tribunal_id }

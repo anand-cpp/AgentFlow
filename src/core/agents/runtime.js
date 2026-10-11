@@ -88,6 +88,14 @@ export class AgentBoundError extends RuntimeError {
  * it is also what lets the CLI and a future daemon share one runtime.
  */
 export class AgentRuntime {
+  /**
+   * @param {{
+   *   registry?: object, tools?: object|Map, complete?: Function, catalogue?: Array,
+   *   hints?: object, log?: object, now?: () => number, approver?: object,
+   *   blackboard?: object, sessions?: object, providerHealth?: object,
+   *   guards?: Array, config?: object, workspaceRoot?: object|string
+   * }} [options]
+   */
   constructor({
     registry,
     tools = new Map(),
@@ -412,6 +420,9 @@ export class AgentRuntime {
    * result object. A caller that has to catch four exception types to learn that
    * the agent stopped will eventually handle one of them wrong.
    */
+  /**
+   * @param {{ agentId?: string, task?: object|null, sessionId?: string|null, signal?: AbortSignal, extra?: object|null, depth?: number }} [opts]
+   */
   async run({ agentId, task = null, sessionId = null, signal = null, extra = null, depth = 0 } = {}) {
     const startedAt = this.now();
     const id = String(agentId ?? "").trim();
@@ -420,7 +431,7 @@ export class AgentRuntime {
     this.#boardOnceKeys = new Set();
     // Declared out here so the catch path can name the agent even when the failure
     // was resolving it.
-    let agent = null;
+    let agent = /** @type {object|null} */ (null);
 
     const result = {
       agentId: id,
@@ -535,8 +546,10 @@ export class AgentRuntime {
       const byRetries = agent.failure.maxRetries + 1;
       const maxAttempts =
         agent.routing.maxAttempts > 0 ? Math.min(agent.routing.maxAttempts, byRetries) : byRetries;
+      let modelsInTiers = 0;
+      for (const tier of plan.tiers) modelsInTiers += tier.models.length;
       const tiers =
-        maxAttempts >= plan.tiers.reduce((n, t) => n + t.models.length, 0)
+        maxAttempts >= modelsInTiers
           ? plan.tiers
           : capTiers(plan.tiers, maxAttempts);
 

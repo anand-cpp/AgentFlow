@@ -34,8 +34,8 @@ export const MERGE_STAGE_STATUS = {
  *
  * @param {object} input
  * @param {Array}    [input.proposals]          surviving proposals
- * @param {object}   input.crucibleStageResult  the object runCrucibleStage() returned
- * @param {Function} input.completeFn           gateway complete(config, modelId, prompt, opts)
+ * @param {object}   [input.crucibleStageResult]  the object runCrucibleStage() returned
+ * @param {Function} [input.completeFn]           gateway complete(config, modelId, prompt, opts)
  * @param {string}   [input.modelId]
  * @param {object}   [input.options]            { minSurvivalScore, domain, config, opts, completedAt }
  * @returns {Promise<object>} one of the three stage outcomes, each carrying `stage`, `status`, `gate`, `modelId`, `elapsed_ms`, `completedAt`

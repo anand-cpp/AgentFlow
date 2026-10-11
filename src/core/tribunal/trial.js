@@ -152,7 +152,7 @@ function elementLines(mergeReport) {
  * Build the single prosecution prompt.
  *
  * @param {object} input
- * @param {object} input.mergeReport       the merge under attack
+ * @param {object} [input.mergeReport]       the merge under attack
  * @param {Array}  [input.crucibleFindings] original P0/P1 findings (for regression checking)
  * @param {Array}  [input.originalProposals] proposals the merge drew from (for provenance/scope)
  * @param {string} [input.domain]          code | architecture | idea | plan | logic
@@ -265,10 +265,10 @@ function parseTrialJson(text) {
  * Run one prosecution of the merge.
  *
  * @param {object} input
- * @param {object}   input.mergeReport
+ * @param {object}   [input.mergeReport]
  * @param {Array}    [input.crucibleFindings]
  * @param {Array}    [input.originalProposals]
- * @param {Function} input.completeFn   gateway complete(config, modelId, prompt, opts)
+ * @param {Function} [input.completeFn]   gateway complete(config, modelId, prompt, opts)
  * @param {string}   [input.modelId]
  * @param {object}   [input.options]    { config, domain, opts: { ... }, now }
  * @returns {Promise<
@@ -291,6 +291,9 @@ export async function runTrial({
   if (typeof completeFn !== "function") errors.push("a completeFn() function is required");
   if (!isPlainObject(mergeReport)) errors.push("a mergeReport object is required (there is nothing to try)");
 
+  /**
+   * @returns {{ status: "MISTRIAL", rawResponse: string|null, errors: string[], modelId: string|null, elapsed_ms: number }}
+   */
   const mistrial = (rawResponse, errorList) => ({
     status: MISTRIAL,
     rawResponse: rawResponse ?? null,

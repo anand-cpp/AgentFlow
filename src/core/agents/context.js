@@ -86,8 +86,10 @@ function readBlackboard(store) {
  *
  * `blackboard` and `session` are optional. Neither is required to run an agent:
  * an agent asked a direct question with no project history should still work.
+ *
+ * @param {{ agent?: object, blackboard?: object, session?: object, task?: object|null, extra?: object|null }} [opts]
  */
-export function buildAgentContext({ agent, blackboard = null, session = null, task = null, extra = null } = {}) {
+export function buildAgentContext({ agent = null, blackboard = null, session = null, task = null, extra = null } = {}) {
   const budget = agent?.bounds?.maxContextChars;
   if (!Number.isFinite(budget) || budget <= 0) {
     throw new ContextError("agent must declare a positive bounds.maxContextChars", "no_budget");

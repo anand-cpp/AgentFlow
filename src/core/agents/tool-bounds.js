@@ -33,6 +33,11 @@ export const DEFAULT_MAX_BYTES = 256 * 1024;
  * be reported as complete. A caller that knows the real size must be able to say
  * so, or the bound silently under-reports the one case that matters.
  */
+/**
+ * @param {string} text
+ * @param {number} [maxBytes]
+ * @param {{ label?: string, originalSize?: number }} [opts]
+ */
 export function boundText(text, maxBytes = DEFAULT_MAX_BYTES, { label = "output", originalSize } = {}) {
   const original = Number.isFinite(originalSize) ? originalSize : Buffer.byteLength(text, "utf8");
   if (original <= maxBytes) {
@@ -88,6 +93,11 @@ const NOTICE_RESERVE = 256;
  * the text gets nothing and the notice is kept: saying what was dropped matters
  * more than the last few bytes before it.
  */
+/**
+ * @param {string} text
+ * @param {number} [maxBytes]
+ * @param {{ label?: string, redaction?: (text: string) => string, originalSize?: number }} [opts]
+ */
 export function boundOutput(text, maxBytes = DEFAULT_MAX_BYTES, { label = "output", redaction, originalSize } = {}) {
   const measured = Number.isFinite(originalSize) ? originalSize : Buffer.byteLength(text, "utf8");
   const willTruncate = measured > maxBytes;
@@ -119,6 +129,10 @@ export function boundOutput(text, maxBytes = DEFAULT_MAX_BYTES, { label = "outpu
  * is different: a grep returning 4000 near-identical lines is a context problem
  * even when every line is short. Both bounds apply, and the caller is told which
  * one fired.
+ */
+/**
+ * @param {Array} items
+ * @param {{ maxItems?: number, maxBytes?: number, label?: string, render?: (item: any) => string }} [opts]
  */
 export function boundList(items, { maxItems, maxBytes = DEFAULT_MAX_BYTES, label = "results", render = (x) => String(x) } = {}) {
   const kept = [];

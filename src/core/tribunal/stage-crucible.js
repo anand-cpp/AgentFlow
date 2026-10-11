@@ -22,7 +22,7 @@ function proposalIdOf(proposal) {
  *
  * @param {object} input
  * @param {Array}    [input.proposals]  proposals that survived Stage 1
- * @param {Function} input.completeFn   gateway complete(config, modelId, prompt, opts)
+ * @param {Function} [input.completeFn]   gateway complete(config, modelId, prompt, opts)
  * @param {object}   [input.options]
  * @param {string[]} [input.options.vectors]  vectors to run per proposal; default all four
  * @param {string}   [input.options.modelId]  attacker model
@@ -45,7 +45,7 @@ export async function runCrucibleStage({ proposals = [], completeFn, options = {
   const vectors =
     Array.isArray(options.vectors) && options.vectors.length > 0
       ? options.vectors
-      : CRUCIBLE_ATTACK_SCHEMA.vectors;
+      : [...CRUCIBLE_ATTACK_SCHEMA.vectors];
   const domain = options.domain ?? "code";
 
   const results = [];

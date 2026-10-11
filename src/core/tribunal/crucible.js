@@ -104,8 +104,8 @@ function stripIdentity(proposal) {
  * Build the isolated prompt for one attacker.
  *
  * @param {object} input
- * @param {object} input.proposal  the proposal under attack (identity stripped)
- * @param {string} input.vector    one of ATTACK_VECTOR
+ * @param {object} [input.proposal]  the proposal under attack (identity stripped)
+ * @param {string} [input.vector]    one of ATTACK_VECTOR
  * @param {string} [input.domain]  code | architecture | idea | plan | logic
  * @returns {string}
  */
@@ -178,6 +178,11 @@ function parseAttackJson(text) {
  * as an INVALID_ATTACK entry rather than thrown, so a stage examining several
  * proposals and several vectors loses at most one lens and can still report the
  * rest -- and can report that it lost one.
+ *
+ * @param {{
+ *   proposal: object, proposalId?: string|null, vector: string, domain: string,
+ *   completeFn: Function, modelId: string|null, config: object|null, opts: object
+ * }} input
  */
 async function runOneAttack({ proposal, vector, domain, completeFn, modelId, config, opts }) {
   const prompt = buildCruciblePrompt({ proposal, vector, domain });
@@ -208,8 +213,8 @@ async function runOneAttack({ proposal, vector, domain, completeFn, modelId, con
  * Cross-examine one proposal across the requested attack vectors.
  *
  * @param {object} input
- * @param {object}   input.proposal     the proposal under attack
- * @param {Function} input.completeFn   gateway complete(config, modelId, prompt, opts)
+ * @param {object} [input.proposal]     the proposal under attack
+ * @param {Function} [input.completeFn]   gateway complete(config, modelId, prompt, opts)
  * @param {string[]} [input.vectors]    vectors to run; defaults to all four
  * @param {string}   [input.modelId]    the attacker model (any capable model)
  * @param {object}   [input.config]     passed through to completeFn

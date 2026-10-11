@@ -165,6 +165,11 @@ export function mergeProviders(overrides = {}) {
  * credential -- falls back to local Ollama. The returned `apiKey` stays in
  * process memory and must never be logged or reflected to a client.
  */
+/**
+ * @param {string} [modelId]
+ * @param {NodeJS.ProcessEnv} [env]
+ * @param {Object} [providers]
+ */
 export function resolveTargetProvider(modelId, env = process.env, providers = PROVIDERS) {
   const id = typeof modelId === "string" ? modelId : "";
 
@@ -354,6 +359,10 @@ export function toOllamaChatRequest(payload = {}) {
  * downstream billing or budget check that reads `usage.prompt_tokens` should get
  * a number, not `undefined`.
  */
+/**
+ * @param {object} [ollama]
+ * @param {{ model?: string, id?: string, created?: number }} [opts]
+ */
 export function ollamaToOpenAIResponse(ollama = {}, { model, id, created } = {}) {
   const message = ollama?.message ?? {};
   const promptTokens = tokenCount(ollama?.prompt_eval_count);
@@ -404,6 +413,11 @@ function sseChunk({ id, created, model, delta, finishReason }) {
  * role is emitted exactly once even when Ollama's first line has empty content.
  * A malformed line is skipped rather than fatal: dropping one bad line beats
  * killing a stream the client is already reading.
+ */
+/**
+ * @param {*} ollamaStream
+ * @param {string} [modelId]
+ * @param {{ id?: string, created?: number }} [opts]
  */
 export async function* translateOllamaStreamToOpenAI(ollamaStream, modelId, { id, created } = {}) {
   const completionId = id ?? newCompletionId();
@@ -478,7 +492,7 @@ function readBody(req, limit) {
     req.on("data", (chunk) => {
       size += chunk.length;
       if (size > limit) {
-        const err = new Error(`request body exceeds ${limit} bytes`);
+        const err = /** @type {NodeJS.ErrnoException} */ (new Error(`request body exceeds ${limit} bytes`));
         err.code = "body_too_large";
         req.destroy();
         reject(err);

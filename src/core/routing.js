@@ -219,6 +219,9 @@ export function orderCandidates(candidates, health) {
  * transport; the router owns which model to try and why.
  */
 export class Router {
+  /**
+   * @param {{ tiers?: Array, execute?: Function, log?: object, health?: object, providerHealth?: object, now?: () => number }} [options]
+   */
   constructor({ tiers, execute, log = null, health = null, providerHealth = null, now = () => Date.now() } = {}) {
     if (!Array.isArray(tiers) || !tiers.length) throw new Error("Router requires at least one tier");
     if (typeof execute !== "function") throw new Error("Router requires an execute function");
@@ -244,6 +247,9 @@ export class Router {
    * Returns a receipt rather than just the value: which model answered, what
    * was tried, why each failure happened. A router that returns only the answer
    * cannot be debugged.
+   */
+  /**
+   * @param {{ signal?: AbortSignal, onAttempt?: Function }} [opts]
    */
   async route({ signal, onAttempt = null } = {}) {
     const startedAt = this.now();
@@ -440,7 +446,7 @@ export function buildNoRouteError(attempts) {
   if (attempts.some((a) => a.outcome === "provider_blocked")) parts.push("provider circuit open");
 
   const detail = parts.length ? parts.join("; ") : "no candidate succeeded";
-  const err = new Error(`routing failed after ${n} attempt(s): ${detail}`);
+  const err = /** @type {Error & { attempts: Array, failureKinds: string[] }} */ (new Error(`routing failed after ${n} attempt(s): ${detail}`));
   err.attempts = attempts;
   err.failureKinds = [...kinds];
   return err;

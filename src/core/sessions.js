@@ -344,7 +344,7 @@ export class SessionStore {
     const file = this.fileFor(id);
     const result = readJsonFile(file);
 
-    if (!result.ok) {
+    if (result.ok === false) {
       if (result.reason === "missing") throw new SessionNotFoundError(id);
       throw new SessionCorruptError(id, file, result.error);
     }

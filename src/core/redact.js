@@ -38,7 +38,7 @@ export function redact(input) {
   if (input === null || input === undefined) return input;
   let s = typeof input === "string" ? input : String(input);
   for (const { re, mask } of PATTERNS) {
-    s = s.replace(re, mask);
+    s = typeof mask === "function" ? s.replace(re, mask) : s.replace(re, mask);
   }
   return s;
 }

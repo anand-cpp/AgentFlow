@@ -64,8 +64,8 @@ function hasReproducedHighSeverity(findings) {
  * Assess whether a review's confidence movement is warranted by its findings.
  *
  * @param {object} input
- * @param {number} input.before       confidence the author stated for the proposal
- * @param {number} input.after        confidence the reviewer states after review
+ * @param {number} [input.before]       confidence the author stated for the proposal
+ * @param {number} [input.after]        confidence the reviewer states after review
  * @param {Array}  [input.findings]   failure hypotheses (category + evidence + severity)
  * @param {Array}  [input.tests]      proposed/observed tests; each may carry
  *                                     `required`, `present`, `executed`, `passed`

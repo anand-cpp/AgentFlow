@@ -43,6 +43,8 @@ export const SELF_REVIEW_SYSTEM_PROMPT = [
  * Authorship is deliberately absent: no model id, no provider, no "you wrote
  * this earlier" framing beyond the system prompt's acknowledgement that the
  * proposal may be the reviewer's own. The reviewer sees the proposal as text.
+ *
+ * @param {{ candidate?: object, schemaVersion?: number }} [opts]
  */
 export function buildReviewPrompt({ candidate, schemaVersion } = {}) {
   const c = candidate ?? {};
@@ -134,10 +136,10 @@ function extractBalancedObject(text) {
  * Run one self-review.
  *
  * @param {object} input
- * @param {Function} input.complete   gateway complete(config, modelId, prompt, opts)
+ * @param {Function} [input.complete]   gateway complete(config, modelId, prompt, opts)
  * @param {object}   [input.config]   passed through to complete
- * @param {string}   input.modelId    the *same* model that produced the candidate
- * @param {object}   input.candidate  { id, approach, rationale, assumptions, ... }
+ * @param {string}   [input.modelId]    the *same* model that produced the candidate
+ * @param {object}   [input.candidate]  { id, approach, rationale, assumptions, ... }
  * @param {object}   [input.opts]     { timeoutMs, maxTokens, temperature, system }
  * @returns {Promise<{ ok: boolean, review: object|null, errors: string[] }>}
  */
@@ -166,7 +168,7 @@ export async function runSelfReview({ complete, config = null, modelId = null, c
   }
 
   const parsed = parseReview(text);
-  if (!parsed.ok) return { ok: false, review: null, errors: [parsed.error] };
+  if (parsed.ok === false) return { ok: false, review: null, errors: [parsed.error] };
 
   const validation = validateSelfReview(parsed.value);
   if (!validation.ok) return { ok: false, review: null, errors: validation.errors };

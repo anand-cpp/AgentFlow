@@ -122,6 +122,11 @@ export const LIMITS = {
   maxContextChars: 24_000,
 };
 
+/**
+ * @param {*} [value]
+ * @param {string} [field]
+ * @param {{ max?: number, required?: boolean }} [opts]
+ */
 function asString(value, field, { max, required = true } = {}) {
   if (value === null || value === undefined) {
     if (required) throw new AgentDefinitionError(`${field} is required`, field);

@@ -82,6 +82,7 @@ export class ToolPermissionError extends ToolError {
  * path.
  */
 export function scrubEnv(env = process.env) {
+  /** @type {Record<string, string | undefined>} */
   const out = {};
   for (const [name, value] of Object.entries(env)) {
     if (ENV_DROP.test(name)) continue;
