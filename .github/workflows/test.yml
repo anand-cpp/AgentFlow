@@ -58,6 +58,12 @@ jobs:
         continue-on-error: true
         run: npm run lint
 
+      # JSDoc-based checking via tsc checkJs. Also non-blocking: the codebase
+      # is not yet annotated, so this reports a debt count rather than gating.
+      - name: Typecheck (JSDoc)
+        continue-on-error: true
+        run: npm run typecheck
+
       # Guards the published working tree. This check alone is not sufficient --
       # see the `secrets-history` job below for why.
       - name: No committed credentials in working tree
