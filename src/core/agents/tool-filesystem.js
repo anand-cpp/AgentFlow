@@ -382,7 +382,9 @@ export const searchTool = {
       }
       entries.sort((a, b) => a.name.localeCompare(b.name));
 
-      for (const entry of entries) {
+      // `let`, not `const`: a symlink that resolves inside the workspace is
+      // re-stated below (line ~407) so isDirectory()/name reflect the target.
+      for (let entry of entries) {
         if (stoppedBecause) return;
         if (bytesScanned >= MAX_SEARCH_BYTES) {
           truncated = true;
