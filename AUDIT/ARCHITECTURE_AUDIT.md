@@ -5,6 +5,16 @@
 **Upstream:** https://github.com/decolua/9router
 **Method:** direct reading of tracked source at the audited revision. No assumptions carried over from documentation.
 
+> **Status update (2026-10-11).** This document audits **upstream 9Router** at `a99cf572`; its
+> findings about the upstream remain valid, and it is **not** a status of the derived product.
+> Since the audit, the derived AgentFlow CLI has built several capabilities §12 lists as **NEW**
+> upstream: a CLI command router, an agent runtime with eight built-in agents, a tool registry with
+> permission and approval, a session manager, structured routing events, `doctor`, secret
+> redaction, a root-wired test suite, and CI. It has **not** built orchestration, the plugin
+> architecture, or the bundled standalone gateway, and `open-sse/` is imported as-is (the adapter
+> interface and provider-neutral registry refactors have not been done). See `PROJECT_ORIGIN.md`
+> for the current build status.
+
 ---
 
 ## 1. Scale (measured, not estimated)

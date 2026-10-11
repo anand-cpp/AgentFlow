@@ -5,6 +5,15 @@
 **Method:** read from source. Where this document disagrees with the upstream README, the source
 was treated as authoritative and the discrepancy is noted.
 
+> **Status update (2026-10-11).** This document audits **upstream 9Router** at `a99cf572`; its
+> findings about the upstream remain valid, and it is **not** a status of the derived product.
+> Since the audit, the derived AgentFlow CLI has built several capabilities this document lists as
+> **ABSENT** upstream: the agent runtime and eight built-in agents (§1.6), a tool registry with
+> permission and approval (§1.6), a session manager (§1.6), structured routing events (§1.1), secret
+> redaction (§1.6), `doctor` diagnostics (§1.6), and a root `npm test` suite plus CI (§1.6). What is
+> still **not** built in the derived product: orchestration, the plugin system, and the bundled
+> standalone gateway. See `PROJECT_ORIGIN.md` for the current build status and implementing files.
+
 ---
 
 ## 1. Capability inventory
