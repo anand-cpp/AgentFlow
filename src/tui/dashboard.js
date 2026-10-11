@@ -115,7 +115,9 @@ function widthOf(s) {
  */
 export async function runDashboard({ refresh, intervalMs = 5000, probe = null }) {
   if (!isTTY) {
-    const err = new Error("aflow dashboard requires an interactive terminal (stdout is not a TTY)");
+    const err = /** @type {Error & { code: string }} */ (
+      new Error("aflow dashboard requires an interactive terminal (stdout is not a TTY)")
+    );
     err.code = "not_tty";
     throw err;
   }
