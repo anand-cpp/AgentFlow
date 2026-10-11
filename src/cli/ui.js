@@ -29,6 +29,10 @@ const CODES = {
   magenta: 35,
   cyan: 36,
   gray: 90,
+  bgRed: 41,
+  bgGreen: 42,
+  bgYellow: 43,
+  bgGray: 100,
 };
 
 export function paint(text, ...styles) {
@@ -48,6 +52,9 @@ export const green = (t) => paint(t, "green");
 export const yellow = (t) => paint(t, "yellow");
 export const cyan = (t) => paint(t, "cyan");
 export const gray = (t) => paint(t, "gray");
+export const bgRed = (t) => paint(t, "bgRed");
+export const bgGreen = (t) => paint(t, "bgGreen");
+export const bgYellow = (t) => paint(t, "bgYellow");
 
 /** Visible width of a string, ignoring ANSI escapes. */
 export function width(str) {
@@ -135,4 +142,4 @@ export function heading(text) {
   return `\n${bold(text)}\n`;
 }
 
-export default { paint, bold, dim, red, green, yellow, cyan, gray, table, heading, symbol, statusColor, pad, truncate, setColor, isColorEnabled };
+export default { paint, bold, dim, red, green, yellow, cyan, gray, bgRed, bgGreen, bgYellow, table, heading, symbol, statusColor, pad, truncate, setColor, isColorEnabled };
