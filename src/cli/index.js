@@ -33,8 +33,13 @@ const ALWAYS_VALUE_FLAGS = new Set(["port", "model", "base-url"]);
  * hardcoded list here was a real bug: `--limit 4` and `--type route.fallback`
  * were parsed as `--limit=true` with the value left as a stray positional, so
  * `--limit 4` became the number 1 and `--type X` matched nothing at all.
+ *
+ * @param {string[]} argv
+ * @param {Set<string>} [valueFlags]  flag names that consume the next token
+ * @returns {{ commandName: string | null, args: string[], flags: Record<string, unknown> }}
  */
 export function parseArgv(argv, valueFlags = new Set()) {
+  /** @type {Record<string, unknown>} */
   const flags = {};
   const rest = [];
   const takesValue = (key) => ALWAYS_VALUE_FLAGS.has(key) || valueFlags.has(key);
@@ -65,6 +70,7 @@ export function parseArgv(argv, valueFlags = new Set()) {
     } else if (a.startsWith("-") && a.length > 1 && !/^-\d/.test(a)) {
       const map = { h: "help", v: "version", q: "quiet", p: "port" };
       const key = map[a.slice(1)] || a.slice(1);
+      /** @type {string | boolean} */
       let val = true;
       if (takesValue(key) && i + 1 < argv.length) {
         val = argv[++i];
