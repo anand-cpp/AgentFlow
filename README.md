@@ -38,7 +38,7 @@ tested. A plugin loader is not built yet.
 | Area | State |
 |---|---|
 | Routing engine (`open-sse/`) | Imported from 9Router, 89 providers |
-| CLI commands | Working, 558 tests passing |
+| CLI commands | Working — comprehensive test suite (`npm test`) |
 | Live reachability probing | Working |
 | TUI dashboard | Working |
 | Sessions | Working — durable per-project work units |
@@ -46,7 +46,7 @@ tested. A plugin loader is not built yet.
 | Agent runtime | Working — bounded, registry-driven, eight built-ins |
 | Tool permissions | Working — scoped allowlists, approval, guards, audit log |
 | Plugin loader | Not started |
-| Standalone gateway | Runs via 9Router's server; bundled gateway in progress |
+| Standalone gateway | Not started — AgentFlow currently requires an external 9Router gateway |
 
 See [`AUDIT/FEATURE_AUDIT.md`](AUDIT/FEATURE_AUDIT.md) for the full
 capability comparison and [`AUDIT/ARCHITECTURE_AUDIT.md`](AUDIT/ARCHITECTURE_AUDIT.md)
@@ -384,11 +384,13 @@ Full derivation chain, file-level provenance, and modification log:
 ## Development
 
 ```bash
-npm test          # 43 tests, no network required
+npm test          # full suite, no network required
 ```
 
-Tests cover config precedence and walk-up discovery, argument parsing,
-command registration, TUI frame rendering, and credential redaction. They do
+Run `npm test` for the current count. Tests cover config precedence and walk-up
+discovery, argument parsing, command registration, TUI frame rendering,
+credential redaction, the session and Blackboard stores, routing and provider
+health, the agent runtime and its tools, and the self-review stage. They do
 not hit the network — live probing is exercised by `aflow doctor` against a
 running gateway.
 
