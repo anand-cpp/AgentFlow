@@ -158,6 +158,11 @@ function envLayer() {
  * Resolve the effective configuration.
  * Returns { config, sources, diagnostics } — sources records which files and
  * env vars contributed, so `aflow config` can explain where a value came from.
+ *
+ * @param {object} [input]
+ * @param {Record<string, unknown>} [input.flags]  parsed CLI flags (dashed keys)
+ * @param {string} [input.cwd]           project root to resolve against
+ * @param {object} [input.env]           environment to read AGENTFLOW_* from
  */
 export function resolveConfig({ flags = {}, cwd = process.cwd(), env = process.env } = {}) {
   const prevEnv = process.env;
@@ -165,6 +170,7 @@ export function resolveConfig({ flags = {}, cwd = process.cwd(), env = process.e
   try {
     const sources = [];
     const diagnostics = [];
+    /** @type {import("../core/types.js").ResolvedConfig} */
     let config = { ...DEFAULTS };
 
     const gPath = globalConfigPath();
@@ -211,8 +217,8 @@ const flagCfg = {};
     for (const [flagName, configKey] of Object.entries(FLAG_TO_CONFIG)) {
       if (flags[flagName]) flagCfg[configKey] = true;
     }
-    if (flags.model) flagCfg.defaultModel = flags.model;
-    if (flags["base-url"]) flagCfg.baseUrl = flags["base-url"];
+    if (flags.model) flagCfg.defaultModel = String(flags.model);
+    if (flags["base-url"]) flagCfg.baseUrl = String(flags["base-url"]);
     if (Object.keys(flagCfg).length) {
       config = { ...config, ...flagCfg };
       sources.push("flags");

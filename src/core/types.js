@@ -198,4 +198,27 @@
  * @property {number} [budget]
  */
 
+/**
+ * @typedef {Object} ResolvedConfig The effective configuration surface handed
+ * to commands by src/config/index.js. Keys mirror DEFAULTS but values are
+ * widened to their runtime types: literal defaults may be overridden by config
+ * files, AGENTFLOW_* environment variables, and CLI flags.
+ * @property {string} baseUrl          gateway base URL
+ * @property {string|null} apiKey      provider credential (may be split into apiKeys)
+ * @property {number} probeTimeoutMs   provider probe timeout, ms
+ * @property {string|null} defaultModel  model used when a command needs one
+ * @property {Record<string, unknown>} modelHints  declared capability hints by model id
+ * @property {string} theme            auto | dark | light
+ * @property {number} serverPort       local gateway server port
+ * @property {string} serverHost       local gateway server host
+ * @property {string} ollamaUrl        base URL of the local Ollama instance
+ * @property {string|null} serverApiKey  auth key for the local gateway, if any
+ * @property {boolean} json            emit structured JSON on stdout
+ * @property {boolean} quiet           suppress non-essential output
+ * @property {boolean} verbose         include diagnostic detail
+ * @property {boolean} noColor         disable ANSI colour
+ * @property {string} logLevel         debug | info | warn | error
+ * @property {string|null} logPath     explicit event-log path, or null for default
+ */
+
 export {};
