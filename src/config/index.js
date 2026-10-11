@@ -37,6 +37,13 @@ export const DEFAULTS = Object.freeze({
   modelHints: {},
   // Minimum confidence before doctor reports a provider as reachable.
   theme: "auto",
+  // Local gateway server (src/core/gateway-server.js) — the address `aflow server
+  // start` binds to. Loopback by default: an unauthenticated local gateway must
+  // not face the network.
+  serverPort: 20127,
+  serverHost: "127.0.0.1",
+  // Base URL of the local Ollama instance the gateway proxies completions to.
+  ollamaUrl: "http://127.0.0.1:11434",
   // Emit structured JSON on stdout instead of human-readable text.
   json: false,
   // Suppress non-essential output.
@@ -100,6 +107,9 @@ const ENV_MAP = {
   AGENTFLOW_PROBE_TIMEOUT_MS: "probeTimeoutMs",
   AGENTFLOW_DEFAULT_MODEL: "defaultModel",
   AGENTFLOW_THEME: "theme",
+  AGENTFLOW_SERVER_PORT: "serverPort",
+  AGENTFLOW_SERVER_HOST: "serverHost",
+  AGENTFLOW_OLLAMA_URL: "ollamaUrl",
   AGENTFLOW_JSON: "json",
   AGENTFLOW_QUIET: "quiet",
   AGENTFLOW_VERBOSE: "verbose",
