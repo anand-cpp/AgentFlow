@@ -382,9 +382,12 @@ export const searchTool = {
       }
       entries.sort((a, b) => a.name.localeCompare(b.name));
 
-      // `let`, not `const`: a symlink that resolves inside the workspace is
-      // re-stated below (line ~407) so isDirectory()/name reflect the target.
-      for (let entry of entries) {
+      // `const`: `entry` is a Dirent whose `name` must survive the target restat
+      // below. A symlink that resolves inside the workspace is re-stated into
+      // `stats` so isDirectory()/isFile() reflect the target (a link to a
+      // directory must be walked, a link to a file must be searched), while the
+      // name always comes from the Dirent the directory listing produced.
+      for (const entry of entries) {
         if (stoppedBecause) return;
         if (bytesScanned >= MAX_SEARCH_BYTES) {
           truncated = true;
@@ -393,6 +396,7 @@ export const searchTool = {
         }
         const full = path.join(dir, entry.name);
 
+        let stats = /** @type {import("node:fs").Dirent | import("node:fs").Stats} */ (entry);
         if (entry.isSymbolicLink()) {
           // Follow a link only if it stays inside. A link out of the workspace is
           // exactly what the containment rule forbids, and skipping it here is
@@ -406,13 +410,13 @@ export const searchTool = {
           if (!isWithin(startDir, target)) continue;
           if (visitedDirs.has(target)) continue;
           try {
-            entry = fs.statSync(full);
+            stats = fs.statSync(full);
           } catch {
             continue;
           }
         }
 
-        if (entry.isDirectory()) {
+        if (stats.isDirectory()) {
           if (SKIP_DIRS.has(entry.name)) continue;
           let key;
           try {
@@ -425,7 +429,7 @@ export const searchTool = {
           walk(full);
           continue;
         }
-        if (!entry.isFile()) continue;
+        if (!stats.isFile()) continue;
         if (nameFilter && !entry.name.includes(nameFilter)) continue;
 
         let st;

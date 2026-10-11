@@ -585,6 +585,53 @@ test("search skips node_modules and reports that it did", async () => {
   }
 });
 
+test("search skips a node_modules junction into an inside directory", async () => {
+  const ws = workspace();
+  try {
+    seed(ws);
+    fs.mkdirSync(path.join(ws.root, "dep-src"), { recursive: true });
+    fs.writeFileSync(path.join(ws.root, "dep-src", "index.js"), "needle in a dependency\n");
+    // A *directory link* with a blacklisted name, pointing inside the workspace.
+    // The walk re-states a link to decide dir-vs-file, but the skip decision has
+    // to be made on the link's *own* name -- a restat that replaces the entry
+    // with a Stats loses the name (`undefined.includes` is also the crash below)
+    // and silently walks a directory the tool promises to skip.
+    linkDir(path.join(ws.root, "dep-src"), path.join(ws.root, "node_modules"));
+    const r = await call(searchTool, { pattern: "needle" }, { agent: agentWith(["search"]), workspaceRoot: ws.root });
+    assert.equal(r.outcome, OUTCOME.OK);
+    assert.equal(r.output.matches.some((m) => m.file.includes("node_modules")), false);
+    assert.match(r.output.output, /node_modules/, "and the omission is stated");
+  } finally {
+    ws.cleanup();
+  }
+});
+
+test("search with a name filter survives an in-workspace file link", async (t) => {
+  const ws = workspace();
+  try {
+    fs.writeFileSync(path.join(ws.root, "target.js"), "needle via a linked name\n");
+    try {
+      fs.symlinkSync(
+        path.join(ws.root, "target.js"),
+        path.join(ws.root, "alias.js"),
+        process.platform === "win32" ? "file" : "file",
+      );
+    } catch {
+      t.skip("file symlinks unavailable here (elevation required on Windows)");
+      return;
+    }
+    // A link to a file is re-stated so its content can be searched; the name
+    // filter must still see the *link's* name, not the target's. Losing the
+    // name to the restat used to throw `undefined.includes` and fail the search.
+    const r = await call(searchTool, { pattern: "needle", name: "alias" }, { agent: agentWith(["search"]), workspaceRoot: ws.root });
+    assert.equal(r.outcome, OUTCOME.OK);
+    assert.equal(r.output.matchCount, 1);
+    assert.ok(r.output.matches[0].file.endsWith("alias.js"), "the linked name is the one filtered on");
+  } finally {
+    ws.cleanup();
+  }
+});
+
 test("search truncates at the match limit and says how many were withheld", async () => {
   const ws = workspace();
   try {
