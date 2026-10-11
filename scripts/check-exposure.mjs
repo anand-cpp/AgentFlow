@@ -69,7 +69,7 @@ export async function probeContent({ repo, ref, filePath, fetchImpl = fetch, tim
     if (GONE.has(res.status)) return { state: "gone" };
 
     if (res.status === 200) {
-      const json = await res.json();
+      const json = /** @type {{ encoding?: string, content?: unknown }} */ (await res.json());
       if (json?.encoding === "base64" && typeof json.content === "string") {
         return { state: "retrievable", body: Buffer.from(json.content, "base64").toString("utf8") };
       }

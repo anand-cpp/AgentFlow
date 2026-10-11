@@ -259,18 +259,27 @@ function isTextFile(abs) {
   return true;
 }
 
+/**
+ * Run git, returning its stdout. Text reads decode to a string because the
+ * default branch applies `encoding: "utf8"` dynamically below; the return is
+ * typed conservatively as `string | Buffer` so binary reads (which must leave
+ * encoding off) are also legal.
+ * @param {string[]} args
+ * @param {{ binary?: boolean } & Record<string, unknown>} [opts]
+ * @return {string | Buffer}
+ */
 function git(args, opts = {}) {
   // execFileSync returns a Buffer only when `encoding` is omitted; passing
   // "buffer" is not a valid encoding. Binary reads need it left off.
   const { binary = false, ...rest } = opts;
   const options = { maxBuffer: 1024 * 1024 * 1024, ...rest };
-  if (!binary) options.encoding = "utf8";
+  if (!binary) /** @type {Record<string, unknown>} */ (options).encoding = "utf8";
   return execFileSync("git", args, options);
 }
 
 function trackedFiles(root) {
   try {
-    return git(["ls-files", "-z"], { cwd: root }).split("\0").filter(Boolean);
+    return /** @type {string} */ (git(["ls-files", "-z"], { cwd: root })).split("\0").filter(Boolean);
   } catch {
     return null; // not a git repo, or git unavailable
   }
@@ -334,8 +343,9 @@ export function scanHistory(root = process.cwd(), refs = null) {
     // never pushed here, and including them buries the real findings under
     // upstream's documentation examples.
     try {
-      const published = git(["for-each-ref", "--format=%(refname)", "refs/remotes/origin/"], { cwd: root })
-        .split("\n")
+      const published = /** @type {string} */ (
+        git(["for-each-ref", "--format=%(refname)", "refs/remotes/origin/"], { cwd: root })
+      ).split("\n")
         .filter(Boolean);
       targets = published.length ? published : ["HEAD"];
     } catch {
@@ -345,7 +355,7 @@ export function scanHistory(root = process.cwd(), refs = null) {
 
   let objects;
   try {
-    objects = git(["rev-list", "--objects", ...targets], { cwd: root });
+    objects = /** @type {string} */ (git(["rev-list", "--objects", ...targets], { cwd: root }));
   } catch {
     return { findings: [], scanned: 0, refs: targets, error: `cannot read history for ${targets.join(", ")}` };
   }
@@ -368,10 +378,12 @@ export function scanHistory(root = process.cwd(), refs = null) {
   if (shas.length === 0) return { findings: [], scanned: 0, refs: targets };
 
   const typeBySha = new Map(
-    git(["cat-file", "--batch-check"], {
-      cwd: root,
-      input: shas.join("\n") + "\n",
-    })
+    /** @type {string} */ (
+      git(["cat-file", "--batch-check"], {
+        cwd: root,
+        input: shas.join("\n") + "\n",
+      })
+    )
       .split("\n")
       .filter(Boolean)
       .map((l) => {
@@ -384,11 +396,13 @@ export function scanHistory(root = process.cwd(), refs = null) {
   if (blobShas.length === 0) return { findings: [], scanned: 0, refs: targets };
 
   // Stream the blobs through one `git cat-file --batch` process.
-  const raw = git(["cat-file", "--batch"], {
-    cwd: root,
-    input: Buffer.from(blobShas.join("\n") + "\n"),
-    binary: true,
-  }).toString("binary");
+  const raw = /** @type {Buffer} */ (
+    git(["cat-file", "--batch"], {
+      cwd: root,
+      input: Buffer.from(blobShas.join("\n") + "\n"),
+      binary: true,
+    })
+  ).toString("binary");
 
   const findings = [];
   let off = 0;
