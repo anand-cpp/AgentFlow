@@ -59,7 +59,7 @@ recorded honestly: *Inherited* means the files are on `main` as imported;
 | SQLite persistence layer | `src/lib/db/` | Not yet imported |
 | OAuth provider flows | `src/lib/oauth/` | Not yet imported |
 | Standalone server + client-IP hardening | `custom-server.js` | Not yet imported |
-| Test suite | `tests/` | Not yet imported |
+| Test suite | `tests/` (upstream) | Not yet imported — AgentFlow keeps its own suite under `test/` (29 files) |
 
 ### Modifications made to inherited code
 
@@ -82,20 +82,41 @@ missed by the initial targeted scan and caught by a broader sweep.
 
 ## Newly written for AgentFlow
 
-No upstream equivalent exists for any of the following:
+No upstream equivalent exists for any of the following. Built items name the
+files that implement them.
 
-- Terminal CLI command router and command surface
-- Terminal CLI command router and command surface — **built**
-- `doctor` diagnostics, secret redaction, TUI dashboard — **built**
-- `aflow` bin entry, config hierarchy with documented precedence — **built**
-- Committed-credential scanner run in CI — **built**
-- Agent runtime and built-in agents — not started
-- Agent orchestration — not started
-- Tool registry and permission/approval system — not started
-- Plugin architecture — not started
-- Session manager and conversation history — not started
-- Routing policy engine with observable structured events — not started
-- Bundled standalone gateway (so AgentFlow does not require 9Router running) — not started
+**Built**
+
+- Terminal CLI command router and command surface — `src/cli/`, `src/commands/`
+- `doctor` diagnostics, secret redaction, TUI dashboard — `src/commands/doctor.js`,
+  `src/core/redact.js`, `src/tui/dashboard.js`
+- `aflow` bin entry, config hierarchy with documented precedence — `bin/aflow.js`,
+  `src/config/index.js`
+- Committed-credential scanner run in CI — `scripts/scan-secrets.mjs`,
+  `.github/workflows/test.yml`
+- Session manager and conversation history — `src/core/sessions.js`
+- Blackboard (durable per-project workflow state) — `src/core/blackboard.js`
+- Routing policy engine with observable structured events — `src/core/routing.js`,
+  `src/core/events.js`
+- Provider health / circuit breaker — `src/core/provider-health.js`
+- Agent runtime and eight built-in agents — `src/core/agents/runtime.js`,
+  `src/core/agents/definitions.js`, `src/core/agents/registry.js`
+- Tool registry and permission/approval system — `src/core/agents/tools.js`,
+  `src/core/agents/real-tools.js`
+- Self-review stage (schema, confidence, stage) — `src/core/tribunal/`
+
+**Not started**
+
+- Agent orchestration (running several agents together) — the runtime bounds a
+  single agent's recursion depth, but there is no multi-agent orchestrator
+- Plugin architecture
+- Automatic cross-provider switching wired into the runtime — the primitives
+  (`src/core/provider-health.js`, continuity/session support) exist, but
+  `AgentRuntime` does not yet construct `ProviderHealth` and pass it to the
+  `Router` (Blackboard task `t7`)
+- Tribunal stages 2–5 (external cross-examination, Merge, Trial, Oracle) — only
+  the self-review stage is built
+- Bundled standalone gateway (so AgentFlow does not require 9Router running)
 
 ## Architectural references studied (no code incorporated)
 
@@ -115,8 +136,10 @@ included in this project.
 
 ## Status
 
-Pre-release (`0.1.0`). Audit phase complete. The routing engine and the
-`aflow` CLI are built, tested (43 passing), and published; the standalone
-gateway, agent runtime, tools, permissions, plugins, and sessions are not yet
-built. See `AUDIT/` for the full evidence base and `AUDIT/FEATURE_AUDIT.md` for
-verified capabilities and known gaps.
+Pre-release (`0.1.0`). Status as of 2026-10-11. The routing engine and the
+`aflow` CLI are built and tested, as are the session and Blackboard stores, the
+agent runtime with its tool registry and permission system, provider health, and
+the first self-review stage. Run `npm test` for the current count. The standalone
+gateway, the plugin loader, automatic cross-provider switching in the runtime,
+and tribunal stages 2–5 are not yet built. See `AUDIT/` for the full evidence
+base and `AUDIT/FEATURE_AUDIT.md` for verified capabilities and known gaps.
