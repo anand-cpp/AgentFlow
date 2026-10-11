@@ -98,7 +98,8 @@ files that implement them.
 - Blackboard (durable per-project workflow state) — `src/core/blackboard.js`
 - Routing policy engine with observable structured events — `src/core/routing.js`,
   `src/core/events.js`
-- Provider health / circuit breaker — `src/core/provider-health.js`
+- Provider health / circuit breaker, constructed by and injected into the agent
+  runtime — `src/core/provider-health.js`, `src/core/agents/runtime.js`
 - Agent runtime and eight built-in agents — `src/core/agents/runtime.js`,
   `src/core/agents/definitions.js`, `src/core/agents/registry.js`
 - Tool registry and permission/approval system — `src/core/agents/tools.js`,
@@ -109,8 +110,9 @@ files that implement them.
   `src/core/tribunal/`
 - `aflow tribunal`, `aflow tribunal history`, and the `fight` alias — the CLI
   surface over the tribunal pipeline — `src/commands/tribunal.js`
-- Standalone in-repo OpenAI-compatible gateway with SSE translation and
-  API-key/bind guards, plus its lifecycle command — `src/core/gateway-server.js`,
+- Standalone in-repo OpenAI-compatible gateway (local Ollama plus remote Groq,
+  Gemini, Cerebras, Mistral, OpenRouter) with SSE translation and API-key/bind
+  guards, plus its lifecycle command — `src/core/gateway-server.js`,
   `src/commands/server.js`
 
 **Not started**
@@ -118,10 +120,6 @@ files that implement them.
 - Agent orchestration (running several agents together) — the runtime bounds a
   single agent's recursion depth, but there is no multi-agent orchestrator
 - Plugin architecture
-- Automatic cross-provider switching wired into the runtime — the primitives
-  (`src/core/provider-health.js`, continuity/session support) exist, but
-  `AgentRuntime` does not yet construct `ProviderHealth` and pass it to the
-  `Router` (Blackboard task `t7`)
 - SQLite persistence and OAuth provider flows — upstream components not imported
 
 ## Architectural references studied (no code incorporated)
@@ -144,9 +142,9 @@ included in this project.
 
 Pre-release (`0.1.0`). Status as of 2026-10-11. The routing engine and the
 `aflow` CLI are built and tested, as are the session and Blackboard stores, the
-agent runtime with its tool registry and permission system, provider health, the
-standalone in-repo gateway, and all five stages of the self-adversarial tribunal.
-Run `npm test` for the current count. The plugin loader, automatic cross-provider
-switching in the runtime, agent orchestration, and the un-imported upstream
-SQLite/OAuth components are not yet built. See `AUDIT/` for the full evidence
-base and `AUDIT/FEATURE_AUDIT.md` for verified capabilities and known gaps.
+agent runtime with its tool registry and permission system, provider health
+wired into the runtime, the standalone in-repo gateway, and all five stages of
+the self-adversarial tribunal. Run `npm test` for the current count. The plugin
+loader, agent orchestration, and the un-imported upstream SQLite/OAuth
+components are not yet built. See `AUDIT/` for the full evidence base and
+`AUDIT/FEATURE_AUDIT.md` for verified capabilities and known gaps.

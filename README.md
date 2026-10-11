@@ -33,8 +33,8 @@ That distinction — **advertised** versus **working** — is the product.
 ## Status
 
 Early, but broad. The CLI, routing engine, dashboard, agent runtime, standalone
-gateway, and the five-stage tribunal are in place and tested. A plugin loader and
-cross-provider switching inside the agent runtime are not built yet.
+gateway, and the five-stage tribunal are in place and tested. A plugin loader is
+not built yet.
 
 | Area | State |
 |---|---|
@@ -46,10 +46,10 @@ cross-provider switching inside the agent runtime are not built yet.
 | Blackboard | Working — durable per-project workflow state |
 | Agent runtime | Working — bounded, registry-driven, eight built-ins |
 | Tool permissions | Working — scoped allowlists, approval, guards, audit log |
-| Standalone gateway | Working — `aflow server` runs an in-repo OpenAI-compatible gateway with SSE translation and API-key auth |
+| Cross-provider failover in the runtime | Working — `AgentRuntime` constructs a `ProviderHealth` breaker and hands it to the `Router`, so a provider that just failed cools down before it is retried |
+| Standalone gateway | Working — `aflow server` runs an in-repo OpenAI-compatible gateway (local Ollama plus remote Groq, Gemini, Cerebras, Mistral, OpenRouter) with SSE translation and API-key auth |
 | Tribunal | Working — five adversarial stages (Forge, Crucible, Merge, Trial, Oracle) with a `aflow tribunal` surface |
 | Plugin loader | Not started |
-| Cross-provider switching in the runtime | Not started — the primitives exist, the `AgentRuntime` integration does not |
 
 See [`AUDIT/FEATURE_AUDIT.md`](AUDIT/FEATURE_AUDIT.md) for the full
 capability comparison and [`AUDIT/ARCHITECTURE_AUDIT.md`](AUDIT/ARCHITECTURE_AUDIT.md)

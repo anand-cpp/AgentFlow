@@ -46,7 +46,7 @@ engine; the `src/` tree is AgentFlow's own code.
 | Module | Responsibility |
 |---|---|
 | `routing.js` | Fallback cascade: failure classification, candidate ordering, `Router`, provider health-aware ordering |
-| `provider-health.js` | Circuit-breaker/health tracking for providers (consumed by the router via injection) |
+| `provider-health.js` | Circuit-breaker/health tracking for providers (consumed by the router; `AgentRuntime` constructs one with its own clock and injects it) |
 | `gateway.js` | HTTP client for the OpenAI-compatible gateway: `getVersion`, `listModels`, `probeModel`, `ping`, `complete` |
 | `gateway-server.js` | Standalone in-repo OpenAI-compatible gateway: routing, SSE translation, API-key/bind guards, lifecycle |
 | `sessions.js` | Durable per-project session store (atomic writes, append lock, typed entries) |
@@ -170,15 +170,16 @@ Every value written to any of the above passes through `src/core/redact.js` firs
 - Secret redaction across output, logs, sessions, and Blackboard
 - Agent runtime and eight built-in agents, with scoped tool permissions,
   approvals, bounds, and output contracts
+- Cross-provider failover wired into `AgentRuntime`: the runtime builds a
+  `ProviderHealth` breaker (or reuses an injected one) and passes it to the
+  `Router`, so a provider that just failed cools down instead of being retried
+  on the next call
 - Self-adversarial tribunal, all five stages (Forge, Crucible, Merge, Trial,
   Oracle), the full-pipeline orchestrator, and the fight-card CLI
 
 **Not built**
 
 - Plugin loader / plugin architecture
-- Automatic cross-provider switching wired into `AgentRuntime` — the primitives
-  exist (`provider-health.js`, continuity support), the runtime integration does
-  not (Blackboard task `t7`)
 - Agent orchestration (running several agents together)
 - SQLite persistence and OAuth provider flows (upstream components not imported)
 
