@@ -53,13 +53,13 @@ recorded honestly: *Inherited* means the files are on `main` as imported;
 | Request handler, retry, token refresh | `open-sse/handlers/chatCore.js` | Inherited |
 | Per-provider executors | `open-sse/executors/` | Inherited |
 | Format translators | `open-sse/translator/` | Inherited |
-| Provider registry (89 providers registered) | `open-sse/providers/registry/` | Inherited |
+| Provider registry (132 providers registered) | `open-sse/providers/registry/` | Inherited |
 | `tool_result` token compression | `open-sse/rtk/` | Inherited |
 | CLI entry point | `bin/aflow.js` | Adapted from upstream CLI |
 | SQLite persistence layer | `src/lib/db/` | Not yet imported |
 | OAuth provider flows | `src/lib/oauth/` | Not yet imported |
 | Standalone server + client-IP hardening | `custom-server.js` | Not yet imported |
-| Test suite | `tests/` (upstream) | Not yet imported — AgentFlow keeps its own suite under `test/` (29 files) |
+| Test suite | `tests/` (upstream) | Not yet imported — AgentFlow keeps its own suite under `test/` (38 files) |
 
 ### Modifications made to inherited code
 
@@ -103,7 +103,15 @@ files that implement them.
   `src/core/agents/definitions.js`, `src/core/agents/registry.js`
 - Tool registry and permission/approval system — `src/core/agents/tools.js`,
   `src/core/agents/real-tools.js`
-- Self-review stage (schema, confidence, stage) — `src/core/tribunal/`
+- Self-adversarial tribunal, all five stages (Forge/self-review, Crucible
+  cross-examination, Merge synthesis, Trial prosecution, Oracle confidence gate),
+  the full-pipeline orchestrator, and the ANSI fight-card renderer —
+  `src/core/tribunal/`
+- `aflow tribunal`, `aflow tribunal history`, and the `fight` alias — the CLI
+  surface over the tribunal pipeline — `src/commands/tribunal.js`
+- Standalone in-repo OpenAI-compatible gateway with SSE translation and
+  API-key/bind guards, plus its lifecycle command — `src/core/gateway-server.js`,
+  `src/commands/server.js`
 
 **Not started**
 
@@ -114,9 +122,7 @@ files that implement them.
   (`src/core/provider-health.js`, continuity/session support) exist, but
   `AgentRuntime` does not yet construct `ProviderHealth` and pass it to the
   `Router` (Blackboard task `t7`)
-- Tribunal stages 2–5 (external cross-examination, Merge, Trial, Oracle) — only
-  the self-review stage is built
-- Bundled standalone gateway (so AgentFlow does not require 9Router running)
+- SQLite persistence and OAuth provider flows — upstream components not imported
 
 ## Architectural references studied (no code incorporated)
 
@@ -138,8 +144,9 @@ included in this project.
 
 Pre-release (`0.1.0`). Status as of 2026-10-11. The routing engine and the
 `aflow` CLI are built and tested, as are the session and Blackboard stores, the
-agent runtime with its tool registry and permission system, provider health, and
-the first self-review stage. Run `npm test` for the current count. The standalone
-gateway, the plugin loader, automatic cross-provider switching in the runtime,
-and tribunal stages 2–5 are not yet built. See `AUDIT/` for the full evidence
+agent runtime with its tool registry and permission system, provider health, the
+standalone in-repo gateway, and all five stages of the self-adversarial tribunal.
+Run `npm test` for the current count. The plugin loader, automatic cross-provider
+switching in the runtime, agent orchestration, and the un-imported upstream
+SQLite/OAuth components are not yet built. See `AUDIT/` for the full evidence
 base and `AUDIT/FEATURE_AUDIT.md` for verified capabilities and known gaps.

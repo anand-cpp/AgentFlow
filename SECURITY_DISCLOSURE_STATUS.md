@@ -1,6 +1,6 @@
 # Security Disclosure Status
 
-Last updated: 2026-10-04
+Last updated: 2026-10-11
 
 Upstream repository:
 decolua/9router
@@ -53,9 +53,10 @@ SECURITY GATE:
 BLOCKED
 
 Feature work:
-IN PROGRESS on branch `feat/sessions` (`aflow sessions`). Proceeding under the
-maintainer's explicit decision to continue development while the upstream
-incident remains open. This does not change the gate status above.
+IN PROGRESS on branch `feature/tribunal-self-review` (the five-stage tribunal and
+its CLI, plus a standalone in-repo gateway). Proceeding under the maintainer's
+explicit decision to continue development while the upstream incident remains
+open. This does not change the gate status above.
 
 ---
 
