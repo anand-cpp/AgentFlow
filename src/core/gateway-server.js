@@ -37,11 +37,9 @@ import os from "node:os";
 import process from "node:process";
 
 import { redact } from "./redact.js";
+import { VERSION as GATEWAY_VERSION } from "./version.js";
 
-// Kept in lockstep with the CLI's VERSION and package.json. Duplicated rather
-// than imported from ../cli/index.js because core/ must not depend on the CLI
-// layer (that import would drag in the whole command surface just for a string).
-export const GATEWAY_VERSION = "0.2.0";
+export { GATEWAY_VERSION };
 
 export const GATEWAY_DEFAULTS = Object.freeze({
   port: 20127,

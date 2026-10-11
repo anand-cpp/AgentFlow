@@ -12,6 +12,7 @@ import { Output } from "./output.js";
 import { getCommand, getCommands, valueFlagNames } from "./registry.js";
 import { resolveConfig } from "../config/index.js";
 import { setColor, bold, dim } from "./ui.js";
+import { VERSION } from "../core/version.js";
 
 // Command storage lives in ./registry.js. Keeping it separate avoids an import
 // cycle: commands import the registry, and this router imports the registry.
@@ -110,7 +111,9 @@ function renderHelp(commands) {
   return lines.join("\n");
 }
 
-export const VERSION = "0.2.0";
+// Re-exported for callers that import the version from the CLI layer; the
+// value itself comes from ../core/version.js (single source of truth).
+export { VERSION };
 
 export async function run(argv) {
   let { commandName, args, flags } = parseArgv(argv, valueFlagNames());

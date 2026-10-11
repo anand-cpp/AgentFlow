@@ -35,6 +35,8 @@ import {
   translateOllamaStreamToOpenAI,
 } from "../src/core/gateway-server.js";
 
+import { VERSION } from "../src/core/version.js";
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
@@ -257,7 +259,7 @@ test("starts on an OS-assigned port, answers /api/version, and frees the port on
   const res = await fetch(`${url}/api/version`);
   assert.equal(res.status, 200);
   assert.match(res.headers.get("content-type") || "", /application\/json/);
-  assert.deepEqual(await res.json(), { version: "0.2.0", status: "ok" });
+  assert.deepEqual(await res.json(), { version: VERSION, status: "ok" });
 
   const port = addr.port;
   await server.close();
