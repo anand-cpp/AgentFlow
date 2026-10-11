@@ -219,7 +219,7 @@ export function orderCandidates(candidates, health) {
  * transport; the router owns which model to try and why.
  */
 export class Router {
-  constructor({ tiers, execute, log = null, health = null, now = () => Date.now() } = {}) {
+  constructor({ tiers, execute, log = null, health = null, providerHealth = null, now = () => Date.now() } = {}) {
     if (!Array.isArray(tiers) || !tiers.length) throw new Error("Router requires at least one tier");
     if (typeof execute !== "function") throw new Error("Router requires an execute function");
 
@@ -227,6 +227,9 @@ export class Router {
     this.execute = execute;
     this.log = log;
     this.health = health || new HealthCache();
+    // Optional provider-level circuit breaker. When absent the router behaves
+    // exactly as before: the per-model HealthCache is the only health memory.
+    this.providerHealth = providerHealth;
     this.now = now;
   }
 
@@ -247,6 +250,7 @@ export class Router {
     const attempts = [];
     const all = orderCandidates(this.candidates(), this.health);
     const skippedProviders = new Set();
+    const blockedProviders = new Set();
     let tierIndex = null;
 
     for (let t = 0; t < this.tiers.length; t++) {
@@ -263,6 +267,21 @@ export class Router {
         if (skippedProviders.has(provider) || this.health.isProviderSkipped(provider)) {
           if (!skippedProviders.has(provider)) skippedProviders.add(provider);
           attempts.push({ model: modelId, provider, tier: tier.name, outcome: "provider_skipped", reason: FAILURE.NO_CREDENTIALS });
+          continue;
+        }
+
+        // Provider-level circuit breaker. When open, every model on the
+        // provider is equally unreachable, so skip the rest of that provider.
+        if (this.providerHealth && (blockedProviders.has(provider) || !this.providerHealth.canAttempt(provider, this.now()))) {
+          if (!blockedProviders.has(provider)) {
+            blockedProviders.add(provider);
+            this.log?.emit(
+              EVENTS.ROUTE_FALLBACK,
+              { from: modelId, reason: "circuit_open", action: "skip_provider", provider },
+              "warn"
+            );
+          }
+          attempts.push({ model: modelId, provider, tier: tier.name, outcome: "provider_blocked", reason: "circuit_open" });
           continue;
         }
 
@@ -305,6 +324,7 @@ export class Router {
 
         if (outcome === "ok") {
           this.health.markOk(modelId, elapsedMs);
+          this.providerHealth?.onSuccess(provider, { model: modelId, elapsedMs });
           const receipt = {
             ok: true,
             model: modelId,
@@ -314,6 +334,7 @@ export class Router {
             totalMs: this.now() - startedAt,
             attempts,
             skippedProviders: [...skippedProviders],
+            blockedProviders: [...blockedProviders],
             // The executor's value, so callers get the answer without the
             // router needing to know what a completion looks like.
             value: result,
@@ -330,6 +351,7 @@ export class Router {
 
         const disp = dispositionFor(outcome);
         this.health.markFailure(modelId, outcome, { skipProvider: disp.skipProvider });
+        this.providerHealth?.onFailure(provider, outcome, { model: modelId, elapsedMs });
         if (disp.skipProvider) {
           skippedProviders.add(provider);
           this.log?.emit(
@@ -354,8 +376,13 @@ export class Router {
       model: null,
       attempts,
       // Every attempt failed for a reason the operator can act on, so say which.
-      failureKinds: [...new Set(attempts.map((a) => a.outcome).filter((o) => o !== "ok" && o !== "provider_skipped"))],
+      failureKinds: [
+        ...new Set(
+          attempts.map((a) => a.outcome).filter((o) => o !== "ok" && o !== "provider_skipped" && o !== "provider_blocked")
+        ),
+      ],
       skippedProviders: [...skippedProviders],
+      blockedProviders: [...blockedProviders],
       totalMs: this.now() - startedAt,
       error: buildNoRouteError(attempts),
     };
@@ -396,7 +423,9 @@ export function isEmptyResult(result) {
  * unconfigured provider need very different responses.
  */
 export function buildNoRouteError(attempts) {
-  const kinds = new Set(attempts.map((a) => a.outcome).filter((o) => o !== "ok" && o !== "provider_skipped"));
+  const kinds = new Set(
+    attempts.map((a) => a.outcome).filter((o) => o !== "ok" && o !== "provider_skipped" && o !== "provider_blocked")
+  );
   const n = attempts.length;
   const parts = [];
 
@@ -408,6 +437,7 @@ export function buildNoRouteError(attempts) {
   }
   if (kinds.has(FAILURE.RATE_LIMITED)) parts.push("rate limited");
   if (kinds.has(FAILURE.TIMEOUT) || kinds.has(FAILURE.NETWORK)) parts.push("network unreachable");
+  if (attempts.some((a) => a.outcome === "provider_blocked")) parts.push("provider circuit open");
 
   const detail = parts.length ? parts.join("; ") : "no candidate succeeded";
   const err = new Error(`routing failed after ${n} attempt(s): ${detail}`);
