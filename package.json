@@ -7,8 +7,10 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "dependencies": {},
-  "devDependencies": {},
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5"
+  },
   "bin": {
     "aflow": "./bin/aflow.js"
   },
@@ -26,7 +28,9 @@
     "test": "node scripts/run-tests.mjs",
     "aflow": "node bin/aflow.js",
     "doctor": "node bin/aflow.js doctor",
-    "scan-secrets": "node scripts/scan-secrets.mjs"
+    "scan-secrets": "node scripts/scan-secrets.mjs",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "keywords": [
     "ai",

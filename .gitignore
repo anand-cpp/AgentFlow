@@ -33,12 +33,12 @@ Thumbs.db
 *.tsbuildinfo
 coverage/
 
-# Lockfile is intentionally not committed.
+# Lockfile is committed.
 #
-# AgentFlow's CLI has zero runtime dependencies, so a lockfile carries no
-# reproducibility benefit. Committing one here is actively harmful: this
-# working tree contains a 9Router Next.js build under .next/standalone/ whose
-# package.json pulls 590 packages into any lockfile npm generates, which would
-# make `npm install` in CI try to install all of them.
-package-lock.json
+# The CLI has zero runtime dependencies, but dev tooling (eslint, typescript)
+# is pinned via package-lock.json so `npm ci` installs an identical tree in CI.
+# npm resolves only the root package here -- there are no workspaces -- so the
+# 9Router Next.js build under .next/standalone/ is NOT pulled into the lockfile
+# (verified: ~87 entries, none under .next). Re-check that size before ever
+# re-adding a lockfile ignore rule.
 npm-shrinkwrap.json

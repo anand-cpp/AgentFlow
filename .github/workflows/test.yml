@@ -37,12 +37,11 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      # No lockfile is committed: the CLI has zero runtime dependencies, and
-      # this working tree contains a 9Router Next.js build under .next/ whose
-      # package.json would drag 590 packages into any generated lockfile.
-      # See .gitignore.
+      # The lockfile pins dev tooling (eslint, typescript). `npm ci` installs
+      # that exact tree; it needs the committed package-lock.json and fails
+      # loudly if it is out of sync with package.json.
       - name: Install
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Tests must not require network or credentials
         env:
@@ -51,6 +50,13 @@ jobs:
           AGENTFLOW_API_KEY: ""
           AGENTFLOW_BASE_URL: "http://127.0.0.1:1"
         run: npm test
+
+      # Non-blocking while the ruleset is being ratcheted down: the config
+      # exists so regressions are visible, but a lint failure here is a signal,
+      # not a gate, until the codebase is clean under the chosen rules.
+      - name: Lint
+        continue-on-error: true
+        run: npm run lint
 
       # Guards the published working tree. This check alone is not sufficient --
       # see the `secrets-history` job below for why.
