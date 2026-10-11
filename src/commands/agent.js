@@ -43,7 +43,7 @@ const USAGE_ERROR = 2;
 const NOT_COMPLETED = 1;
 
 function usage(message) {
-  const err = new Error(message);
+  const err = /** @type {Error & { usage: boolean }} */ (new Error(message));
   err.usage = true;
   return err;
 }

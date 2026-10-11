@@ -41,7 +41,7 @@ function parseCount(raw, fallback) {
 }
 
 function usage(message) {
-  const err = new Error(message);
+  const err = /** @type {Error & { usage: boolean }} */ (new Error(message));
   err.usage = true;
   return err;
 }
@@ -70,6 +70,10 @@ function blackboardStore(flags) {
  * Build the candidate proposals the Forge reviews: one per resolved model, each
  * carrying the prompt as its approach. Empty model lists fall back to a single
  * unlabeled proposal, which the pipeline still runs end to end.
+ *
+ * @param {object} [input]
+ * @param {string} [input.prompt]           the proposal under attack
+ * @param {Array<string | null>} [input.models]  model ids; null markers the default slot
  */
 export function buildProposals({ prompt, models = [] } = {}) {
   const list = Array.isArray(models) && models.length > 0 ? models : [null];
@@ -89,9 +93,16 @@ export function buildProposals({ prompt, models = [] } = {}) {
  * configured default; then a bounded slice of whatever the gateway advertises.
  * The gateway is optional -- if it is down, the run still proceeds with the
  * closest model it has, and null is a legal value the stages tolerate.
+ *
+ * @param {object} [input]
+ * @param {Record<string, unknown>} [input.flags]     parsed CLI flags
+ * @param {object} [input.config]
+ * @param {string} [input.config.defaultModel]        configured default model id
+ * @param {(config: object) => Promise<Array<string | { id?: string }>>} [input.listModels]
  */
 export async function resolveModels({ flags = {}, config = {}, listModels } = {}) {
-  const explicit = splitList(flags.models?.length ? flags.models : flags.model);
+  const modelsArg = flags.models;
+  const explicit = splitList(Array.isArray(modelsArg) && modelsArg.length ? modelsArg : flags.model);
   if (explicit.length) return explicit;
   if (config?.defaultModel) return [String(config.defaultModel)];
   const fetchModels = typeof listModels === "function" ? listModels : gatewayListModels;
@@ -100,7 +111,9 @@ export async function resolveModels({ flags = {}, config = {}, listModels } = {}
     if (Array.isArray(all) && all.length > 0) {
       const n = parseCount(flags.limit, 1);
       const capped = n > 0 ? all.slice(0, n) : all;
-      return capped.map((m) => (typeof m === "string" ? m : m?.id)).filter(Boolean);
+      return /** @type {Array<string | null>} */ (
+        capped.map((m) => (typeof m === "string" ? m : m?.id)).filter(Boolean)
+      );
     }
   } catch {
     // A down gateway is not a usage error: fall through to the null-model path.
@@ -111,6 +124,14 @@ export async function resolveModels({ flags = {}, config = {}, listModels } = {}
 /**
  * Run the full pipeline once. Exposed so tests can supply a mock completeFn
  * without going anywhere near a network.
+ *
+ * @param {object} [input]
+ * @param {string} [input.prompt]
+ * @param {Array<string | null>} [input.models]
+ * @param {string} [input.domain]     code | architecture | idea | plan | logic
+ * @param {Function} [input.completeFn]  gateway complete(config, modelId, prompt, opts)
+ * @param {object} [input.config]
+ * @param {Record<string, unknown>} [input.options]
  */
 export async function executeTribunal({ prompt, models = [], domain = "code", completeFn, config = null, options = {} } = {}) {
   const proposals = buildProposals({ prompt, models });

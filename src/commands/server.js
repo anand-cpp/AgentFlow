@@ -34,7 +34,7 @@ import { bold, dim, heading, table, green, red, yellow } from "../cli/ui.js";
 const USAGE_ERROR = 2;
 
 function usage(message) {
-  const err = new Error(message);
+  const err = /** @type {Error & { usage: boolean }} */ (new Error(message));
   err.usage = true;
   return err;
 }
@@ -314,7 +314,7 @@ async function statusSub({ flags, config, out }) {
   try {
     const res = await fetch(`${url}/api/version`, { signal: AbortSignal.timeout(2000) });
     if (res.ok) {
-      const body = await res.json();
+      const body = /** @type {{ version?: string }} */ (await res.json());
       reachable = true;
       version = body?.version ?? null;
     } else {

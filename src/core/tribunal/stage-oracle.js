@@ -70,7 +70,7 @@ export async function runOracleStage({ allStageResults = {}, domain = "general",
  * @param {object} input
  * @param {Array}    [input.proposals]  candidate proposals ({ id, model, approach, ... })
  * @param {Function} [input.completeFn]   gateway complete(config, modelId, prompt, opts)
- * @param {string}   [input.modelId]    advisor/attacker/synthesizer/prosecutor model
+ * @param {string | null} [input.modelId]    advisor/attacker/synthesizer/prosecutor model
  * @param {string}   [input.domain]     code | architecture | idea | plan | logic
  * @param {object}   [input.options]    { maxRevisions, vectors, minSurvivalScore, maxRetries, config, opts, completedAt, tribunal_id }
  * @returns {Promise<{
