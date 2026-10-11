@@ -1,4 +1,4 @@
-﻿// Standalone in-repo gateway server.
+// Standalone in-repo gateway server.
 //
 // AgentFlow has always been a CLIENT: it talks to an external 9Router-derived
 // gateway over an OpenAI-compatible API. That is a real deployment tax -- the
@@ -35,6 +35,8 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import os from "node:os";
 import process from "node:process";
+
+import { redact } from "./redact.js";
 
 // Kept in lockstep with the CLI's VERSION and package.json. Duplicated rather
 // than imported from ../cli/index.js because core/ must not depend on the CLI
@@ -503,6 +505,37 @@ function timingSafeEqualString(a, b) {
   }
 }
 
+/** Pull a human-readable message out of an upstream error body (JSON or text). */
+function extractUpstreamError(raw) {
+  const text = typeof raw === "string" ? raw.trim() : "";
+  if (!text) return "remote provider returned an error";
+  try {
+    const parsed = JSON.parse(text);
+    const e = parsed?.error;
+    if (typeof e === "string" && e) return e;
+    if (e && typeof e.message === "string" && e.message) return e.message;
+    if (typeof parsed?.message === "string" && parsed.message) return parsed.message;
+  } catch {
+    /* not JSON; fall through to the raw text */
+  }
+  return text;
+}
+
+/**
+ * Strip credentials from anything a remote provider echoes back.
+ *
+ * Two passes: first the exact key we sent (which no generic pattern can know),
+ * then the shared redact() patterns for tokens we never saw. The result is
+ * truncated so a multi-megabyte error page cannot be reflected verbatim. A proxy
+ * that leaks the key it was trusted with is worse than one that simply fails.
+ */
+function sanitizeUpstreamText(value, apiKey) {
+  let s = typeof value === "string" ? value : String(value ?? "");
+  if (apiKey) s = s.split(apiKey).join("***");
+  s = redact(s);
+  return s.length > 2000 ? `${s.slice(0, 2000)}…` : s;
+}
+
 export class GatewayServer {
   /**
    * @param {object}  [opts]
@@ -516,6 +549,10 @@ export class GatewayServer {
    * @param {string}  [opts.apiKey]         require `Authorization: Bearer <key>` on /v1/*.
    *                                        Null (default) means no auth -- correct for
    *                                        loopback-only use, refused on 0.0.0.0.
+   * @param {object}  [opts.env=process.env] environment holding provider API keys
+   *                                        (GROQ_API_KEY, ...). Read per request.
+   * @param {object}  [opts.providers=null] override the built-in provider registry
+   *                                        (tests point a provider at a mock port).
    * @param {Function}[opts.fetchImpl]      injectable fetch (tests / instrumentation).
    * @param {object}  [opts.logger=null]    optional { info, warn, error } sink.
    */
@@ -527,6 +564,8 @@ export class GatewayServer {
     timeoutMs = DEFAULT_TIMEOUT_MS,
     bodyLimit = DEFAULT_BODY_LIMIT,
     apiKey = null,
+    env = process.env,
+    providers = null,
     fetchImpl = globalThis.fetch,
     logger = null,
   } = {}) {
@@ -537,6 +576,10 @@ export class GatewayServer {
     this.timeoutMs = timeoutMs;
     this.bodyLimit = bodyLimit;
     this.apiKey = apiKey ? String(apiKey) : null;
+    // Provider credentials are read from `env` at request time and never stored
+    // as a field, so they cannot be serialised into state or logged by accident.
+    this.env = env && typeof env === "object" ? env : {};
+    this.providers = mergeProviders(providers || {});
     // Bound, not looked up per call: an injected fetch and the global fetch are
     // both "the fetch", and resolving that at construction keeps the request
     // path free of a global read that a test cannot replace.
@@ -584,7 +627,7 @@ export class GatewayServer {
     // operator *meant* to expose the server. Say so rather than staying silent.
     if (this.apiKey && isLoopbackHost(this.host)) {
       this.log?.warn?.(
-        "API key configured but server bound to loopback ΓÇö consider setting serverHost to 0.0.0.0 for remote access."
+        "API key configured but server bound to loopback — consider setting serverHost to 0.0.0.0 for remote access."
       );
     }
 
@@ -709,6 +752,22 @@ export class GatewayServer {
       source = "unconfigured";
     }
 
+    // Hosted providers are advertised from their catalogues, but only when a
+    // credential is present -- offering a model the gateway cannot authenticate
+    // would turn every selection of it into a 400.
+    const remote = [];
+    for (const [name, spec] of Object.entries(this.providers)) {
+      if (spec.local) continue;
+      if (!resolveProviderKey(spec, this.env).key) continue;
+      for (const model of spec.models || []) {
+        remote.push({ id: `${name}/${model}`, object: "model", created: 0, owned_by: name });
+      }
+    }
+    if (remote.length) {
+      data = data.concat(remote);
+      if (source === "ollama" || source === "unconfigured") source = `${source}+remote`;
+    }
+
     if (!data.length && this.staticModels.length) {
       data = this.staticModels.map((m) =>
         typeof m === "string"
@@ -740,14 +799,24 @@ export class GatewayServer {
       return this._json(res, 400, { error: { message: "body must be a JSON object", code: "invalid_body" } });
     }
 
-    if (!this.ollamaUrl) {
-      return this._json(res, 501, {
-        error: { message: "no local provider configured (set ollamaUrl)", code: "no_provider" },
-      });
-    }
-
     const stream = payload.stream === true;
     const model = typeof payload.model === "string" ? payload.model : "";
+
+    // Resolve the upstream before any network call. An explicit remote prefix
+    // with no credential is a hard error; a heuristic match with no key quietly
+    // falls back to the local provider.
+    let target;
+    try {
+      target = resolveTargetProvider(model, this.env, this.providers);
+    } catch (err) {
+      if (err instanceof ProviderAuthMissingError) {
+        return this._json(res, 400, {
+          error: { message: err.message, type: "auth_error", code: err.code },
+        });
+      }
+      throw err;
+    }
+
     // One id per request, shared by every chunk, so a client can group a stream.
     const id = newCompletionId();
     const created = Math.floor(Date.now() / 1000);
@@ -759,6 +828,20 @@ export class GatewayServer {
       if (!res.writableFinished) controller.abort();
     });
 
+    const ctx = { model: target.model, id, created, controller };
+    return target.local
+      ? this._ollamaChat(res, stream, payload, target, ctx)
+      : this._remoteChat(res, stream, payload, target, ctx);
+  }
+
+  /** Local path: translate the OpenAI request into Ollama's native contract. */
+  async _ollamaChat(res, stream, payload, target, ctx) {
+    if (!this.ollamaUrl) {
+      return this._json(res, 501, {
+        error: { message: "no local provider configured (set ollamaUrl)", code: "no_provider" },
+      });
+    }
+
     let upstream;
     try {
       upstream = await this.fetchImpl(`${this.ollamaUrl}${OLLAMA_CHAT_PATH}`, {
@@ -768,11 +851,11 @@ export class GatewayServer {
           Accept: stream ? "text/event-stream" : "application/json",
         },
         // Send Ollama its own contract, not the OpenAI one the client used.
-        body: JSON.stringify(toOllamaChatRequest(payload)),
-        signal: controller.signal,
+        body: JSON.stringify(toOllamaChatRequest({ ...payload, model: ctx.model })),
+        signal: ctx.controller.signal,
       });
     } catch (err) {
-      if (controller.signal.aborted) return; // client already gone; nothing to send
+      if (ctx.controller.signal.aborted) return; // client already gone; nothing to send
       return this._json(res, 502, {
         error: { message: `local provider unreachable: ${err?.message || err}`, code: "upstream_unreachable" },
       });
@@ -798,9 +881,105 @@ export class GatewayServer {
       });
     }
 
-    return stream
-      ? this._chatStream(res, upstream, { model, id, created })
-      : this._chatOnce(res, upstream, { model, id, created });
+    return stream ? this._chatStream(res, upstream, ctx) : this._chatOnce(res, upstream, ctx);
+  }
+
+  /**
+   * Remote path: OpenAI-compatible providers already speak the client's
+   * contract, so there is nothing to translate -- only to authenticate, forward,
+   * and pipe. Streaming bytes pass through untouched so the provider's own
+   * framing (keep-alives, [DONE]) survives intact.
+   */
+  async _remoteChat(res, stream, payload, target, ctx) {
+    const url = `${target.baseUrl}/chat/completions`;
+    const body = JSON.stringify({ ...payload, model: ctx.model });
+
+    let upstream;
+    try {
+      upstream = await this.fetchImpl(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: stream ? "text/event-stream" : "application/json",
+          Authorization: `Bearer ${target.apiKey}`,
+          "User-Agent": GATEWAY_USER_AGENT,
+        },
+        body,
+        signal: ctx.controller.signal,
+      });
+    } catch (err) {
+      if (ctx.controller.signal.aborted) return;
+      return this._json(res, 502, {
+        error: {
+          message: `remote provider unreachable: ${sanitizeUpstreamText(err?.message || err, target.apiKey)}`,
+          code: "upstream_unreachable",
+        },
+      });
+    }
+
+    // A non-2xx upstream is a real answer -- and its body may quote the request,
+    // including our Authorization header. Sanitize before it reaches the client.
+    if (!upstream.ok) {
+      let raw = "";
+      try {
+        raw = await upstream.text();
+      } catch {
+        /* unreadable error body */
+      }
+      const status = upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502;
+      return this._json(res, status, {
+        error: {
+          message: sanitizeUpstreamText(extractUpstreamError(raw), target.apiKey),
+          type: "upstream_error",
+          code: "upstream_error",
+        },
+      });
+    }
+
+    return stream ? this._remoteStream(res, upstream) : this._remoteOnce(res, upstream);
+  }
+
+  /** Streaming remote path: pipe the provider's SSE bytes through verbatim. */
+  async _remoteStream(res, upstream) {
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+    if (!upstream.body) {
+      res.end("data: [DONE]\n\n");
+      return;
+    }
+
+    const source = Readable.fromWeb(upstream.body);
+    try {
+      await pipeline(source, res);
+    } catch (err) {
+      if (!res.writableEnded) res.destroy(err);
+    }
+  }
+
+  /** Non-streaming remote path: forward the provider's JSON body unchanged. */
+  async _remoteOnce(res, upstream) {
+    let text;
+    try {
+      text = await upstream.text();
+    } catch {
+      return this._json(res, 502, {
+        error: { message: "remote provider returned an unreadable body", type: "upstream_error", code: "upstream_bad_body" },
+      });
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return this._json(res, 502, {
+        error: { message: "remote provider returned a non-JSON body", type: "upstream_error", code: "upstream_bad_body" },
+      });
+    }
+    return this._json(res, 200, parsed);
   }
 
   /** Non-streaming path: buffer Ollama's reply and re-shape it as chat.completion. */

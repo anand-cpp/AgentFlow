@@ -327,7 +327,7 @@ test("GET /v1/models returns normalized Ollama models", async () => {
       res.end(JSON.stringify(TAGS_BODY));
     },
   });
-  const gateway = new GatewayServer({ port: 0, ollamaUrl: ollama.url });
+  const gateway = new GatewayServer({ port: 0, ollamaUrl: ollama.url, env: {} });
   await gateway.start();
   try {
     const res = await fetch(`${gateway.url()}/v1/models`);
@@ -352,6 +352,7 @@ test("GET /v1/models falls back to static models when Ollama is unreachable", as
     port: 0,
     ollamaUrl: "http://127.0.0.1:1",
     models: ["oc/muse", { id: "gem/gemini", owned_by: "static" }],
+    env: {},
   });
   await gateway.start();
   try {
