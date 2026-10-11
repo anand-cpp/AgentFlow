@@ -7,9 +7,10 @@
 //      bind it again. A second server on a held port must fail with a *typed*
 //      error (GatewayPortConflictError), not an unhandled 'error' event.
 //
-//   2. The proxy. /v1/models is normalized from Ollama's /api/tags, and
-//      /v1/chat/completions is piped through byte-for-byte in both streaming
-//      and non-streaming modes. A mock Ollama (a real node:http server, not a
+//   2. The boundary. /v1/models is normalized from Ollama's /api/tags, and
+//      /v1/chat/completions is translated: the request into Ollama's native
+//      contract, and the reply back into OpenAI's -- SSE when streaming,
+//      chat.completion when not. A mock Ollama (a real node:http server, not a
 //      stubbed fetch) is used so the whole path -- sockets, headers, stream
 //      framing -- is exercised rather than simulated.
 
@@ -23,6 +24,10 @@ import {
   GatewayPortConflictError,
   normaliseOllamaModels,
   defaultServerDir,
+  newCompletionId,
+  toOllamaChatRequest,
+  ollamaToOpenAIResponse,
+  translateOllamaStreamToOpenAI,
 } from "../src/core/gateway-server.js";
 
 // ---------------------------------------------------------------------------
@@ -106,6 +111,130 @@ test("defaultServerDir honours AGENTFLOW_STATE_DIR", () => {
     if (prev === undefined) delete process.env.AGENTFLOW_STATE_DIR;
     else process.env.AGENTFLOW_STATE_DIR = prev;
   }
+});
+
+// ---------------------------------------------------------------------------
+// unit: OpenAI <-> Ollama translation
+// ---------------------------------------------------------------------------
+
+/** Collect an async iterable into an array. */
+async function collect(iterable) {
+  const out = [];
+  for await (const v of iterable) out.push(v);
+  return out;
+}
+
+/** Turn a list of Ollama chunk objects into an NDJSON async iterable. */
+function ndjsonSource(objects) {
+  const text = objects.map((o) => JSON.stringify(o)).join("\n") + "\n";
+  return (async function* () {
+    yield text;
+  })();
+}
+
+/** Parse SSE text into the JSON payloads of its data: lines (excluding [DONE]). */
+function parseSSE(text) {
+  return text
+    .split("\n")
+    .filter((l) => l.startsWith("data: "))
+    .map((l) => l.slice("data: ".length))
+    .filter((d) => d !== "[DONE]")
+    .map((d) => JSON.parse(d));
+}
+
+test("newCompletionId is a stable chatcmpl- id", () => {
+  const a = newCompletionId();
+  const b = newCompletionId();
+  assert.match(a, /^chatcmpl-[0-9a-f]{24}$/);
+  assert.notEqual(a, b, "each request must get a fresh id");
+});
+
+test("toOllamaChatRequest maps OpenAI knobs into Ollama options", () => {
+  const body = toOllamaChatRequest({
+    model: "qwen2.5",
+    messages: [{ role: "user", content: "hi" }],
+    max_tokens: 64,
+    temperature: 0.2,
+    top_p: 0.9,
+    stop: ["\n"],
+  });
+  assert.equal(body.model, "qwen2.5");
+  assert.deepEqual(body.messages, [{ role: "user", content: "hi" }]);
+  assert.equal(body.stream, false);
+  assert.deepEqual(body.options, { temperature: 0.2, top_p: 0.9, num_predict: 64, stop: ["\n"] });
+});
+
+test("toOllamaChatRequest omits options when no generation knobs are given", () => {
+  const body = toOllamaChatRequest({ model: "m", messages: [], stream: true });
+  assert.deepEqual(body, { model: "m", messages: [], stream: true });
+  assert.equal("options" in body, false);
+});
+
+test("ollamaToOpenAIResponse shapes a non-stream reply with usage", () => {
+  const out = ollamaToOpenAIResponse(
+    { message: { role: "assistant", content: "Hello" }, prompt_eval_count: 5, eval_count: 3, done: true },
+    { model: "qwen2.5", id: "chatcmpl-fixed", created: 1000 }
+  );
+  assert.equal(out.id, "chatcmpl-fixed");
+  assert.equal(out.object, "chat.completion");
+  assert.equal(out.created, 1000);
+  assert.equal(out.model, "qwen2.5");
+  assert.deepEqual(out.choices, [
+    { index: 0, message: { role: "assistant", content: "Hello" }, finish_reason: "stop" },
+  ]);
+  assert.deepEqual(out.usage, { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 });
+});
+
+test("ollamaToOpenAIResponse defaults usage to zero and reason to stop", () => {
+  const out = ollamaToOpenAIResponse({ message: { content: "x" } }, { model: "m" });
+  assert.deepEqual(out.usage, { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+  assert.equal(out.choices[0].finish_reason, "stop");
+  assert.equal(out.choices[0].message.role, "assistant");
+});
+
+test("translateOllamaStreamToOpenAI emits SSE with role once, content, and [DONE]", async () => {
+  const events = await collect(
+    translateOllamaStreamToOpenAI(
+      ndjsonSource([
+        { model: "q", message: { role: "assistant", content: "Hel" }, done: false },
+        { model: "q", message: { role: "assistant", content: "lo" }, done: false },
+        { model: "q", message: { role: "assistant", content: "" }, done: true },
+      ]),
+      "q",
+      { id: "chatcmpl-fixed", created: 42 }
+    )
+  );
+
+  assert.ok(events.every((e) => e.startsWith("data: ")), "every event is an SSE data line");
+  const done = events.at(-1);
+  assert.equal(done, "data: [DONE]\n\n");
+
+  const chunks = parseSSE(events.join(""));
+  assert.equal(chunks.length, 3);
+  assert.equal(chunks[0].object, "chat.completion.chunk");
+  assert.equal(chunks[0].id, "chatcmpl-fixed");
+  assert.equal(chunks[0].created, 42);
+  assert.deepEqual(chunks[0].choices[0].delta, { role: "assistant", content: "Hel" });
+  assert.deepEqual(chunks[1].choices[0].delta, { content: "lo" }, "role appears only on the first delta");
+  assert.equal(chunks[1].choices[0].finish_reason, null);
+  assert.deepEqual(chunks[2].choices[0].delta, {});
+  assert.equal(chunks[2].choices[0].finish_reason, "stop");
+});
+
+test("translateOllamaStreamToOpenAI tolerates a split line, junk, and no done line", async () => {
+  // One NDJSON object delivered across two chunks, plus a malformed line, and no
+  // done:true -- the translator must still flush a terminator.
+  const source = (async function* () {
+    yield '{"message":{"content":"par';
+    yield 't"},"done":false}\n';
+    yield "not json at all\n";
+  })();
+  const events = await collect(translateOllamaStreamToOpenAI(source, "m", { id: "chatcmpl-x", created: 1 }));
+  const chunks = parseSSE(events.join(""));
+  assert.equal(chunks.length, 2, "one content chunk + one synthesized finish");
+  assert.equal(chunks[0].choices[0].delta.content, "part");
+  assert.equal(chunks[1].choices[0].finish_reason, "stop");
+  assert.equal(events.at(-1), "data: [DONE]\n\n");
 });
 
 // ---------------------------------------------------------------------------
@@ -232,8 +361,14 @@ test("GET /v1/models falls back to static models when Ollama is unreachable", as
   }
 });
 
-test("POST /v1/chat/completions proxies a non-streaming completion and the body verbatim", async () => {
-  const REPLY = { model: "llama3:latest", message: { role: "assistant", content: "Hello, world" }, done: true };
+test("POST /v1/chat/completions translates a non-stream reply and sends Ollama the native request", async () => {
+  const REPLY = {
+    model: "llama3:latest",
+    message: { role: "assistant", content: "Hello, world" },
+    done: true,
+    prompt_eval_count: 7,
+    eval_count: 4,
+  };
   const ollama = await startMockOllama({
     "GET /api/tags": (_req, res) => {
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -256,31 +391,41 @@ test("POST /v1/chat/completions proxies a non-streaming completion and the body 
 
     assert.equal(res.status, 200);
     assert.match(res.headers.get("content-type") || "", /application\/json/);
-    assert.deepEqual(await res.json(), REPLY);
 
+    // The caller sees OpenAI, never Ollama.
+    const body = await res.json();
+    assert.equal(body.object, "chat.completion");
+    assert.match(body.id, /^chatcmpl-/);
+    assert.equal(body.model, "llama3:latest");
+    assert.deepEqual(body.choices, [
+      { index: 0, message: { role: "assistant", content: "Hello, world" }, finish_reason: "stop" },
+    ]);
+    assert.deepEqual(body.usage, { prompt_tokens: 7, completion_tokens: 4, total_tokens: 11 });
+
+    // The upstream sees Ollama's native contract.
     const forwarded = ollama.requests.find((r) => r.url === "/api/chat");
     assert.ok(forwarded, "the gateway must call Ollama's chat endpoint");
-    assert.deepEqual(JSON.parse(forwarded.body), payload, "the request body must be forwarded unchanged");
+    assert.deepEqual(JSON.parse(forwarded.body), { model: "llama3:latest", messages: payload.messages, stream: false });
   } finally {
     await gateway.close();
     await closeServer(ollama.server);
   }
 });
 
-test("POST /v1/chat/completions streams chunks through without corruption", async () => {
+test("POST /v1/chat/completions streams Ollama NDJSON back as OpenAI SSE", async () => {
   const lines = [
     { model: "llama3:latest", message: { role: "assistant", content: "Hel" }, done: false },
     { model: "llama3:latest", message: { role: "assistant", content: "lo" }, done: false },
     { model: "llama3:latest", message: { role: "assistant", content: "" }, done: true },
   ];
-  const expected = lines.map((l) => JSON.stringify(l)).join("\n") + "\n";
+  const ndjson = lines.map((l) => JSON.stringify(l)).join("\n") + "\n";
 
   const ollama = await startMockOllama({
     "POST /api/chat": (_req, res) => {
       res.writeHead(200, { "Content-Type": "application/x-ndjson" });
       // Write in two flushes to exercise chunk boundaries, not one big string.
-      res.write(expected.slice(0, 40));
-      res.write(expected.slice(40));
+      res.write(ndjson.slice(0, 40));
+      res.write(ndjson.slice(40));
       res.end();
     },
   });
@@ -294,16 +439,22 @@ test("POST /v1/chat/completions streams chunks through without corruption", asyn
     });
 
     assert.equal(res.status, 200);
-    assert.match(res.headers.get("content-type") || "", /application\/x-ndjson/);
+    assert.match(res.headers.get("content-type") || "", /text\/event-stream/);
+    assert.match(res.headers.get("cache-control") || "", /no-cache/);
 
     const text = await res.text();
-    assert.equal(text, expected, "stream framing must survive the proxy");
+    assert.ok(text.endsWith("data: [DONE]\n\n"), "the stream must terminate with [DONE]");
 
-    const parsed = text
-      .trim()
-      .split("\n")
-      .map((l) => JSON.parse(l));
-    assert.deepEqual(parsed, lines);
+    const chunks = parseSSE(text);
+    assert.equal(chunks.length, 3);
+    assert.deepEqual(chunks.map((c) => c.choices[0].delta), [
+      { role: "assistant", content: "Hel" },
+      { content: "lo" },
+      {},
+    ]);
+    assert.equal(chunks.at(-1).choices[0].finish_reason, "stop");
+    // One id for the whole stream.
+    assert.equal(new Set(chunks.map((c) => c.id)).size, 1);
   } finally {
     await gateway.close();
     await closeServer(ollama.server);
@@ -339,5 +490,30 @@ test("POST /v1/chat/completions returns 502 when the local provider is down", as
     assert.equal((await res.json()).error.code, "upstream_unreachable");
   } finally {
     await gateway.close();
+  }
+});
+
+test("POST /v1/chat/completions maps an upstream error into an OpenAI error envelope", async () => {
+  const ollama = await startMockOllama({
+    "POST /api/chat": (_req, res) => {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "model 'nope' not found" }));
+    },
+  });
+  const gateway = new GatewayServer({ port: 0, ollamaUrl: ollama.url });
+  await gateway.start();
+  try {
+    const res = await fetch(`${gateway.url()}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "nope", messages: [] }),
+    });
+    assert.equal(res.status, 404, "the upstream status must be preserved");
+    const body = await res.json();
+    assert.equal(body.error.type, "upstream_error");
+    assert.match(body.error.message, /not found/);
+  } finally {
+    await gateway.close();
+    await closeServer(ollama.server);
   }
 });

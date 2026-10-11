@@ -20,17 +20,18 @@
 //   Bounded.            Request bodies are capped, upstream calls are
 //                       time-bounded, and shutdown closes the socket set rather
 //                       than hoping keep-alive clients go away.
-//   Transparent.        Chat traffic is piped through byte-for-byte. This step
-//                       does not rewrite OpenAI bodies into Ollama bodies or
-//                       back -- it forwards and preserves status, content-type,
-//                       and stream framing, so "corruption" is impossible by
-//                       construction. Translation is a later step, and doing it
-//                       here would be guessing at a contract nobody has asked
-//                       for yet.
+//   OpenAI on the wire. Callers speak OpenAI to /v1/chat/completions no matter
+//                       which backend answers. The gateway translates the
+//                       request into Ollama's native /api/chat and translates
+//                       the reply back: NDJSON -> SSE when streaming, and
+//                       { message } -> { choices[].message } when not. The
+//                       client and any external consumer therefore see exactly
+//                       one contract, regardless of backend.
 
 import http from "node:http";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import os from "node:os";
 import process from "node:process";
@@ -100,6 +101,186 @@ export function normaliseOllamaModels(body) {
       return { id, object: "model", created, owned_by: m?.owned_by || "ollama" };
     })
     .filter((m) => m.id);
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI <-> Ollama translation
+//
+// Ollama's native /api/chat is *not* the OpenAI contract. Its stream is NDJSON
+// (one JSON object per line) where OpenAI's is Server-Sent Events; its final
+// object carries usage counters named prompt_eval_count/eval_count where OpenAI
+// uses usage.prompt_tokens/completion_tokens. A client built against the OpenAI
+// contract -- including this repo's own src/core/gateway.js -- reads
+// choices[0].message.content and finds nothing in an Ollama reply. Translating
+// at the boundary is what makes the gateway backend-agnostic.
+// ---------------------------------------------------------------------------
+
+/** A stable completion id, generated once per request (OpenAI's `chatcmpl-` shape). */
+export function newCompletionId() {
+  return `chatcmpl-${randomBytes(12).toString("hex")}`;
+}
+
+/** Coerce an Ollama token count to a non-negative integer (missing -> 0). */
+function tokenCount(value) {
+  return Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
+}
+
+/** Ollama `done_reason` -> OpenAI `finish_reason`. Length is the only one we distinguish. */
+function finishReasonFor(ollama, fallback = "stop") {
+  if (ollama?.done === false) return null;
+  return ollama?.done_reason === "length" ? "length" : fallback;
+}
+
+/**
+ * Translate an OpenAI chat request into Ollama's native /api/chat body.
+ *
+ * The two contracts overlap on `model`, `messages`, and `stream`; they diverge
+ * on generation knobs, which OpenAI puts at the top level (max_tokens,
+ * temperature, top_p, stop) and Ollama nests under `options` with different
+ * names (num_predict, temperature, top_p, stop). Translating them means a client
+ * that caps `max_tokens` actually gets a bounded reply instead of an ignored
+ * field.
+ */
+export function toOllamaChatRequest(payload = {}) {
+  const body = {
+    model: payload?.model,
+    messages: Array.isArray(payload?.messages) ? payload.messages : [],
+    stream: payload?.stream === true,
+  };
+
+  const options = {};
+  if (payload?.temperature != null) options.temperature = payload.temperature;
+  if (payload?.top_p != null) options.top_p = payload.top_p;
+  const maxTokens = payload?.max_tokens ?? payload?.max_completion_tokens;
+  if (maxTokens != null) options.num_predict = maxTokens;
+  if (payload?.stop != null) options.stop = payload.stop;
+  if (Object.keys(options).length) body.options = options;
+
+  return body;
+}
+
+/**
+ * Translate a non-streaming Ollama /api/chat reply into an OpenAI chat.completion.
+ *
+ * Usage is summed from Ollama's counters; when they are absent (some models /
+ * older servers omit them) the counts are 0 rather than omitted, because a
+ * downstream billing or budget check that reads `usage.prompt_tokens` should get
+ * a number, not `undefined`.
+ */
+export function ollamaToOpenAIResponse(ollama = {}, { model, id, created } = {}) {
+  const message = ollama?.message ?? {};
+  const promptTokens = tokenCount(ollama?.prompt_eval_count);
+  const completionTokens = tokenCount(ollama?.eval_count);
+  return {
+    id: id ?? newCompletionId(),
+    object: "chat.completion",
+    created: created ?? Math.floor(Date.now() / 1000),
+    model: model ?? ollama?.model ?? "",
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: typeof message.role === "string" ? message.role : "assistant",
+          content: typeof message.content === "string" ? message.content : "",
+        },
+        finish_reason: finishReasonFor(ollama, "stop") ?? "stop",
+      },
+    ],
+    usage: {
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: promptTokens + completionTokens,
+    },
+  };
+}
+
+/** Serialise one OpenAI chunk as an SSE event. */
+function sseChunk({ id, created, model, delta, finishReason }) {
+  const payload = {
+    id,
+    object: "chat.completion.chunk",
+    created,
+    model,
+    choices: [{ index: 0, delta, finish_reason: finishReason }],
+  };
+  return `data: ${JSON.stringify(payload)}\n\n`;
+}
+
+/**
+ * Translate Ollama's NDJSON chat stream into OpenAI SSE.
+ *
+ * `ollamaStream` is any async iterable of Buffers/strings (a node:Readable is
+ * the usual caller). Yields complete SSE events, ending with `data: [DONE]`.
+ *
+ * The one subtle rule is `delta.role`: OpenAI's first delta carries the role and
+ * every later one carries only content. We track that with `sentRole`, so the
+ * role is emitted exactly once even when Ollama's first line has empty content.
+ * A malformed line is skipped rather than fatal: dropping one bad line beats
+ * killing a stream the client is already reading.
+ */
+export async function* translateOllamaStreamToOpenAI(ollamaStream, modelId, { id, created } = {}) {
+  const completionId = id ?? newCompletionId();
+  const createdTs = created ?? Math.floor(Date.now() / 1000);
+  const model = modelId ?? "";
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let sentRole = false;
+  let finishSent = false;
+
+  const contentChunk = (obj) => {
+    const content = typeof obj?.message?.content === "string" ? obj.message.content : "";
+    const delta = {};
+    if (!sentRole) {
+      delta.role = typeof obj?.message?.role === "string" ? obj.message.role : "assistant";
+      sentRole = true;
+    }
+    if (content) delta.content = content;
+    if (!Object.keys(delta).length) return null;
+    return sseChunk({ id: completionId, created: createdTs, model, delta, finishReason: null });
+  };
+
+  const processLine = (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+    let obj;
+    try {
+      obj = JSON.parse(trimmed);
+    } catch {
+      return null; // skip a malformed line instead of aborting the stream
+    }
+    if (obj?.error) return null; // an error line carries no delta
+    const events = [];
+    const content = contentChunk(obj);
+    if (content) events.push(content);
+    if (obj?.done === true && !finishSent) {
+      finishSent = true;
+      const reason = obj?.done_reason === "length" ? "length" : "stop";
+      events.push(sseChunk({ id: completionId, created: createdTs, model, delta: {}, finishReason: reason }));
+    }
+    return events;
+  };
+
+  for await (const chunk of ollamaStream) {
+    buffer += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
+    let idx;
+    while ((idx = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 1);
+      const events = processLine(line);
+      if (events) for (const e of events) yield e;
+    }
+  }
+  buffer += decoder.decode();
+  const tail = processLine(buffer);
+  if (tail) for (const e of tail) yield e;
+
+  // A stream that ended without a done:true line still needs a terminator, or
+  // the client waits forever for finish_reason.
+  if (!finishSent) {
+    yield sseChunk({ id: completionId, created: createdTs, model, delta: {}, finishReason: "stop" });
+  }
+  yield "data: [DONE]\n\n";
 }
 
 /** Read a request body as UTF-8, refusing anything past `limit`. */
@@ -340,6 +521,12 @@ export class GatewayServer {
       });
     }
 
+    const stream = payload.stream === true;
+    const model = typeof payload.model === "string" ? payload.model : "";
+    // One id per request, shared by every chunk, so a client can group a stream.
+    const id = newCompletionId();
+    const created = Math.floor(Date.now() / 1000);
+
     // Abort the upstream call if the client hangs up mid-stream, so a cancelled
     // request does not leave a provider connection running to nowhere.
     const controller = new AbortController();
@@ -353,11 +540,10 @@ export class GatewayServer {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Accept: payload.stream ? "text/event-stream" : "application/json",
+          Accept: stream ? "text/event-stream" : "application/json",
         },
-        // Forward the client's body verbatim. This step is a transport proxy;
-        // rewriting it would be inventing a contract.
-        body: raw || "{}",
+        // Send Ollama its own contract, not the OpenAI one the client used.
+        body: JSON.stringify(toOllamaChatRequest(payload)),
         signal: controller.signal,
       });
     } catch (err) {
@@ -367,23 +553,66 @@ export class GatewayServer {
       });
     }
 
-    res.statusCode = upstream.status;
-    const contentType = upstream.headers.get("content-type");
-    if (contentType) res.setHeader("Content-Type", contentType);
+    // A non-2xx upstream is a real answer (model missing, bad request). Translate
+    // Ollama's `{ error }` into the OpenAI error envelope and preserve the status
+    // rather than pretending it succeeded.
+    if (!upstream.ok) {
+      let detail = null;
+      try {
+        detail = await upstream.json();
+      } catch {
+        /* non-JSON error body */
+      }
+      const status = upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502;
+      return this._json(res, status, {
+        error: {
+          message: detail?.error || `local provider returned ${upstream.status}`,
+          type: "upstream_error",
+          code: "upstream_error",
+        },
+      });
+    }
+
+    return stream
+      ? this._chatStream(res, upstream, { model, id, created })
+      : this._chatOnce(res, upstream, { model, id, created });
+  }
+
+  /** Non-streaming path: buffer Ollama's reply and re-shape it as chat.completion. */
+  async _chatOnce(res, upstream, ctx) {
+    let ollama;
+    try {
+      ollama = await upstream.json();
+    } catch {
+      return this._json(res, 502, {
+        error: { message: "local provider returned an unreadable body", type: "upstream_error", code: "upstream_bad_body" },
+      });
+    }
+    return this._json(res, 200, ollamaToOpenAIResponse(ollama, ctx));
+  }
+
+  /** Streaming path: NDJSON from Ollama in, OpenAI SSE to the client out. */
+  async _chatStream(res, upstream, ctx) {
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    // Defeat proxy buffering so tokens arrive as they are produced.
+    res.setHeader("X-Accel-Buffering", "no");
+    if (typeof res.flushHeaders === "function") res.flushHeaders();
 
     if (!upstream.body) {
-      res.end();
+      res.end("data: [DONE]\n\n");
       return;
     }
 
+    const source = Readable.fromWeb(upstream.body);
+    const sse = Readable.from(translateOllamaStreamToOpenAI(source, ctx.model, { id: ctx.id, created: ctx.created }));
     try {
-      // Stream the upstream body straight through. Works identically for an
-      // NDJSON stream and for a single buffered JSON object -- both are just a
-      // body, and framing is preserved because we never parse and re-encode it.
-      await pipeline(Readable.fromWeb(upstream.body), res);
+      // pipeline handles backpressure and propagates a mid-stream error.
+      await pipeline(sse, res);
     } catch (err) {
-      // A broken pipe after headers are sent cannot become a clean JSON error;
-      // the only correct move is to drop the connection.
+      // Headers are already sent; a clean JSON error is no longer possible.
       if (!res.writableEnded) res.destroy(err);
     }
   }
@@ -407,4 +636,15 @@ export class GatewayServer {
   }
 }
 
-export default { GatewayServer, GatewayPortConflictError, GATEWAY_VERSION, GATEWAY_DEFAULTS, defaultServerDir, normaliseOllamaModels };
+export default {
+  GatewayServer,
+  GatewayPortConflictError,
+  GATEWAY_VERSION,
+  GATEWAY_DEFAULTS,
+  defaultServerDir,
+  normaliseOllamaModels,
+  newCompletionId,
+  toOllamaChatRequest,
+  ollamaToOpenAIResponse,
+  translateOllamaStreamToOpenAI,
+};
