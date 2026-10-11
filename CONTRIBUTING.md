@@ -53,7 +53,14 @@ node bin/aflow.js --help
 ## Code Conventions
 
 - **Zero runtime dependencies.** Production code must use only the Node.js
-  standard library. Dev dependencies (lint, typecheck) are acceptable.
+  standard library, so the test suite runs without an install step. Dev
+  dependencies (lint, typecheck) are acceptable.
+- Every module ships with JSDoc type annotations (checked via `npx tsc --noEmit`).
+- Prefer optional fields in option-bag `@param` annotations and enforce required
+  inputs with runtime validators (e.g. `asString(value, field, { required: true })`).
+  A JSDoc field marked required on a parameter with a `= {}` default becomes a
+  false TS2741 error at the declaration.
+- A fix that changes observable behaviour ships with a test and a changelog line.
 - **ESM only.** The project is `"type": "module"`. Use `import`/`export`.
 - **Node >=20.** Do not use APIs introduced after Node 20 without a guard.
 - **Test with `node:test`.** Tests live in `test/` and use the built-in test
@@ -61,6 +68,13 @@ node bin/aflow.js --help
 - **Document design decisions.** Non-obvious choices get a comment explaining
   *why*, not *what*.
 - **No secrets in source.** Every commit is scanned by `scripts/scan-secrets.mjs`.
+
+## Technical Debt
+
+Known debt is tracked in [`docs/DEBT_LEDGER.md`](docs/DEBT_LEDGER.md). Each
+entry states the rule it violates, why it is deferred, and what would make it
+worth paying down. `src/core/` must stay lint-clean and typecheck-clean; debt
+outside that scope is logged in the ledger rather than silently carried.
 
 ## Project Structure
 
