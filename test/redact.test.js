@@ -56,11 +56,13 @@ test("redacts by assignment", () => {
 test("redactDeep masks sensitive keys regardless of value shape", () => {
   const out = redactDeep({
     apiKey: "anything-at-all",
+    serverApiKey: "gateway-key-value",
     nested: { client_secret: "zzz", password: "hunter2" },
     list: [{ token: "abcdef123456" }],
     safe: "keep-me",
   });
   assert.equal(out.apiKey, "***");
+  assert.equal(out.serverApiKey, "***", "the gateway's serverApiKey must never be echoed by `aflow config`");
   assert.equal(out.nested.client_secret, "***");
   assert.equal(out.nested.password, "***");
   assert.equal(out.list[0].token, "***");

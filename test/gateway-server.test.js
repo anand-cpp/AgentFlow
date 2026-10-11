@@ -13,6 +13,10 @@
 //      chat.completion when not. A mock Ollama (a real node:http server, not a
 //      stubbed fetch) is used so the whole path -- sockets, headers, stream
 //      framing -- is exercised rather than simulated.
+//
+//   3. Auth and the bind guard. When an API key is configured, /v1/* requires a
+//      Bearer token while health stays open, and binding 0.0.0.0 without a key
+//      is refused.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -22,6 +26,7 @@ import path from "node:path";
 import {
   GatewayServer,
   GatewayPortConflictError,
+  GatewayInsecureError,
   normaliseOllamaModels,
   defaultServerDir,
   newCompletionId,
@@ -515,5 +520,90 @@ test("POST /v1/chat/completions maps an upstream error into an OpenAI error enve
   } finally {
     await gateway.close();
     await closeServer(ollama.server);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// auth
+// ---------------------------------------------------------------------------
+
+test("auth: /v1/* requires a Bearer key when configured, health stays open", async () => {
+  const gateway = new GatewayServer({ port: 0, ollamaUrl: null, models: ["oc/muse"], apiKey: "s3cret-key" });
+  await gateway.start();
+  try {
+    // Health and version remain open so liveness probes need no credential.
+    assert.equal((await fetch(`${gateway.url()}/api/version`)).status, 200);
+    assert.equal((await fetch(`${gateway.url()}/health`)).status, 200);
+
+    const noAuth = await fetch(`${gateway.url()}/v1/models`);
+    assert.equal(noAuth.status, 401);
+    assert.deepEqual(await noAuth.json(), {
+      error: { message: "Invalid API key", type: "auth_error", code: "invalid_api_key" },
+    });
+    assert.equal(noAuth.headers.get("www-authenticate"), 'Bearer realm="agentflow"');
+
+    const wrong = await fetch(`${gateway.url()}/v1/models`, { headers: { Authorization: "Bearer nope" } });
+    assert.equal(wrong.status, 401);
+
+    const ok = await fetch(`${gateway.url()}/v1/models`, { headers: { Authorization: "Bearer s3cret-key" } });
+    assert.equal(ok.status, 200);
+  } finally {
+    await gateway.close();
+  }
+});
+
+test("auth: a null key disables auth, preserving local-only behaviour", async () => {
+  const gateway = new GatewayServer({ port: 0, ollamaUrl: null, models: ["oc/muse"] });
+  await gateway.start();
+  try {
+    assert.equal((await fetch(`${gateway.url()}/v1/models`)).status, 200);
+  } finally {
+    await gateway.close();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// bind guards
+// ---------------------------------------------------------------------------
+
+test("refuses to bind 0.0.0.0 without an API key", async () => {
+  const server = new GatewayServer({ port: 0, host: "0.0.0.0", ollamaUrl: null });
+  await assert.rejects(
+    () => server.start(),
+    (err) => {
+      assert.ok(err instanceof GatewayInsecureError, "must be the typed error");
+      assert.equal(err.code, "insecure_bind");
+      assert.match(err.message, /Refusing to bind 0\.0\.0\.0 without an API key/);
+      return true;
+    }
+  );
+  assert.equal(server.listening, false, "no socket may have been opened");
+});
+
+test("warns when an API key is set but the server is bound to loopback", async () => {
+  const warns = [];
+  const server = new GatewayServer({
+    port: 0,
+    host: "127.0.0.1",
+    apiKey: "k",
+    ollamaUrl: null,
+    logger: { warn: (m) => warns.push(m) },
+  });
+  await server.start();
+  try {
+    assert.equal(warns.length, 1);
+    assert.match(warns[0], /bound to loopback/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("binds 0.0.0.0 when an API key is provided", async () => {
+  const server = new GatewayServer({ port: 0, host: "0.0.0.0", apiKey: "k", ollamaUrl: null });
+  await server.start();
+  try {
+    assert.equal(server.listening, true);
+  } finally {
+    await server.close();
   }
 });

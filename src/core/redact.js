@@ -47,7 +47,7 @@ export function redact(input) {
  * Deep-redact an object. Walks nested structures, including arrays, and
  * redacts key names that are themselves sensitive.
  */
-const SENSITIVE_KEYS = /^(?:api[_-]?key|apikey|client[_-]?secret|password|passwd|secret|token|access[_-]?token|refresh[_-]?token|authorization|cookie|session[_-]?id|jwt|private[_-]?key)$/i;
+const SENSITIVE_KEYS = /^(?:api[_-]?key|apikey|server[_-]?api[_-]?key|client[_-]?secret|password|passwd|secret|token|access[_-]?token|refresh[_-]?token|authorization|cookie|session[_-]?id|jwt|private[_-]?key)$/i;
 
 export function redactDeep(value, seen = new WeakSet()) {
   if (value === null || value === undefined) return value;

@@ -44,6 +44,10 @@ export const DEFAULTS = Object.freeze({
   serverHost: "127.0.0.1",
   // Base URL of the local Ollama instance the gateway proxies completions to.
   ollamaUrl: "http://127.0.0.1:11434",
+  // Optional API key required on the gateway's /v1/* routes. Null means no auth,
+  // which is correct for loopback-only use; the server refuses to bind 0.0.0.0
+  // without one. Never echoed by `aflow config` (see core/redact.js).
+  serverApiKey: null,
   // Emit structured JSON on stdout instead of human-readable text.
   json: false,
   // Suppress non-essential output.
@@ -110,6 +114,7 @@ const ENV_MAP = {
   AGENTFLOW_SERVER_PORT: "serverPort",
   AGENTFLOW_SERVER_HOST: "serverHost",
   AGENTFLOW_OLLAMA_URL: "ollamaUrl",
+  AGENTFLOW_SERVER_API_KEY: "serverApiKey",
   AGENTFLOW_JSON: "json",
   AGENTFLOW_QUIET: "quiet",
   AGENTFLOW_VERBOSE: "verbose",

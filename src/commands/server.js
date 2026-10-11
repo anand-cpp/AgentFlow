@@ -23,6 +23,8 @@ import { defineCommand } from "../cli/registry.js";
 import {
   GatewayServer,
   GatewayPortConflictError,
+  GatewayInsecureError,
+  assertSecureBind,
   defaultServerDir,
   GATEWAY_VERSION,
   GATEWAY_DEFAULTS,
@@ -111,7 +113,10 @@ function resolveServerOptions(flags, config) {
   const ollamaUrl = flags["ollama-url"]
     ? String(flags["ollama-url"])
     : config?.ollamaUrl ?? GATEWAY_DEFAULTS.ollamaUrl;
-  return { port, host, ollamaUrl };
+  // The API key is never a CLI flag -- a key in argv lands in shell history and
+  // the process table. It comes from config or AGENTFLOW_SERVER_API_KEY only.
+  const apiKey = config?.serverApiKey ?? null;
+  return { port, host, ollamaUrl, apiKey };
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +136,20 @@ async function startSub({ flags, config, out }) {
         )}`,
     );
     return 1;
+  }
+
+  // Refuse an insecure bind before doing anything observable (state file, fork).
+  try {
+    assertSecureBind({ host: opts.host, apiKey: opts.apiKey });
+  } catch (err) {
+    if (err instanceof GatewayInsecureError) {
+      await out.init(
+        { started: false, reason: "insecure_bind", host: err.host },
+        () => `${red("cannot start")} ${err.message}`,
+      );
+      return 1;
+    }
+    throw err;
   }
 
   if (flags.daemon) return spawnDaemon(flags, opts, out);
@@ -378,6 +397,10 @@ local Ollama instance when one is configured.
   --ollama-url U  local Ollama base URL (default http://127.0.0.1:11434)
   --daemon        run detached in the background
   --state-dir P   where the pid/state file lives
+
+Auth is configured out-of-band, never on the command line:
+  AGENTFLOW_SERVER_API_KEY  optional key required on /v1/* routes; also required
+                            before binding --host 0.0.0.0
 
 Exit codes: 0 ok, 1 not running or conflict, 2 usage.
 

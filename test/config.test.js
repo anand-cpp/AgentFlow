@@ -141,6 +141,7 @@ test("every documented env var is mapped to a real config key", () => {
     AGENTFLOW_QUIET: "true",
     AGENTFLOW_VERBOSE: "true",
     AGENTFLOW_NO_COLOR: "true",
+    AGENTFLOW_SERVER_API_KEY: "fixture-server-key",
   };
   const { config } = resolveConfig({ flags: {}, env: samples, cwd: os.tmpdir() });
   assert.equal(config.baseUrl, "http://example:1");
@@ -152,6 +153,7 @@ test("every documented env var is mapped to a real config key", () => {
   assert.equal(config.quiet, true);
   assert.equal(config.verbose, true);
   assert.equal(config.noColor, true);
+  assert.equal(config.serverApiKey, "fixture-server-key");
 });
 
 test("sources are recorded for inspection", () => {

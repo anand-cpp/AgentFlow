@@ -31,7 +31,7 @@
 import http from "node:http";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import os from "node:os";
 import process from "node:process";
@@ -73,6 +73,39 @@ export class GatewayPortConflictError extends Error {
     this.host = host ?? null;
     this.port = port ?? null;
   }
+}
+
+/**
+ * Refusal to bind a network-reachable address without authentication.
+ *
+ * 0.0.0.0 with no API key is an open proxy to the local model: anyone who can
+ * route to the host can spend its compute and read its replies. This is not a
+ * warning-worthy mistake, it is a foot-gun, so start() refuses outright. The
+ * message names both fixes (set a key, or stay on loopback) because a refusal
+ * that does not say how to proceed is just an obstacle.
+ */
+export class GatewayInsecureError extends Error {
+  constructor(host = "0.0.0.0") {
+    super("Refusing to bind 0.0.0.0 without an API key. Set AGENTFLOW_SERVER_API_KEY or bind to 127.0.0.1.");
+    this.name = "GatewayInsecureError";
+    this.code = "insecure_bind";
+    this.host = host;
+  }
+}
+
+/** Loopback aliases: binding any of these keeps the gateway off the network. */
+function isLoopbackHost(host) {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "::ffff:127.0.0.1";
+}
+
+/**
+ * Enforce the bind/host safety invariant before a socket is ever opened.
+ *
+ * Exported so the CLI can fail *before* forking a daemon, and so the rule lives
+ * in exactly one place shared by the server and its launcher.
+ */
+export function assertSecureBind({ host = "127.0.0.1", apiKey = null } = {}) {
+  if (host === "0.0.0.0" && !apiKey) throw new GatewayInsecureError(host);
 }
 
 /** Default directory for gateway runtime state (the PID/state file). */
@@ -304,6 +337,18 @@ function readBody(req, limit) {
   });
 }
 
+/** Constant-time comparison of two strings (equal length required by the primitive). */
+function timingSafeEqualString(a, b) {
+  const ba = Buffer.from(String(a), "utf8");
+  const bb = Buffer.from(String(b), "utf8");
+  if (ba.length !== bb.length) return false;
+  try {
+    return timingSafeEqual(ba, bb);
+  } catch {
+    return false;
+  }
+}
+
 export class GatewayServer {
   /**
    * @param {object}  [opts]
@@ -314,6 +359,9 @@ export class GatewayServer {
    * @param {Array}   [opts.models=[]]      static fallback models for /v1/models.
    * @param {number}  [opts.timeoutMs]      upstream request budget.
    * @param {number}  [opts.bodyLimit]      max request body bytes.
+   * @param {string}  [opts.apiKey]         require `Authorization: Bearer <key>` on /v1/*.
+   *                                        Null (default) means no auth -- correct for
+   *                                        loopback-only use, refused on 0.0.0.0.
    * @param {Function}[opts.fetchImpl]      injectable fetch (tests / instrumentation).
    * @param {object}  [opts.logger=null]    optional { info, warn, error } sink.
    */
@@ -324,6 +372,7 @@ export class GatewayServer {
     models = [],
     timeoutMs = DEFAULT_TIMEOUT_MS,
     bodyLimit = DEFAULT_BODY_LIMIT,
+    apiKey = null,
     fetchImpl = globalThis.fetch,
     logger = null,
   } = {}) {
@@ -333,6 +382,7 @@ export class GatewayServer {
     this.staticModels = Array.isArray(models) ? models : [];
     this.timeoutMs = timeoutMs;
     this.bodyLimit = bodyLimit;
+    this.apiKey = apiKey ? String(apiKey) : null;
     // Bound, not looked up per call: an injected fetch and the global fetch are
     // both "the fetch", and resolving that at construction keeps the request
     // path free of a global read that a test cannot replace.
@@ -373,6 +423,16 @@ export class GatewayServer {
    */
   async start() {
     if (this.server) throw new Error("gateway server already started");
+
+    // Refuse the insecure combination before opening a socket.
+    assertSecureBind({ host: this.host, apiKey: this.apiKey });
+    // A key on a loopback-only bind is a no-op for security but often a sign the
+    // operator *meant* to expose the server. Say so rather than staying silent.
+    if (this.apiKey && isLoopbackHost(this.host)) {
+      this.log?.warn?.(
+        "API key configured but server bound to loopback — consider setting serverHost to 0.0.0.0 for remote access."
+      );
+    }
 
     const server = http.createServer((req, res) => {
       this._handle(req, res).catch((err) => this._fail(res, err));
@@ -440,6 +500,17 @@ export class GatewayServer {
   async _handle(req, res) {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
     const method = req.method || "GET";
+
+    // Auth covers the model surface only. /api/version and /health stay open so
+    // a load balancer or `aflow server status` can probe liveness without a key
+    // -- a health check that needs a credential is a health check that fails
+    // exactly when you need it.
+    if (url.pathname.startsWith("/v1/") && !this._authorized(req)) {
+      res.setHeader("WWW-Authenticate", 'Bearer realm="agentflow"');
+      return this._json(res, 401, {
+        error: { message: "Invalid API key", type: "auth_error", code: "invalid_api_key" },
+      });
+    }
 
     if (method === "GET" && url.pathname === "/api/version") {
       return this._json(res, 200, { version: GATEWAY_VERSION, status: "ok" });
@@ -617,6 +688,16 @@ export class GatewayServer {
     }
   }
 
+  /** Validate the bearer token when an API key is configured. */
+  _authorized(req) {
+    if (!this.apiKey) return true;
+    const header = req.headers["authorization"];
+    if (typeof header !== "string") return false;
+    const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+    if (!match) return false;
+    return timingSafeEqualString(match[1].trim(), this.apiKey);
+  }
+
   _json(res, status, body) {
     if (res.writableEnded) return;
     const text = JSON.stringify(body);
@@ -639,6 +720,8 @@ export class GatewayServer {
 export default {
   GatewayServer,
   GatewayPortConflictError,
+  GatewayInsecureError,
+  assertSecureBind,
   GATEWAY_VERSION,
   GATEWAY_DEFAULTS,
   defaultServerDir,
