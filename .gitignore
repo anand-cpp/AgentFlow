@@ -42,3 +42,5 @@ coverage/
 # (verified: ~87 entries, none under .next). Re-check that size before ever
 # re-adding a lockfile ignore rule.
 npm-shrinkwrap.json
+# Archived audit reports (point-in-time)
+docs/audits/
