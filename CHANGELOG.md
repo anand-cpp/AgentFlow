@@ -7,14 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+- Full-screen TUI (terminal interface beyond the line-oriented chat loop)
+- Repository map / code-graph view
+- Git integration (history, diff, and commit workflows in-session)
+- Plugin loader for third-party agents and tools
+
+## [0.3.0] - 2026-10-14
+
 ### Added
-- Single source of truth for version string (derived from package.json)
+- Interactive chat loop (`aflow chat`) with a slash-command surface, including
+  `/agent <task>` which routes a bounded agent task through the live session
+- Provider setup wizard (`aflow setup`) with guided credential entry, and
+  automatic loading of provider keys from the keys file
+- Six new hosted providers, bringing the supported set to twelve: Cloudflare,
+  Hugging Face, Together, Fireworks, DeepInfra, SambaNova (alongside Groq,
+  Gemini, Cerebras, Mistral, OpenRouter, and local Ollama)
+- Cross-provider failover continuation on catastrophic provider failure (t8):
+  `continueSession` with failure classification (`CONTINUATION_FAILURE_BRIDGE`)
+  and ContextPacket assembly for the new provider
+- Dispatch tracer recording unsettled non-idempotent tool calls, so a
+  continuation only re-attempts work whose outcome is genuinely unknown
+- Continuation reachability in CLI runs (t9): a held `require_approval` is
+  surfaced to the approval waterfall (`continuation.approval_requested` /
+  `continuation.approved`) instead of stopping silently, and fails closed when
+  non-interactive
+- Blocking lint and typecheck CI stages
 - CHANGELOG.md following Keep a Changelog format
 - CONTRIBUTING.md with development workflow
 - CODE_OF_CONDUCT.md based on Contributor Covenant
-- .editorconfig for consistent formatting
-- ESLint flat config for code quality
-- JSDoc-based typecheck configuration
+- .editorconfig for consistent formatting and ESLint flat config for code quality
+
+### Changed
+- README.md rewritten to match implementation reality
+- Single source of truth for the version string (derived from package.json)
+- Gateway provider auto-detection from configured credentials
+
+### Fixed
+- Symlink name loss during filesystem tool operations
+- `const` reassignment bug in the routing path
+- `--daemon` flag swallowing the arguments that followed it
+- Continuity test helper failing typecheck
+- AgentRuntime passed its clock *function* (not a timestamp) as `now` to
+  `continueSession`, so a real default-clock run threw "Invalid time value" and
+  never continued; the t8 tests missed it because their stub clock stringified
+  to a parseable date
+
+### Security
+- Upstream credentials (GHSA-35rj-mq32-7gcj) remain the responsibility of
+  decolua/9router. The secrets-exposure CI job is intentionally red until
+  upstream rotation is confirmed.
 
 ## [0.2.0] - 2026-10-11
 
