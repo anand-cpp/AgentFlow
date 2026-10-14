@@ -47,7 +47,7 @@ async function runStatus({ config, out, flags }) {
     lines.push(heading(bold("aflow status")));
     if (!r.reachable) {
       lines.push(red(`gateway unreachable at ${r.baseUrl}`));
-      lines.push(dim("start it with: node custom-server.js --port 20127"));
+      lines.push(dim("start it with: aflow server start --port 20127"));
       lines.push(dim(`or point aflow elsewhere: aflow status --base-url http://host:port`));
       return lines.join("\n");
     }
