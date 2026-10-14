@@ -20,6 +20,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import {
   GatewayServer,
@@ -88,16 +91,52 @@ function parseSSE(text) {
 // unit: registry shape
 // ---------------------------------------------------------------------------
 
-test("PROVIDERS declares the six upstreams with their env keys", () => {
-  assert.deepEqual(Object.keys(PROVIDERS).sort(), ["cerebras", "gemini", "groq", "mistral", "ollama", "openrouter"]);
+test("PROVIDERS declares the twelve upstreams with their env keys", () => {
+  assert.deepEqual(Object.keys(PROVIDERS).sort(), [
+    "cerebras",
+    "cloudflare",
+    "deepinfra",
+    "fireworks",
+    "gemini",
+    "groq",
+    "hf",
+    "mistral",
+    "ollama",
+    "openrouter",
+    "sambanova",
+    "together",
+  ]);
   assert.equal(PROVIDERS.groq.baseUrl, "https://api.groq.com/openai/v1");
   assert.equal(PROVIDERS.cerebras.baseUrl, "https://api.cerebras.ai/v1");
   assert.equal(PROVIDERS.mistral.baseUrl, "https://api.mistral.ai/v1");
   assert.equal(PROVIDERS.gemini.baseUrl, "https://generativelanguage.googleapis.com/v1beta/openai");
   assert.equal(PROVIDERS.openrouter.baseUrl, "https://openrouter.ai/api/v1");
+  assert.equal(PROVIDERS.together.baseUrl, "https://api.together.xyz/v1");
+  assert.equal(PROVIDERS.fireworks.baseUrl, "https://api.fireworks.ai/inference/v1");
+  assert.equal(PROVIDERS.deepinfra.baseUrl, "https://api.deepinfra.com/v1/openai");
+  assert.equal(PROVIDERS.sambanova.baseUrl, "https://api.sambanova.ai/v1");
+  assert.equal(PROVIDERS.hf.baseUrl, "https://api-inference.huggingface.co/v1");
   assert.deepEqual(PROVIDERS.gemini.envKeys, ["GEMINI_API_KEY", "GOOGLE_API_KEY"]);
+  assert.deepEqual(PROVIDERS.hf.envKeys, ["HF_TOKEN"]);
   assert.equal(PROVIDERS.ollama.local, true);
   assert.deepEqual(PROVIDERS.ollama.envKeys, []);
+
+  // Cloudflare is the only multiKey provider: a token alone cannot build its URL.
+  assert.equal(PROVIDERS.cloudflare.multiKey, true);
+  assert.deepEqual(PROVIDERS.cloudflare.envKeys, ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]);
+  assert.match(PROVIDERS.cloudflare.baseUrl, /\{CLOUDFLARE_ACCOUNT_ID\}/);
+
+  // Every non-local provider must carry the wizard/doctor metadata or the setup
+  // summary would silently under-report a provider's free tier.
+  for (const [name, raw] of Object.entries(PROVIDERS)) {
+    const spec = /** @type {any} */ (raw);
+    if (spec.local) continue;
+    assert.ok(spec.models.length > 0, `${name} must list at least one model`);
+    assert.equal(typeof spec.label, "string", `${name} needs a label`);
+    assert.match(spec.signupUrl, /^https:\/\//, `${name} needs an https signup URL`);
+    assert.equal(typeof spec.freeTier, "string", `${name} needs a free-tier note`);
+    assert.equal(typeof spec.creditCard, "boolean", `${name} must declare creditCard`);
+  }
 });
 
 test("mergeProviders overrides one field without dropping the rest of the spec", () => {
@@ -142,6 +181,68 @@ test("resolveTargetProvider resolves every documented prefix", () => {
     assert.equal(t.model, model, id);
     assert.equal(t.local, false, id);
   }
+});
+
+test("resolveTargetProvider resolves the six new prefixes", () => {
+  const env = {
+    TOGETHER_API_KEY: "t",
+    FIREWORKS_API_KEY: "f",
+    DEEPINFRA_API_KEY: "d",
+    SAMBANOVA_API_KEY: "s",
+    HF_TOKEN: "h",
+    CLOUDFLARE_API_TOKEN: "cf-token",
+    CLOUDFLARE_ACCOUNT_ID: "acct-123",
+  };
+  const cases = [
+    ["together/meta-llama/Llama-3.3-70B-Instruct-Turbo", "together", "meta-llama/Llama-3.3-70B-Instruct-Turbo"],
+    ["fireworks/accounts/fireworks/models/llama-v3p3-70b-instruct", "fireworks", "accounts/fireworks/models/llama-v3p3-70b-instruct"],
+    ["deepinfra/meta-llama/Llama-3.3-70B-Instruct", "deepinfra", "meta-llama/Llama-3.3-70B-Instruct"],
+    ["sambanova/Meta-Llama-3.3-70B-Instruct", "sambanova", "Meta-Llama-3.3-70B-Instruct"],
+    ["hf/meta-llama/Llama-3.1-8B-Instruct", "hf", "meta-llama/Llama-3.1-8B-Instruct"],
+  ];
+  for (const [id, provider, model] of cases) {
+    const t = resolveTargetProvider(id, env);
+    assert.equal(t.provider, provider, id);
+    assert.equal(t.model, model, id);
+    assert.equal(t.local, false, id);
+  }
+});
+
+test("resolveTargetProvider builds Cloudflare's URL from its account id and requires both keys", () => {
+  const full = resolveTargetProvider("cloudflare/@cf/meta/llama-3.1-8b-instruct", {
+    CLOUDFLARE_API_TOKEN: "cf-token",
+    CLOUDFLARE_ACCOUNT_ID: "acct-123",
+  });
+  assert.equal(full.provider, "cloudflare");
+  assert.equal(full.model, "@cf/meta/llama-3.1-8b-instruct");
+  assert.equal(
+    full.baseUrl,
+    "https://api.cloudflare.com/client/v4/accounts/acct-123/ai/v1",
+    "the {CLOUDFLARE_ACCOUNT_ID} placeholder must be substituted"
+  );
+  assert.equal(full.apiKey, "cf-token");
+
+  // A token without the account id is not usable, and the message must say
+  // "and" (both are required) rather than the "or" of an alternatives list.
+  assert.throws(
+    () => resolveTargetProvider("cloudflare/@cf/meta/llama-3.1-8b-instruct", { CLOUDFLARE_API_TOKEN: "cf-token" }),
+    (err) => {
+      assert.ok(err instanceof ProviderAuthMissingError);
+      assert.equal(err.allRequired, true);
+      assert.match(err.message, /CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID/);
+      return true;
+    }
+  );
+});
+
+test("resolveTargetProvider maps the new bare-id shapes", () => {
+  assert.equal(
+    resolveTargetProvider("@cf/meta/llama-3.1-8b-instruct", { CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "a" }).provider,
+    "cloudflare"
+  );
+  assert.equal(resolveTargetProvider("Meta-Llama-3.3-70B-Instruct", { SAMBANOVA_API_KEY: "k" }).provider, "sambanova");
+  // Shaped like sambanova but no key: stay local rather than guess.
+  assert.equal(resolveTargetProvider("Meta-Llama-3.3-70B-Instruct", {}).provider, "ollama");
 });
 
 test("resolveTargetProvider treats ollama/ as local and strips its prefix", () => {
@@ -467,5 +568,91 @@ test("GET /v1/models merges ollama models with keyed remote catalogues", async (
   } finally {
     await gateway.close();
     await closeServer(mock.server);
+  }
+});
+
+test("GET /v1/models advertises a new provider once its key is present", async () => {
+  const gateway = new GatewayServer({ port: 0, ollamaUrl: null, env: { TOGETHER_API_KEY: "present" } });
+  await gateway.start();
+  try {
+    const body = /** @type {any} */ (await (await fetch(`${gateway.url()}/v1/models`)).json());
+    const ids = body.data.map((m) => m.id);
+    assert.ok(ids.includes("together/meta-llama/Llama-3.3-70B-Instruct-Turbo"));
+    assert.ok(!ids.some((id) => id.startsWith("sambanova/")), "unkeyed new providers stay hidden");
+  } finally {
+    await gateway.close();
+  }
+});
+
+test("GET /v1/models hides a multiKey provider that is only half configured", async () => {
+  const gateway = new GatewayServer({
+    port: 0,
+    ollamaUrl: null,
+    // Token present, account id missing: the provider cannot authenticate, so
+    // listing its models would only turn every selection into a 400.
+    env: { CLOUDFLARE_API_TOKEN: "only-half" },
+  });
+  await gateway.start();
+  try {
+    const body = /** @type {any} */ (await (await fetch(`${gateway.url()}/v1/models`)).json());
+    assert.ok(!body.data.some((m) => m.id.startsWith("cloudflare/")));
+  } finally {
+    await gateway.close();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// integration: keys.env auto-loading
+// ---------------------------------------------------------------------------
+
+test("GatewayServer loads keys from a keys file, with process.env winning", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "af-keys-"));
+  const keysFile = path.join(dir, "keys.env");
+  // Written by hand rather than through the module so the test proves the
+  // gateway parses the on-disk format, not that it can round-trip its own.
+  fs.writeFileSync(
+    keysFile,
+    ["# aflow keys", "GROQ_API_KEY=from-file", "CEREBRAS_API_KEY=from-file-cerebras", ""].join("\n")
+  );
+
+  try {
+    const gateway = new GatewayServer({
+      port: 0,
+      ollamaUrl: null,
+      keysFile,
+      // GROQ is overridden in the real environment; CEREBRAS comes only from the file.
+      env: { GROQ_API_KEY: "from-env" },
+    });
+    await gateway.start();
+    try {
+      const body = /** @type {any} */ (await (await fetch(`${gateway.url()}/v1/models`)).json());
+      const ids = body.data.map((m) => m.id);
+      assert.ok(ids.some((id) => id.startsWith("groq/")), "a file key must be loaded");
+      assert.ok(ids.some((id) => id.startsWith("cerebras/")), "a file-only key must be loaded");
+
+      // The env value must be what actually authenticates, not the file value.
+      const t = resolveTargetProvider("groq/llama-3.3-70b-versatile", gateway.env);
+      assert.equal(t.apiKey, "from-env", "process.env must take precedence over the file");
+    } finally {
+      await gateway.close();
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("GatewayServer starts with no keys file and an empty environment", async () => {
+  const gateway = new GatewayServer({
+    port: 0,
+    ollamaUrl: null,
+    keysFile: path.join(os.tmpdir(), "af-does-not-exist-keys.env"),
+    env: {},
+  });
+  await gateway.start();
+  try {
+    const res = await fetch(`${gateway.url()}/v1/models`);
+    assert.equal(res.status, 200, "a missing keys file must not stop the gateway from starting");
+  } finally {
+    await gateway.close();
   }
 });
