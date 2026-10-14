@@ -16,5 +16,6 @@ import "../commands/blackboard.js";
 import "../commands/agent.js";
 import "../commands/server.js";
 import "../commands/tribunal.js";
+import "../commands/chat.js";
 
 export { defineCommand, getCommand, getCommands } from "../cli/registry.js";
