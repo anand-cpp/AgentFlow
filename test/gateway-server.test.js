@@ -75,7 +75,7 @@ function startMockOllama(routes) {
       });
     });
     server.listen(0, "127.0.0.1", () => {
-      resolve({ server, url: `http://127.0.0.1:${server.address().port}`, requests });
+      resolve({ server, url: `http://127.0.0.1:${/** @type {any} */ (server.address()).port}`, requests });
     });
   });
 }
@@ -278,13 +278,13 @@ test("answers /health and returns a JSON 404 for unknown routes", async () => {
   try {
     const health = await fetch(`${server.url()}/health`);
     assert.equal(health.status, 200);
-    const body = await health.json();
+    const body = /** @type {any} */ (await health.json());
     assert.equal(body.status, "ok");
     assert.equal(typeof body.uptimeMs, "number");
 
     const missing = await fetch(`${server.url()}/nope`);
     assert.equal(missing.status, 404);
-    assert.equal((await missing.json()).error.code, "not_found");
+    assert.equal((/** @type {any} */ (await missing.json())).error.code, "not_found");
   } finally {
     await server.close();
   }
@@ -334,7 +334,7 @@ test("GET /v1/models returns normalized Ollama models", async () => {
   try {
     const res = await fetch(`${gateway.url()}/v1/models`);
     assert.equal(res.status, 200);
-    const body = await res.json();
+    const body = /** @type {any} */ (await res.json());
     assert.equal(body.object, "list");
     assert.deepEqual(
       body.data.map((m) => m.id),
@@ -358,7 +358,7 @@ test("GET /v1/models falls back to static models when Ollama is unreachable", as
   });
   await gateway.start();
   try {
-    const body = await (await fetch(`${gateway.url()}/v1/models`)).json();
+    const body = /** @type {any} */ (await (await fetch(`${gateway.url()}/v1/models`)).json());
     assert.deepEqual(
       body.data.map((m) => m.id),
       ["oc/muse", "gem/gemini"]
@@ -401,7 +401,7 @@ test("POST /v1/chat/completions translates a non-stream reply and sends Ollama t
     assert.match(res.headers.get("content-type") || "", /application\/json/);
 
     // The caller sees OpenAI, never Ollama.
-    const body = await res.json();
+    const body = /** @type {any} */ (await res.json());
     assert.equal(body.object, "chat.completion");
     assert.match(body.id, /^chatcmpl-/);
     assert.equal(body.model, "llama3:latest");
@@ -479,7 +479,7 @@ test("POST /v1/chat/completions rejects a malformed body with a JSON 400", async
       body: "{not json",
     });
     assert.equal(res.status, 400);
-    assert.equal((await res.json()).error.code, "invalid_json");
+    assert.equal((/** @type {any} */ (await res.json())).error.code, "invalid_json");
   } finally {
     await gateway.close();
   }
@@ -495,7 +495,7 @@ test("POST /v1/chat/completions returns 502 when the local provider is down", as
       body: JSON.stringify({ model: "x", messages: [] }),
     });
     assert.equal(res.status, 502);
-    assert.equal((await res.json()).error.code, "upstream_unreachable");
+    assert.equal((/** @type {any} */ (await res.json())).error.code, "upstream_unreachable");
   } finally {
     await gateway.close();
   }
@@ -517,7 +517,7 @@ test("POST /v1/chat/completions maps an upstream error into an OpenAI error enve
       body: JSON.stringify({ model: "nope", messages: [] }),
     });
     assert.equal(res.status, 404, "the upstream status must be preserved");
-    const body = await res.json();
+    const body = /** @type {any} */ (await res.json());
     assert.equal(body.error.type, "upstream_error");
     assert.match(body.error.message, /not found/);
   } finally {

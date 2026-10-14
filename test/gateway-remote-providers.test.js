@@ -69,7 +69,7 @@ function startMockProvider(routes) {
       });
     });
     server.listen(0, "127.0.0.1", () => {
-      resolve({ server, url: `http://127.0.0.1:${server.address().port}`, requests });
+      resolve({ server, url: `http://127.0.0.1:${/** @type {any} */ (server.address()).port}`, requests });
     });
   });
 }
@@ -175,7 +175,7 @@ test("ProviderAuthMissingError names both gemini env vars", () => {
   assert.throws(
     () => resolveTargetProvider("gemini/gemini-2.0-flash", {}),
     (err) => {
-      assert.match(err.message, /GEMINI_API_KEY \(or GOOGLE_API_KEY\)/);
+      assert.match(/** @type {Error} */ (err).message, /GEMINI_API_KEY \(or GOOGLE_API_KEY\)/);
       return true;
     }
   );
@@ -327,7 +327,7 @@ test("POST /v1/chat/completions rejects a remote model whose key is missing", as
     });
 
     assert.ok(res.status === 400 || res.status === 401, `expected 400/401, got ${res.status}`);
-    const body = await res.json();
+    const body = /** @type {any} */ (await res.json());
     assert.equal(body.error.code, "provider_auth_missing");
     assert.equal(body.error.type, "auth_error");
     assert.match(body.error.message, /CEREBRAS_API_KEY/);
@@ -374,7 +374,7 @@ test("a remote error body is sanitized before it reaches the client", async () =
     });
 
     assert.equal(res.status, 500, "the upstream status must be preserved");
-    const body = await res.json();
+    const body = /** @type {any} */ (await res.json());
     assert.equal(body.error.type, "upstream_error");
 
     const message = body.error.message;
@@ -407,7 +407,7 @@ test("POST /v1/chat/completions returns 502 when a remote provider is unreachabl
       body: JSON.stringify({ model: "groq/llama-3.3-70b-versatile", messages: [] }),
     });
     assert.equal(res.status, 502);
-    const body = await res.json();
+    const body = /** @type {any} */ (await res.json());
     assert.equal(body.error.code, "upstream_unreachable");
     assert.doesNotMatch(body.error.message, /mock-groq-key/);
   } finally {
@@ -429,7 +429,7 @@ test("GET /v1/models aggregates only providers whose key is present", async () =
   try {
     const res = await fetch(`${gateway.url()}/v1/models`);
     assert.equal(res.status, 200);
-    const body = await res.json();
+    const body = /** @type {any} */ (await res.json());
     assert.equal(body.object, "list");
 
     const ids = body.data.map((m) => m.id);
@@ -459,7 +459,7 @@ test("GET /v1/models merges ollama models with keyed remote catalogues", async (
   });
   await gateway.start();
   try {
-    const body = await (await fetch(`${gateway.url()}/v1/models`)).json();
+    const body = /** @type {any} */ (await (await fetch(`${gateway.url()}/v1/models`)).json());
     const ids = body.data.map((m) => m.id);
     assert.ok(ids.includes("llama3:latest"), "local models must be preserved");
     assert.ok(ids.includes("openrouter/auto"), "the keyed remote catalogue must be merged in");
