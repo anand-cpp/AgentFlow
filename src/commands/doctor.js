@@ -12,6 +12,8 @@ import { projectConfigPaths } from "../config/index.js";
 import { bold, dim, table, heading, symbol, statusColor, green, red, yellow } from "../cli/ui.js";
 import { oauthClientConfigured } from "../../open-sse/providers/shared.js";
 import { EventLog, EVENTS, defaultLogPath } from "../core/events.js";
+import { defaultKeysFile, readKeysFile, mergeEnv, configuredProviderNames } from "../core/keys.js";
+import { PROVIDERS } from "../core/gateway-server.js";
 
 /**
  * Candidate models worth probing when the user hasn't named one.
@@ -60,6 +62,27 @@ function checkOAuthClients() {
   return rows;
 }
 
+/**
+ * Report which providers the gateway can actually authenticate.
+ *
+ * Keys come from `aflow setup`'s keys.env merged under process.env. A provider
+ * with a key is "ok"; having none at all is "unconfigured" and points at the
+ * wizard, because the single most common fresh-install problem is simply not
+ * having run it.
+ */
+function checkProviderKeys() {
+  const keysFile = defaultKeysFile();
+  const merged = mergeEnv(readKeysFile(keysFile), process.env);
+  const configured = configuredProviderNames(merged, PROVIDERS);
+  return {
+    name: "provider-keys",
+    status: configured.length ? "ok" : "unconfigured",
+    detail: configured.length
+      ? `${configured.length} provider(s) configured (${configured.join(", ")}) — ${keysFile}`
+      : `no provider keys configured — run \`aflow setup\` (looked in ${keysFile})`,
+  };
+}
+
 async function runDoctor({ config, out, flags }) {
   const checks = [];
 
@@ -73,6 +96,7 @@ async function runDoctor({ config, out, flags }) {
 
   checks.push(checkNodeVersion());
   checks.push(checkConfig());
+  checks.push(checkProviderKeys());
   checks.push(...checkOAuthClients());
 
   const pinged = await ping(config);

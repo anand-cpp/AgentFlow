@@ -29,6 +29,7 @@ import {
   GATEWAY_VERSION,
   GATEWAY_DEFAULTS,
 } from "../core/gateway-server.js";
+import { defaultKeysFile } from "../core/keys.js";
 import { bold, dim, heading, table, green, red, yellow } from "../cli/ui.js";
 
 const USAGE_ERROR = 2;
@@ -116,7 +117,10 @@ function resolveServerOptions(flags, config) {
   // The API key is never a CLI flag -- a key in argv lands in shell history and
   // the process table. It comes from config or AGENTFLOW_SERVER_API_KEY only.
   const apiKey = config?.serverApiKey ?? null;
-  return { port, host, ollamaUrl, apiKey };
+  // Keys written by `aflow setup` are folded into provider resolution, so the
+  // server picks them up without the user having to source anything.
+  const keysFile = flags["keys-file"] ? String(flags["keys-file"]) : defaultKeysFile();
+  return { port, host, ollamaUrl, apiKey, keysFile };
 }
 
 // ---------------------------------------------------------------------------
@@ -228,6 +232,9 @@ async function spawnDaemon(flags, opts, out) {
   const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "bin", "aflow.js");
   const args = ["server", "start", "--port", String(opts.port), "--host", opts.host, "--ollama-url", opts.ollamaUrl];
   if (flags["state-dir"]) args.push("--state-dir", String(flags["state-dir"]));
+  // Only forward an explicit keys file; otherwise the child resolves the same
+  // platform default the parent would have.
+  if (flags["keys-file"]) args.push("--keys-file", String(flags["keys-file"]));
 
   // Detached + unref so the child outlives this invocation, which is the whole
   // point of --daemon. stdio ignored because there is no terminal to write to.
@@ -377,7 +384,7 @@ function formatDuration(ms) {
 
 export const serverCommand = defineCommand("server", {
   summary: "run and control the standalone in-repo gateway",
-  valueFlags: ["host", "ollama-url", "state-dir", "daemon"],
+  valueFlags: ["host", "ollama-url", "state-dir", "keys-file"],
   usage: `aflow server [status]
   aflow server start [--port N] [--host HOST] [--ollama-url URL] [--daemon]
   aflow server stop [--state-dir PATH]
@@ -397,6 +404,10 @@ local Ollama instance when one is configured.
   --ollama-url U  local Ollama base URL (default http://127.0.0.1:11434)
   --daemon        run detached in the background
   --state-dir P   where the pid/state file lives
+  --keys-file P   keys.env to load provider keys from (default <state dir>/keys.env)
+
+Provider keys from 'aflow setup' are loaded automatically; an environment
+variable always overrides the same key coming from the file.
 
 Auth is configured out-of-band, never on the command line:
   AGENTFLOW_SERVER_API_KEY  optional key required on /v1/* routes; also required
