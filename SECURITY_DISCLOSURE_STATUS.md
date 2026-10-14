@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-11
 
+Re-verified 2026-10-11: the gate state is unchanged. Secret-scanning alert #1
+is still open, both inherited credentials are still publicly retrievable, and
+upstream private reporting is still enabled. The one corrected fact is that the
+GitHub CLI is now authenticated -- which does not open the submission route (see
+"Why automated submission is blocked"). Source and history scans remain clean.
+
 Upstream repository:
 decolua/9router
 
@@ -9,11 +15,16 @@ PRIVATE REPORTING:
 AVAILABLE TO OUTSIDE REPORTER
 
 PRIVATE REPORTING FROM THIS ENVIRONMENT:
-BLOCKED - authenticated GitHub web session is unavailable
+BLOCKED - no outside-reporter API exists, and the authenticated CLI has no
+write access to decolua/9router
 
 REASON:
-GitHub's private vulnerability report form exists and is enabled, but this
-environment has no authenticated browser session and `gh` is not authenticated.
+The private report `GHSA-35rj-mq32-7gcj` was already submitted manually on
+2026-10-04 through a browser session. The `gh` CLI is now authenticated (account
+`anand-cpp`) but that does not open an automated route: GitHub exposes no REST
+endpoint for an outside reporter to create a private vulnerability report, and
+the `security-advisories` endpoints require write access we do not have on
+`decolua/9router`.
 
 DOCUMENTED SECURITY POLICY:
 NOT FOUND
@@ -53,10 +64,12 @@ SECURITY GATE:
 BLOCKED
 
 Feature work:
-IN PROGRESS on branch `feature/tribunal-self-review` (the five-stage tribunal and
-its CLI, plus a standalone in-repo gateway). Proceeding under the maintainer's
-explicit decision to continue development while the upstream incident remains
-open. This does not change the gate status above.
+Continuing under the maintainer's explicit decision to keep developing while the
+upstream incident is open. Since this file was last written, the five-stage
+tribunal and its CLI plus a standalone in-repo gateway shipped (v0.2.0), the real
+tools were wired into the runtime and CLI (PR #8), the provider health engine
+merged (PR #9), and the context-packet / continuity primitives landed on
+`feature/context-continuity`. This does not change the gate status above.
 
 ---
 
@@ -79,9 +92,9 @@ Two separate facts, kept separate on purpose:
 
 - **Submission happened.** `GHSA-35rj-mq32-7gcj` exists and the maintainer
   upstream has it.
-- **Automated submission from this environment is still blocked.** The
-  unauthenticated `gh` CLI still cannot create the report, and still could not
-  publish an advisory even if it were authenticated.
+- **Automated submission from this environment is still blocked.** The CLI is
+  authenticated now, but it cannot create the report (no outside-reporter API
+  and no write access upstream) and could not publish an advisory regardless.
 
 So "BLOCKED" above now describes the automation, not the disclosure. Nothing
 about the gate changes: the credentials are still live and the alert is still
@@ -119,8 +132,12 @@ always visible from the file listing.
 
 ## Why automated submission is blocked from this environment
 
-- The GitHub CLI is not authenticated: `gh auth status` reports "You are not
-  logged into any GitHub hosts".
+- The GitHub CLI is now authenticated (`anand-cpp`, token scopes `gist`,
+  `read:org`, `repo`, `workflow`), but that does not unblock submission: filing
+  a private report needs write access to `decolua/9router`, which we do not
+  have, and no outside-reporter REST endpoint exists. (This bullet replaces an
+  earlier claim that `gh auth status` reported no login, which was true when
+  written and is no longer.)
 - No Chrome or Edge cookie store exists on this machine, so no reusable
   authenticated browser session is available.
 - No REST endpoint lets an outside reporter create a private vulnerability
