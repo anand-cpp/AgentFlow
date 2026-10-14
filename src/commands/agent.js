@@ -31,6 +31,7 @@ import { defineCommand } from "../cli/registry.js";
 import { builtinSpecs } from "../core/agents/definitions.js";
 import { AgentRegistry, TOOL_SCOPE } from "../core/agents/registry.js";
 import { AgentRuntime } from "../core/agents/runtime.js";
+import { ProviderHealth } from "../core/provider-health.js";
 import { resolveWorkspaceRoot } from "../core/agents/workspace.js";
 import { createRealTools } from "../core/agents/real-tools.js";
 import { complete, listModels } from "../core/gateway.js";
@@ -384,6 +385,13 @@ if (!sessionId) {
   }
 }
 
+// One ProviderHealth for the run, injected rather than left to the runtime's
+// default. The runtime would create its own, but constructing it here keeps the
+// agent path identical to `aflow chat`: the same shared breaker state backs the
+// Router and every health read, so a circuit that opens mid-run is visible to
+// the whole run rather than to a copy the CLI cannot reach.
+const health = new ProviderHealth({});
+
 // One runtime per run. It builds its own Router from the resolved plan, which is
 // what keeps the health cache alive across iterations of a single task.
 const runtime = new AgentRuntime({
@@ -403,6 +411,7 @@ const runtime = new AgentRuntime({
   hints: modelHints(config),
   log,
   config,
+  providerHealth: health,
   approver: makeApprover(flags),
   workspaceRoot: workspace,
   blackboard,
