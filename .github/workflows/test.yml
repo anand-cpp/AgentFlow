@@ -51,17 +51,16 @@ jobs:
           AGENTFLOW_BASE_URL: "http://127.0.0.1:1"
         run: npm test
 
-      # Non-blocking while the ruleset is being ratcheted down: the config
-      # exists so regressions are visible, but a lint failure here is a signal,
-      # not a gate, until the codebase is clean under the chosen rules.
+      # Enforced gate. The ruleset used to be ratcheted down while the codebase
+      # was brought under it; it is now clean, so a lint failure fails the build
+      # rather than only showing up as a signal.
       - name: Lint
-        continue-on-error: true
         run: npm run lint
 
-      # JSDoc-based checking via tsc checkJs. Also non-blocking: the codebase
-      # is not yet annotated, so this reports a debt count rather than gating.
+      # JSDoc-based checking via tsc checkJs. Enforced gate: the owned codebase
+      # is fully annotated and typecheck-clean, so a type regression fails the
+      # build. The inherited open-sse/ engine is excluded from tsconfig.json.
       - name: Typecheck (JSDoc)
-        continue-on-error: true
         run: npm run typecheck
 
       # Guards the published working tree. This check alone is not sufficient --
