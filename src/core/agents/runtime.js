@@ -29,6 +29,38 @@ import { buildAgentContext, renderContext } from "./context.js";
 import { runTool, OUTCOME } from "./tools.js";
 import { AgentNotFoundError } from "./registry.js";
 import { WorkspaceRoot } from "./workspace.js";
+import { continueSession, PROVIDER_FAILURE, NON_IDEMPOTENT_SCOPES } from "../continuity.js";
+
+// The failure classes a cross-provider continuation may chase. Deliberately an
+// allowlist of *transient* faults: a second provider can absorb a rate limit, a
+// timeout, a network blip, a 5xx, an empty body or a context overflow. It cannot
+// fix a malformed request, cannot un-cancel a run the user stopped, and will fail
+// identically on missing credentials -- so those never reach a continuation.
+const CONTINUATION_TRANSIENT = new Set([
+  PROVIDER_FAILURE.RATE_LIMITED,
+  PROVIDER_FAILURE.QUOTA,
+  PROVIDER_FAILURE.TIMEOUT,
+  PROVIDER_FAILURE.NETWORK,
+  PROVIDER_FAILURE.SERVER,
+  PROVIDER_FAILURE.EMPTY,
+  PROVIDER_FAILURE.CONTEXT_OVERFLOW,
+]);
+
+// The Router classifies failures into a small vocabulary; continuity re-classifies
+// the error object it is handed. The two vocabularies share spellings where they
+// overlap, but continuity reads *text* (status codes and phrases), not bare tokens,
+// so a raw routing kind would be lost in translation. This bridge hands continuity
+// an error whose text maps back to the same class. It is a translation table, not
+// a second classifier -- the decision of whether to continue was already made here.
+const CONTINUATION_FAILURE_BRIDGE = {
+  [PROVIDER_FAILURE.RATE_LIMITED]: { code: "rate_limited", status: 429, message: "429 rate limited" },
+  [PROVIDER_FAILURE.QUOTA]: { code: "quota", status: 429, message: "quota exceeded" },
+  [PROVIDER_FAILURE.TIMEOUT]: { code: "timeout", message: "the request timed out" },
+  [PROVIDER_FAILURE.NETWORK]: { code: "network", message: "network fetch failed" },
+  [PROVIDER_FAILURE.SERVER]: { code: "server", status: 503, message: "503 service unavailable" },
+  [PROVIDER_FAILURE.EMPTY]: { code: "empty", message: "empty response" },
+  [PROVIDER_FAILURE.CONTEXT_OVERFLOW]: { code: "context_overflow", message: "context length exceeded" },
+};
 
 /**
  * Terminal and non-terminal states.
@@ -457,6 +489,11 @@ export class AgentRuntime {
       // Every state the run passed through, not just the final one.
       states: [],
       error: null,
+      // Set when the post-cascade continuation was consulted: its action, reason,
+      // failure class and the model it targeted. Null means it was never reached
+      // (e.g. the first cascade succeeded), which is different from "reached and
+      // refused" -- both are reconstructable, and the difference is the point.
+      continuation: null,
       events: [],
       startedAt,
       finishedAt: null,
@@ -583,6 +620,9 @@ export class AgentRuntime {
 
       const transcript = [];
       let output = null;
+      // Continuation is a one-shot escalation past the cascade's retry cap. Trying
+      // it on every iteration would turn one bounded run into an unbounded one.
+      let continuationAttempted = false;
 
       for (let iteration = 1; iteration <= bounds.maxIterations; iteration++) {
         result.iterations = iteration;
@@ -590,10 +630,32 @@ export class AgentRuntime {
 
         currentPrompt = buildPrompt(agent, context, task, iteration, transcript);
 
-        const receipt = await router.route({
+        let receipt = await router.route({
           signal,
           onAttempt: (record) => emit(EVENTS.AGENT_RETRYING, { agentId: agent.id, ...record }, "warn"),
         });
+
+        // The bounded cascade exhausted its retry budget without a completion. That
+        // is where a cross-provider continuation belongs: the same work, reconstructed
+        // from the session and the Blackboard, handed to a provider the cap never
+        // reached. A failure that a second provider cannot fix -- or a run the user
+        // stopped -- is refused by the transient allowlist before anything is
+        // dispatched, and the failure path below runs unchanged.
+        if (!receipt.ok && !continuationAttempted && !signal?.aborted) {
+          continuationAttempted = true;
+          const continued = await this.continueAfterCascade({
+            receipt,
+            plan,
+            agent,
+            result,
+            context,
+            task,
+            extra,
+            sessionId,
+            signal,
+          });
+          if (continued) receipt = continued;
+        }
 
         if (!receipt.ok) {
           // A provider cascade that exhausted itself is a real failure with a real
@@ -683,6 +745,133 @@ export class AgentRuntime {
     } catch (err) {
       return this.failFrom(result, agent, err, emit, sessionId);
     }
+  }
+
+  /**
+   * Trace the non-idempotent tool calls that were dispatched but never settled.
+   *
+   * Continuity refuses to re-run a side-effecting call whose outcome it cannot see,
+   * so it needs a count, and this is the only honest place to derive one: a dispatch
+   * is an `AGENT_TOOL_STARTED` event, a settlement is the matching record in
+   * `toolExecutions` (which carries the outcome). A start with no record is the
+   * uncertain case. In today's loop a tool always settles before the next model
+   * call, so this is 0 in every real run -- but it is 0 because it was checked, not
+   * assumed, and a caller that dispatches calls another way can override it.
+   */
+  traceUncertainDispatches(result) {
+    const events = Array.isArray(result?.events) ? result.events : [];
+    const executions = Array.isArray(result?.toolExecutions) ? result.toolExecutions : [];
+    let dispatched = 0;
+    for (const event of events) {
+      if (event?.type === EVENTS.AGENT_TOOL_STARTED && isNonIdempotentScope(event.scope)) dispatched += 1;
+    }
+    let settled = 0;
+    for (const record of executions) {
+      if (isNonIdempotentScope(record?.scope) && record?.status != null) settled += 1;
+    }
+    return Math.max(0, dispatched - settled);
+  }
+
+  /**
+   * One cross-provider continuation, attempted after the cascade exhausts itself.
+   *
+   * Returns a Router-shaped success receipt when a provider the retry cap never
+   * reached takes over, so the caller's normal post-receipt path runs unchanged.
+   * Returns null for every refusal -- a fault a second provider cannot fix, no
+   * untried candidate, uncertain tool outcomes, a cancellation, or a continuation
+   * that itself failed -- leaving the caller to fail the run with its original,
+   * honest reason. No silent retry: a null here is a stop, not a hint to loop.
+   */
+  async continueAfterCascade({ receipt, plan, agent, result, context, task, extra, sessionId, signal }) {
+    const failureKind = lastCascadeFailureKind(receipt);
+    if (!failureKind || !CONTINUATION_TRANSIENT.has(failureKind)) return null;
+
+    const nextModel = this.#untriedCandidate(plan, receipt);
+    if (!nextModel) return null;
+
+    const bounds = agent.bounds;
+    // Mirrors the Router's executor contract: (config, modelId, prompt, opts). The
+    // prompt already carries the reconstructed packet and its continuation header,
+    // so only the system prompt and the run's bounds are supplied here.
+    const complete = (_config, modelId, prompt, opts) =>
+      this.complete(this.config, modelId, prompt, {
+        timeoutMs: bounds.timeoutMs,
+        system: opts?.system ?? renderSystemPrompt(agent, context),
+        maxTokens: agent.model.maxTokens,
+        temperature: agent.model.temperature,
+        signal,
+      });
+
+    const continuation = await continueSession({
+      sessions: this.sessions,
+      blackboard: this.blackboard,
+      sessionId,
+      modelId: nextModel,
+      complete,
+      failure: CONTINUATION_FAILURE_BRIDGE[failureKind] ?? {
+        code: failureKind,
+        message: `provider failure: ${failureKind}`,
+      },
+      cancelled: Boolean(signal?.aborted),
+      health: this.providerHealth,
+      log: this.log,
+      budgetChars: bounds.maxContextChars,
+      task,
+      extra,
+      agentId: agent.id,
+      now: this.now,
+      uncertainDispatches: this.traceUncertainDispatches(result),
+    });
+
+    result.continuation = {
+      action: continuation.action,
+      reason: continuation.reason,
+      failureClass: continuation.failureClass,
+      model: nextModel,
+    };
+
+    if (continuation.action !== "continued" || continuation.outcome?.ok !== true) return null;
+
+    return {
+      ok: true,
+      model: nextModel,
+      provider: providerOfModel(nextModel),
+      tier: "continuation",
+      // A continuation is not a route attempt, so the timing/bookkeeping fields the
+      // Router would have filled are carried over from the cascade that failed. The
+      // caller's post-receipt path reads only `model`, `value` and `ok`.
+      elapsedMs: 0,
+      totalMs: 0,
+      attempts: receipt.attempts,
+      skippedProviders: receipt.skippedProviders ?? [],
+      blockedProviders: receipt.blockedProviders ?? [],
+      failureKinds: receipt.failureKinds,
+      value: { text: continuation.outcome.text ?? null },
+      continued: true,
+    };
+  }
+
+  /**
+   * The first candidate the cascade's retry cap never reached, skipping providers
+   * the Router itself set aside (no credentials, open circuit).
+   */
+  #untriedCandidate(plan, receipt) {
+    const tried = new Set((receipt.attempts || []).map((a) => a.model));
+    const unavailable = new Set([...(receipt.skippedProviders || []), ...(receipt.blockedProviders || [])]);
+    const candidates = Array.isArray(plan?.candidates) ? plan.candidates : [];
+    for (const modelId of candidates) {
+      if (tried.has(modelId)) continue;
+      const provider = providerOfModel(modelId);
+      if (unavailable.has(provider)) continue;
+      // The health engine is the single source of truth for whether a provider is
+      // usable. Reusing it -- not constructing a second breaker -- means a provider
+      // cooling down from an earlier run is not resurrected by a continuation.
+      if (this.providerHealth && typeof this.providerHealth.canAttempt === "function") {
+        if (!this.providerHealth.canAttempt(provider, this.now())) continue;
+      }
+      return modelId;
+    }
+    return null;
   }
 
   /**
@@ -1051,7 +1240,44 @@ export class AgentRuntime {
   finish(result) {
     this.stamp(result);
     return Object.freeze(result);
+   }
+}
+
+/**
+ * The failure kind of the *last real attempt* in a receipt.
+ *
+ * Bookkeeping attempts (`provider_skipped`, `provider_blocked`) are not failures
+ * of their own: they record that a provider was passed over. The last genuine
+ * failure is the reason the cascade actually ended, which is the reason a
+ * continuation would be chasing.
+ */
+function lastCascadeFailureKind(receipt) {
+  const attempts = Array.isArray(receipt?.attempts) ? receipt.attempts : [];
+  let last = null;
+  for (const attempt of attempts) {
+    const outcome = attempt?.outcome;
+    if (outcome && outcome !== "ok" && outcome !== "provider_skipped" && outcome !== "provider_blocked") {
+      last = outcome;
+    }
   }
+  return last;
+}
+
+/** The provider prefix of a "provider/model" id, matched to how routing splits it. */
+function providerOfModel(modelId) {
+  const raw = String(modelId ?? "");
+  const slash = raw.indexOf("/");
+  return slash === -1 ? raw : raw.slice(0, slash);
+}
+
+/**
+ * Is this scope one whose blind replay can duplicate a side effect?
+ *
+ * An unknown scope is non-idempotent on purpose: the alternative is replaying an
+ * operation whose consequences nobody has certified.
+ */
+function isNonIdempotentScope(scope) {
+  return scope === null || scope === undefined || NON_IDEMPOTENT_SCOPES.has(scope);
 }
 
 /**
