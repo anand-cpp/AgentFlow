@@ -36,7 +36,7 @@ import { continueSession, PROVIDER_FAILURE, NON_IDEMPOTENT_SCOPES } from "../con
 // timeout, a network blip, a 5xx, an empty body or a context overflow. It cannot
 // fix a malformed request, cannot un-cancel a run the user stopped, and will fail
 // identically on missing credentials -- so those never reach a continuation.
-const CONTINUATION_TRANSIENT = new Set([
+export const CONTINUATION_TRANSIENT = new Set([
   PROVIDER_FAILURE.RATE_LIMITED,
   PROVIDER_FAILURE.QUOTA,
   PROVIDER_FAILURE.TIMEOUT,
@@ -52,9 +52,18 @@ const CONTINUATION_TRANSIENT = new Set([
 // so a raw routing kind would be lost in translation. This bridge hands continuity
 // an error whose text maps back to the same class. It is a translation table, not
 // a second classifier -- the decision of whether to continue was already made here.
-const CONTINUATION_FAILURE_BRIDGE = {
+//
+// The table must have exactly one entry per `CONTINUATION_TRANSIENT` member and
+// each entry's text must re-classify (via continuity's `classifyProviderFailure`)
+// to the same class -- otherwise the reason recorded on the transition would name
+// a different fault than the one that ended the cascade. Quota carries no `429`
+// status for exactly this reason: continuity checks rate-limit before quota, so a
+// status code here would round-trip quota to rate_limited. Continuity's own
+// non-transient classes (invalid_request, cancelled, no_credentials, auth) are
+// absent by construction: the allowlist gates them out before the bridge is read.
+export const CONTINUATION_FAILURE_BRIDGE = {
   [PROVIDER_FAILURE.RATE_LIMITED]: { code: "rate_limited", status: 429, message: "429 rate limited" },
-  [PROVIDER_FAILURE.QUOTA]: { code: "quota", status: 429, message: "quota exceeded" },
+  [PROVIDER_FAILURE.QUOTA]: { code: "quota", message: "quota exceeded" },
   [PROVIDER_FAILURE.TIMEOUT]: { code: "timeout", message: "the request timed out" },
   [PROVIDER_FAILURE.NETWORK]: { code: "network", message: "network fetch failed" },
   [PROVIDER_FAILURE.SERVER]: { code: "server", status: 503, message: "503 service unavailable" },
@@ -759,17 +768,35 @@ export class AgentRuntime {
    * assumed, and a caller that dispatches calls another way can override it.
    */
   traceUncertainDispatches(result) {
+    return this.traceUncertainTools(result).count;
+  }
+
+  /**
+   * The same trace as `traceUncertainDispatches`, but naming the tools.
+   *
+   * An approval prompt that says "a tool may not have completed" cannot tell the
+   * user *which* tool without this, and "retry it?" is unanswerable if the tool is
+   * unnamed. Names come from the `AGENT_TOOL_STARTED` event; the count is derived
+   * the same way as `traceUncertainDispatches` so the two never disagree.
+   */
+  traceUncertainTools(result) {
     const events = Array.isArray(result?.events) ? result.events : [];
     const executions = Array.isArray(result?.toolExecutions) ? result.toolExecutions : [];
-    let dispatched = 0;
+    const dispatched = [];
     for (const event of events) {
-      if (event?.type === EVENTS.AGENT_TOOL_STARTED && isNonIdempotentScope(event.scope)) dispatched += 1;
+      if (event?.type === EVENTS.AGENT_TOOL_STARTED && isNonIdempotentScope(event.scope)) {
+        dispatched.push({ tool: event.tool ?? event.name ?? null, scope: event.scope ?? null });
+      }
     }
     let settled = 0;
     for (const record of executions) {
       if (isNonIdempotentScope(record?.scope) && record?.status != null) settled += 1;
     }
-    return Math.max(0, dispatched - settled);
+    const uncertain = Math.max(0, dispatched.length - settled);
+    // Unsettled calls are the *last* dispatched, matching how a cascade leaves
+    // them: the earlier ones settled, the tail did not.
+    const tools = uncertain > 0 ? dispatched.slice(dispatched.length - uncertain) : [];
+    return { count: uncertain, tools };
   }
 
   /**
@@ -810,6 +837,16 @@ export class AgentRuntime {
         signal,
       });
 
+    // The same approval waterfall that gates a tool gates the continuation: with
+    // an approver wired (the interactive CLI), a mutation that *may* have landed
+    // is held for a human; without one (a daemon, --json, a piped run) it fails
+    // closed. `approve` is only supplied when there is someone to ask.
+    const uncertain = this.traceUncertainTools(result);
+    const approve =
+      typeof this.approver === "function"
+        ? (info) => this.#approveContinuation({ agent, info, uncertain })
+        : null;
+
     const continuation = await continueSession({
       sessions: this.sessions,
       blackboard: this.blackboard,
@@ -827,8 +864,15 @@ export class AgentRuntime {
       task,
       extra,
       agentId: agent.id,
-      now: this.now,
-      uncertainDispatches: this.traceUncertainDispatches(result),
+      // A *timestamp*, not the clock function. continuity forwards this to
+      // buildContextPacket, which does `new Date(now).toISOString()` -- handed a
+      // function that is an Invalid Date and throws, so a real (default-clock)
+      // run failed with "Invalid time value" instead of continuing. The
+      // t8 tests missed it only because their `() => 1000` stringifies to a
+      // date `new Date` happens to parse; `() => Date.now()` parses to nothing.
+      now: this.now(),
+      uncertainDispatches: uncertain.count,
+      approve,
     });
 
     result.continuation = {
@@ -857,6 +901,35 @@ export class AgentRuntime {
       value: { text: continuation.outcome.text ?? null },
       continued: true,
     };
+  }
+
+  /**
+   * Ask the configured approver whether a held continuation may proceed.
+   *
+   * The approver contract is the tool waterfall's -- `(call) => boolean` -- so the
+   * same function that gates `rm -rf` gates a retry on a new provider. `call`
+   * carries `continuation: true` and the names of the uncertain tools so a
+   * terminal approver can render a prompt that names what may have run. Any throw
+   * is a no: an approver that deadlocks or crashes must not authorise a replay.
+   */
+  async #approveContinuation({ agent, info, uncertain }) {
+    const first = uncertain.tools[0] ?? null;
+    const call = {
+      continuation: true,
+      tool: first?.tool ?? "a tool",
+      scope: first?.scope ?? null,
+      args: {},
+      reason: info?.reason ?? null,
+      failureClass: info?.failureClass ?? null,
+      from: info?.from ?? null,
+      model: info?.model ?? null,
+      uncertain: uncertain.tools.map((t) => t.tool),
+    };
+    try {
+      return (await this.approver(call, { continuation: true, agentId: agent?.id ?? null })) === true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -1609,4 +1682,14 @@ function normaliseOutput(output, agent) {
   }
 }
 
-export default { AgentRuntime, STATE, RuntimeError, AgentTimeoutError, AgentCancelledError, AgentBoundError, renderSystemPrompt };
+export default {
+  AgentRuntime,
+  STATE,
+  RuntimeError,
+  AgentTimeoutError,
+  AgentCancelledError,
+  AgentBoundError,
+  renderSystemPrompt,
+  CONTINUATION_TRANSIENT,
+  CONTINUATION_FAILURE_BRIDGE,
+};

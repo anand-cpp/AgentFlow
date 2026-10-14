@@ -95,6 +95,11 @@ export const EVENTS = {
   CONTINUATION_COMPLETED: "continuation.completed",
   CONTINUATION_FAILED: "continuation.failed",
   TOOL_OUTCOME_UNCERTAIN: "tool.outcome_uncertain",
+  // A continuation that was held for a human. requested fires when the runtime
+  // asks; approved fires only when the answer was yes, so the log distinguishes
+  // "nobody was asked" from "asked and refused" from "asked and allowed".
+  CONTINUATION_APPROVAL_REQUESTED: "continuation.approval_requested",
+  CONTINUATION_APPROVED: "continuation.approved",
 };
 
 /**

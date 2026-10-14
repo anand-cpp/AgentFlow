@@ -1,4 +1,4 @@
-// Cross-provider continuity wiring in AgentRuntime (task t8).
+// Cross-provider continuity wiring in AgentRuntime (tasks t8 and t9).
 //
 // The continuity primitives (src/core/continuity.js) are unit- and integration-
 // tested on their own. What this file covers is the seam between them and the
@@ -11,6 +11,12 @@
 //   * uncertain non-idempotent dispatches force approval instead of a blind replay,
 //   * the reconstructed packet and the provider transition are persisted, and
 //   * the dispatch tracer returns 0 for a settled run and counts the unsettled.
+//
+// t9 adds reachability: a held continuation (uncertain tool outcomes) must reach
+// the *same* approval waterfall that gates a tool, so the run either asks a human
+// or fails closed -- never a silent stop and never a blind replay. The tests at the
+// bottom assert that seam: approve/refuse/absent/throwing, the named tool, and that
+// the failure-vocabulary bridge is complete and round-trips.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -19,7 +25,13 @@ import os from "node:os";
 import path from "node:path";
 
 import { defineAgent, AgentRegistry } from "../src/core/agents/registry.js";
-import { AgentRuntime, STATE } from "../src/core/agents/runtime.js";
+import {
+  AgentRuntime,
+  STATE,
+  CONTINUATION_TRANSIENT,
+  CONTINUATION_FAILURE_BRIDGE,
+} from "../src/core/agents/runtime.js";
+import { classifyProviderFailure, PROVIDER_FAILURE } from "../src/core/continuity.js";
 import { SessionStore, ENTRY_KIND } from "../src/core/sessions.js";
 import { BlackboardStore } from "../src/core/blackboard.js";
 import { EVENTS } from "../src/core/events.js";
@@ -90,17 +102,23 @@ const noRetryAgent = (over = {}) => agent({ failure: { maxRetries: 0 }, ...over 
  * `session` is accepted (and ignored) so a call site can name the session it is
  * about without the runtime needing it -- it is wired from the `sessions` store.
  *
- * @param {{ complete: any, sessions: any, board: any, specs?: any[], session?: any }} args
+ * @param {{ complete: any, sessions: any, board: any, specs?: any[], session?: any, approver?: any }} args
  */
-function wired({ complete, sessions, board, specs = [noRetryAgent()] }) {
+function wired({ complete, sessions, board, specs = [noRetryAgent()], approver = null }) {
   return runtime({
     specs,
     complete,
+    approver,
     catalogue: ["oca/model-a", "gemb/model-b"],
     blackboard: board,
     sessions,
     now: () => 1000,
   });
+}
+
+/** Force the uncertain-dispatch case with a named tool, as the tracer would report. */
+function forceUncertain(rt, tool = "write", scope = "write") {
+  rt.traceUncertainTools = () => ({ count: 1, tools: [{ tool, scope }] });
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +190,7 @@ test("an uncertain non-idempotent dispatch blocks the continuation", async () =>
 
   // The real tracer returns 0 for a settled run (asserted separately); here we
   // force the uncertain case to prove the runtime honours it rather than replaying.
-  rt.traceUncertainDispatches = () => 1;
+  rt.traceUncertainTools = () => ({ count: 1, tools: [{ tool: "write", scope: "write" }] });
 
   const result = await rt.run({ agentId: "planner", task: "t", sessionId: session.id });
 
@@ -258,4 +276,134 @@ test("the continuation records the packet and the provider transition in the ses
   assert.equal(transition.from.provider, "oca");
   assert.equal(transition.to.provider, "gemb");
   assert.equal(transition.failureClass, "rate_limited");
+});
+
+// ---------------------------------------------------------------------------
+// t9: a held continuation reaches the approval waterfall (approve / refuse /
+// absent / throwing), and the tool it names is the one whose outcome is unknown
+// ---------------------------------------------------------------------------
+
+test("an approver that allows the retry lets the continuation proceed", async () => {
+  const { sessions, board, session } = stores();
+  const complete = routedComplete((m) => (m.startsWith("oca/") ? { fail: rateLimited() } : { text: "continued" }));
+  const seen = [];
+  const rt = wired({
+    complete,
+    session,
+    sessions,
+    board,
+    approver: async (call) => {
+      seen.push(call);
+      return true;
+    },
+  });
+  forceUncertain(rt, "write", "write");
+
+  const result = await rt.run({ agentId: "planner", task: "t", sessionId: session.id });
+
+  assert.equal(result.state, STATE.COMPLETED);
+  assert.equal(result.model, "gemb/model-b");
+  assert.equal(result.continuation.action, "continued");
+
+  // The question named the continuation and the tool whose outcome is unknown.
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].continuation, true);
+  assert.equal(seen[0].tool, "write");
+  assert.equal(seen[0].reason, "uncertain_tool_outcomes");
+  assert.deepEqual(seen[0].uncertain, ["write"]);
+});
+
+test("an approver that refuses keeps the continuation stopped", async () => {
+  const { sessions, board, session } = stores();
+  const complete = routedComplete((m) => (m.startsWith("oca/") ? { fail: rateLimited() } : { text: "b" }));
+  const rt = wired({ complete, session, sessions, board, approver: async () => false });
+  forceUncertain(rt);
+
+  const result = await rt.run({ agentId: "planner", task: "t", sessionId: session.id });
+
+  assert.equal(result.state, STATE.FAILED);
+  assert.equal(result.continuation.action, "require_approval");
+  assert.equal(result.continuation.reason, "uncertain_tool_outcomes");
+  assert.equal(complete.state.byModel.get("gemb/model-b") || 0, 0, "a refusal replays nothing");
+});
+
+test("no approver fails closed: the continuation is held, not replayed", async () => {
+  const { sessions, board, session } = stores();
+  const complete = routedComplete((m) => (m.startsWith("oca/") ? { fail: rateLimited() } : { text: "b" }));
+  const rt = wired({ complete, session, sessions, board }); // approver defaults to null
+  forceUncertain(rt);
+
+  const result = await rt.run({ agentId: "planner", task: "t", sessionId: session.id });
+
+  assert.equal(result.state, STATE.FAILED);
+  assert.equal(result.continuation.action, "require_approval");
+  assert.equal(complete.state.byModel.get("gemb/model-b") || 0, 0);
+});
+
+test("an approver that throws fails closed", async () => {
+  const { sessions, board, session } = stores();
+  const complete = routedComplete((m) => (m.startsWith("oca/") ? { fail: rateLimited() } : { text: "b" }));
+  const rt = wired({
+    complete,
+    session,
+    sessions,
+    board,
+    approver: async () => {
+      throw new Error("the dialog died");
+    },
+  });
+  forceUncertain(rt);
+
+  const result = await rt.run({ agentId: "planner", task: "t", sessionId: session.id });
+
+  assert.equal(result.state, STATE.FAILED);
+  assert.equal(result.continuation.action, "require_approval");
+  assert.equal(complete.state.byModel.get("gemb/model-b") || 0, 0);
+});
+
+test("the uncertain-tool tracer names the unsettled tools", () => {
+  const rt = runtime({ complete: routedComplete(() => ({ text: "x" })) });
+
+  const named = rt.traceUncertainTools({
+    events: [{ type: EVENTS.AGENT_TOOL_STARTED, tool: "write", scope: "write" }],
+    toolExecutions: [],
+  });
+  assert.equal(named.count, 1);
+  assert.deepEqual(named.tools, [{ tool: "write", scope: "write" }]);
+
+  // A settled dispatch is not uncertain, so nothing is named.
+  const settled = rt.traceUncertainTools({
+    events: [{ type: EVENTS.AGENT_TOOL_STARTED, tool: "write", scope: "write" }],
+    toolExecutions: [{ scope: "write", status: "ok" }],
+  });
+  assert.equal(settled.count, 0);
+  assert.deepEqual(settled.tools, []);
+});
+
+// ---------------------------------------------------------------------------
+// t9: the routing vocabulary bridge is complete and round-trips
+// ---------------------------------------------------------------------------
+
+test("the failure bridge covers exactly the transient classes and round-trips", () => {
+  const bridged = Object.keys(CONTINUATION_FAILURE_BRIDGE);
+  assert.deepEqual(
+    new Set(bridged),
+    new Set([...CONTINUATION_TRANSIENT]),
+    "every transient class is bridged, and nothing else",
+  );
+
+  // Each bridge object must re-classify to the class it was built for, or the
+  // recorded reason would name a different fault than the one that ended the run.
+  for (const kind of CONTINUATION_TRANSIENT) {
+    const error = CONTINUATION_FAILURE_BRIDGE[kind];
+    assert.ok(error, `missing bridge entry for ${kind}`);
+    assert.equal(classifyProviderFailure(error).failure, kind, `${kind} must round-trip`);
+  }
+
+  // The non-transient classes are absent by construction: they are gated out
+  // before the bridge is ever read.
+  for (const kind of [PROVIDER_FAILURE.INVALID_REQUEST, PROVIDER_FAILURE.CANCELLED, PROVIDER_FAILURE.NO_CREDENTIALS]) {
+    assert.equal(CONTINUATION_FAILURE_BRIDGE[kind], undefined, `${kind} must not be bridgeable`);
+    assert.equal(CONTINUATION_TRANSIENT.has(kind), false, `${kind} must not be transient`);
+  }
 });

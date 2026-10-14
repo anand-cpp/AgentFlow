@@ -105,6 +105,7 @@ export const SLASH_HELP = [
   "  /clear               clear in-memory history (keeps the session)",
   "  /compact             summarise and compress the conversation",
   "  /tribunal <prompt>   run the tribunal on the current topic",
+  "  /agent <task>        run a bounded, tool-using agent task",
   "  /doctor              quick gateway and provider health check",
   "  /status              provider health and current tier",
   "  /add <file>          add a file to the context",
@@ -150,7 +151,8 @@ export class ChatSession {
    *   modelId?: string|null, log?: object|null, registry?: object|null,
    *   stream?: Function|null, complete?: Function|null, now?: () => number,
    *   contextBudgetChars?: number, recentKeep?: number, workspaceRoot?: object|string|null,
-   *   projectRoot?: string|null, catalogue?: string[], handlers?: object
+   *   projectRoot?: string|null, catalogue?: string[], handlers?: object,
+   *   approver?: Function|null
    * }} [options]
    */
   constructor({
@@ -173,6 +175,7 @@ export class ChatSession {
     projectRoot = null,
     catalogue = [],
     handlers = {},
+    approver = null,
   } = {}) {
     const gw = gateway || { complete: gatewayComplete, streamComplete: gatewayStream };
 
@@ -193,6 +196,10 @@ export class ChatSession {
     this.recentKeep = recentKeep;
     this.catalogue = Array.isArray(catalogue) ? catalogue : [];
     this.handlers = handlers || {};
+    // The permission waterfall the agent runtime uses for tool (and continuation)
+    // approvals. The CLI binds it once a terminal is available; unset means the
+    // runtime fails closed, which is the correct default for --json and pipes.
+    this.approver = typeof approver === "function" ? approver : null;
 
     this.projectRoot = projectRoot ? path.resolve(String(projectRoot)) : null;
     this.workspaceRoot = workspaceRoot
@@ -308,6 +315,7 @@ export class ChatSession {
         blackboard: this.blackboard,
         sessions: this.sessions,
         workspaceRoot: this.workspaceRoot,
+        approver: this.approver,
       });
     } catch {
       this.runtime = null;
@@ -627,6 +635,19 @@ export class ChatSession {
     return { ok: Boolean(result?.completed), text: summary, result };
   }
 
+  /**
+   * Bind (or clear) the permission waterfall's human approver.
+   *
+   * The engine is built before a terminal exists -- the CLI creates the session,
+   * then opens readline -- so the approver cannot be a constructor argument in
+   * real use. Setting it here rebuilds the runtime so the new approver is the one
+   * the next run consults; passing null restores fail-closed.
+   */
+  setApprover(fn) {
+    this.approver = typeof fn === "function" ? fn : null;
+    if (this.session) this.#buildRuntime();
+  }
+
   // -------------------------------------------------------------------------
   // slash commands
   // -------------------------------------------------------------------------
@@ -708,6 +729,15 @@ export class ChatSession {
         if (!arg) return { kind: "tribunal", text: "usage: /tribunal <proposal>" };
         if (typeof this.handlers.tribunal !== "function") return { kind: "tribunal", text: "tribunal is not available in this session" };
         return { kind: "tribunal", text: await this.handlers.tribunal(arg) };
+      }
+
+      case "agent": {
+        if (!arg) return { kind: "agent", text: "usage: /agent <task>" };
+        // In chat, a task goes through the same bounded runtime as `aflow agent
+        // run`, with this session's id, so a continuation can reconstruct from the
+        // live conversation and any held approval is put to the user.
+        const run = await this.runAgent(arg);
+        return { kind: "agent", text: run.text, data: run.result };
       }
 
       case "doctor": {

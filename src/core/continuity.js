@@ -304,10 +304,11 @@ export function planContinuation({
  *
  * The after-failure sequence, in documented order:
  *   classify the prior failure; decide eligibility; reconstruct + budget the
- *   packet from the stores; emit context.built / context.reconstructed;
- *   (if approved) emit continuation.started and call `complete`; feed the
- *   outcome back to health; persist the packet and any provider transition;
- *   emit continuation.completed / continuation.failed.
+ *   packet from the stores; if the plan requires approval, ask `approve` and stop
+ *   when it is refused; emit context.built / context.reconstructed; emit
+ *   continuation.started and call `complete`; feed the outcome back to health;
+ *   persist the packet and any provider transition; emit continuation.completed
+ *   / continuation.failed.
  *
  * `complete` receives `(config, modelId, prompt, { system })` and returns a
  * result with `.text` -- the same contract the agent runtime uses, so a live
@@ -331,6 +332,11 @@ export async function continueSession({
   agentId = null,
   now = null,
   uncertainDispatches = 0,
+  // Optional. When the plan is `require_approval`, this async callback is the
+  // single gate: it is asked whether a human consented to the switch. Absent or
+  // false means no -- the receipt returns `require_approval` unchanged, so a
+  // caller with no way to ask fails closed rather than retrying blindly.
+  approve = null,
 } = {}) {
   const logger = log ?? nullLog();
   const receipt = {
@@ -396,9 +402,58 @@ export async function continueSession({
   }
   receipt.packet = packet;
 
-  if (plan.action !== "attempt_switch") {
-    // The plan is to stop or to ask. The packet is still recorded so the 
-    // decision and the state are reconstructable later.
+  if (plan.action === "require_approval") {
+    // The plan is to ask. The packet is recorded before the question so the
+    // decision and the state are reconstructable whether or not anyone answers.
+    recordPacket(sessions, sessionId, packet, agentId, logger);
+    logger.warn(EVENTS.TOOL_OUTCOME_UNCERTAIN, {
+      sessionId,
+      count: uncertainties,
+      reason: plan.reason,
+      note: "dispatched tool calls with no recorded outcome; continuation requires approval",
+    });
+    logger.info(EVENTS.CONTINUATION_APPROVAL_REQUESTED, {
+      sessionId,
+      reason: plan.reason,
+      failureClass: classification.failure,
+      uncertainty: plan.uncertain ?? uncertainties,
+      model: modelId,
+    });
+
+    // Fail closed. No callback, a callback that throws, or an explicit no all
+    // leave the receipt at `require_approval`: nothing is dispatched on a guess.
+    let approved = false;
+    if (typeof approve === "function") {
+      try {
+        approved = (await approve({
+          reason: plan.reason,
+          failureClass: classification.failure,
+          uncertainty: plan.uncertain ?? uncertainties,
+          model: modelId,
+          provider: parseCandidate(modelId).provider,
+          from: prior.provider ?? null,
+        })) === true;
+      } catch {
+        approved = false;
+      }
+    }
+    if (!approved) {
+      receipt.action = "require_approval";
+      receipt.reason = plan.reason;
+      return receipt;
+    }
+    // A yes turns the ask into an ordinary switch, and the flow below runs
+    // unchanged -- the approval only removed the stop, it changed no other policy.
+    logger.info(EVENTS.CONTINUATION_APPROVED, {
+      sessionId,
+      reason: plan.reason,
+      model: modelId,
+    });
+    plan.action = "attempt_switch";
+    receipt.action = "attempt_switch";
+  } else if (plan.action !== "attempt_switch") {
+    // The plan is to stop outright. The packet is still recorded so the decision
+    // and the state are reconstructable later.
     recordPacket(sessions, sessionId, packet, agentId, logger);
     if (uncertainties > 0) {
       logger.warn(EVENTS.TOOL_OUTCOME_UNCERTAIN, {

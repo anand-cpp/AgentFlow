@@ -277,6 +277,22 @@ function makeApprover(flags) {
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   return async (call) => {
+    // A held continuation is not a fresh tool call, so it does not get the tool
+    // prompt: the question is "may I retry on a new provider", and the honest
+    // framing names the tool whose outcome is unknown.
+    if (call?.continuation) {
+      const tool = call.tool || "a tool";
+      const answer = (
+        await rl.question(
+          `\nA tool call may not have completed before the provider failed.\n` +
+            `The tool was: ${tool}\n` +
+            `Should I retry it on the new provider? [y/N] `,
+        )
+      )
+        .trim()
+        .toLowerCase();
+      return answer === "y" || answer === "yes";
+    }
     const answer = (await rl.question(`  allow ${call.tool} ${truncate(JSON.stringify(call.args), 90)}? [y/N] `))
       .trim()
       .toLowerCase();

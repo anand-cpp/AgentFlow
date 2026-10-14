@@ -193,6 +193,23 @@ async function conversationLoop(session, io) {
     rl.prompt();
   };
 
+  // Bind the permission waterfall to this terminal. A held continuation (a tool
+  // call that may have run before a provider failed) and a gated tool both become
+  // questions on the same line queue the loop already reads, so the prompt cannot
+  // fight the reader. EOF yields null and the answer is no: fail closed.
+  session.setApprover(async (call) => {
+    if (call?.continuation) {
+      io.output.write("\nA tool call may not have completed before the provider failed.\n");
+      io.output.write(`The tool was: ${call.tool || "a tool"}\n`);
+      io.output.write("Should I retry it on the new provider? [y/N] ");
+    } else {
+      io.output.write(`  allow ${call.tool}? [y/N] `);
+    }
+    const line = await nextLine();
+    if (line === null) return false;
+    return /^y(es)?$/i.test(String(line).trim());
+  });
+
   // Terminal Ctrl+C. First press aborts an in-flight response; a press at the
   // idle prompt closes the loop. rl owns SIGINT when terminal is true, so this
   // handler -- not process.on -- is what runs.
@@ -265,6 +282,7 @@ async function conversationLoop(session, io) {
     await sendTurn(text);
   }
 
+  session.setApprover(null);
   rl.close();
   return 0;
 }
@@ -433,6 +451,7 @@ export const chatCommand = defineCommand("chat", {
     /clear               clear the in-memory prompt (keeps the session)
     /compact             summarise and compress the conversation
     /tribunal <prompt>   run the five-stage tribunal on a proposal
+    /agent <task>        run a bounded, tool-using agent task
     /doctor              gateway and provider health check
     /status              provider health and current tier
     /add <file>          add a file to the context
