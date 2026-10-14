@@ -222,4 +222,203 @@ export async function complete(config, modelId, prompt, { timeoutMs, system = nu
   };
 }
 
-export default { GatewayError, getVersion, listModels, probeModel, ping, complete };
+/**
+ * Message role constants for the chat surface.
+ *
+ * Declared rather than sprinkled as literals so the wire shape is one decision
+ * instead of twenty. OpenAI's contract is the target; these are the three roles
+ * the chat loop actually sends.
+ */
+export const ROLE = Object.freeze({ SYSTEM: "system", USER: "user", ASSISTANT: "assistant" });
+
+/** Coerce an arbitrary message list into OpenAI's `{role, content}` shape. */
+function normaliseMessages(messages) {
+  const out = [];
+  for (const m of Array.isArray(messages) ? messages : []) {
+    if (!m || typeof m !== "object") continue;
+    const content = m.content;
+    if (typeof content !== "string") continue;
+    out.push({ role: typeof m.role === "string" ? m.role : ROLE.USER, content });
+  }
+  return out;
+}
+
+/**
+ * Streaming chat completion.
+ *
+ * Same HTTP boundary as complete(), but reads the response body as Server-Sent
+ * Events and hands each token to `onToken` as it arrives, so a caller can render
+ * a response while it is still being produced. Returns the fully accumulated
+ * text once the stream ends, so a caller that ignores `onToken` still gets the
+ * whole answer.
+ *
+ * Three behaviours matter and each is deliberate:
+ *
+ *   - `[DONE]` and `finish_reason` both terminate the read. A provider that
+ *     never sends `[DONE]` (some do not, and the in-repo gateway synthesises it,
+ *     but a third party may not) must not leave the caller waiting forever, so
+ *     the socket closing ends the loop too.
+ *   - A non-SSE response is not an error. If the upstream ignored `stream:true`
+ *     and answered with a plain JSON body, the content is emitted once and the
+ *     call resolves as `{ streamed: false }`. The alternative -- treating a
+ *     perfectly good answer as a failure because its content-type was wrong --
+ *     would make the client stricter than the contract it speaks.
+ *   - Cancellation is distinct from timeout and from refusal. Ctrl+C aborts the
+ *     caller's signal; that surfaces as `code: "cancelled"` so the UI can print
+ *     "[interrupted]" rather than an alarming transport error.
+ *
+ * @param {object} config
+ * @param {string} modelId
+ * @param {Array<{role?: string, content: string}>} messages
+ * @param {{ signal?: AbortSignal|null, onToken?: ((chunk: string) => void)|null, timeoutMs?: number, system?: string|null, maxTokens?: number|null, temperature?: number|null }} [opts]
+ */
+export async function streamComplete(
+  config,
+  modelId,
+  messages,
+  { signal = null, onToken = null, timeoutMs, system = null, maxTokens = null, temperature = null } = {},
+) {
+  const url = `${String(config.baseUrl).replace(/\/+$/, "")}/v1/chat/completions`;
+  const ms = timeoutMs ?? config.probeTimeoutMs ?? 60000;
+
+  const wire = normaliseMessages(messages);
+  if (system) wire.unshift({ role: ROLE.SYSTEM, content: String(system) });
+
+  const body = { model: modelId, messages: wire, stream: true };
+  if (maxTokens != null) body.max_tokens = maxTokens;
+  if (temperature != null) body.temperature = temperature;
+
+  // One controller carries both the caller's signal and the hard timeout, so the
+  // fetch is torn down by whichever fires first and the finally block cleans up
+  // the other.
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(signal?.reason);
+  if (signal) {
+    if (signal.aborted) controller.abort(signal.reason);
+    else signal.addEventListener("abort", onAbort, { once: true });
+  }
+  const timer = setTimeout(() => controller.abort(new Error("stream timeout")), ms);
+  if (typeof timer.unref === "function") timer.unref();
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { ...buildHeaders({ apiKey: config.apiKey, json: true }), Accept: "text/event-stream" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener("abort", onAbort);
+    if (signal?.aborted) {
+      const cancelled = new GatewayError("stream cancelled", { code: "cancelled" });
+      cancelled.name = "AbortError";
+      throw cancelled;
+    }
+    if (err?.name === "TimeoutError" || err?.name === "AbortError") {
+      throw new GatewayError(`gateway timed out after ${ms}ms (${url})`, { code: "timeout" });
+    }
+    throw new GatewayError(`cannot reach gateway at ${config.baseUrl}`, { code: "unreachable", detail: err?.message });
+  }
+
+  if (!res.ok) {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener("abort", onAbort);
+    const text = await res.text().catch(() => "");
+    let parsed = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = { raw: text.slice(0, 500) };
+    }
+    const e = parsed?.error || {};
+    throw new GatewayError(e.message || `gateway returned ${res.status}`, {
+      status: res.status,
+      code: e.code || "http_error",
+      detail: redactDeep(parsed),
+    });
+  }
+
+  const contentType = res.headers.get("content-type") || "";
+  const looksSse = contentType.includes("text/event-stream");
+
+  try {
+    // Non-streaming fallback: the upstream answered with a plain body. Emit the
+    // whole completion once so the caller's rendering path is unchanged.
+    if (!looksSse || !res.body) {
+      const text = await res.text();
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = { raw: text.slice(0, 500) };
+      }
+      const choice = parsed?.choices?.[0];
+      const content = choice?.message?.content ?? choice?.text ?? (typeof parsed?.content === "string" ? parsed.content : "");
+      const out = typeof content === "string" ? content : content == null ? "" : String(content);
+      if (onToken && out) onToken(out);
+      return {
+        model: modelId,
+        text: out.trim(),
+        streamed: false,
+        finishReason: choice?.finish_reason ?? null,
+        usage: parsed?.usage ?? null,
+        raw: parsed,
+      };
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let full = "";
+    let finishReason = null;
+    let usage = null;
+    let done = false;
+
+    while (!done) {
+      const { value, done: streamEnd } = await reader.read();
+      if (streamEnd) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let idx;
+      while ((idx = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, idx).replace(/\r$/, "");
+        buffer = buffer.slice(idx + 1);
+        if (line === "" || !line.startsWith("data:")) continue;
+
+        const data = line.slice(5).trim();
+        if (data === "[DONE]") {
+          done = true;
+          break;
+        }
+        let evt;
+        try {
+          evt = JSON.parse(data);
+        } catch {
+          continue; // a keep-alive or malformed line is skipped, not fatal
+        }
+        if (evt?.error) {
+          throw new GatewayError(evt.error.message || "provider error mid-stream", {
+            code: evt.error.code || "stream_error",
+          });
+        }
+        const choice = evt?.choices?.[0];
+        const delta = choice?.delta?.content;
+        if (typeof delta === "string" && delta) {
+          full += delta;
+          if (onToken) onToken(delta);
+        }
+        if (choice?.finish_reason) finishReason = choice.finish_reason;
+        if (evt?.usage) usage = evt.usage;
+      }
+    }
+
+    return { model: modelId, text: full.trim(), streamed: true, finishReason, usage, raw: null };
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener("abort", onAbort);
+  }
+}
+
+export default { GatewayError, ROLE, getVersion, listModels, probeModel, ping, complete, streamComplete };
