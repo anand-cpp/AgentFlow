@@ -38,6 +38,7 @@ import process from "node:process";
 
 import { redact } from "./redact.js";
 import { VERSION as GATEWAY_VERSION } from "./version.js";
+import { firstKey, missingEnvKeys, providerBaseUrl, readKeysFile, mergeEnv } from "./keys.js";
 
 export { GATEWAY_VERSION };
 
@@ -62,37 +63,148 @@ export const GATEWAY_DEFAULTS = Object.freeze({
 // provider credential the gateway never held.
 // ---------------------------------------------------------------------------
 
+// Each spec is what the request path needs (baseUrl, envKeys, models) plus the
+// facts the setup wizard and doctor report (label, signup URL, free-tier note).
+// Keeping both in one table means a provider's behaviour and its description can
+// never drift apart.
+//
+// Models are plain ids. The gateway composes the served id as `<provider>/<id>`,
+// so the registry stays a flat list of what each upstream actually accepts.
+//
+// A `multiKey` provider needs every env key at once (Cloudflare: a token AND an
+// account id). Its baseUrl may carry `{ENV_VAR}` placeholders, resolved from the
+// same environment. Every other hosted provider needs a single credential, and
+// `envKeys` may list alternatives (Gemini: GEMINI_API_KEY or GOOGLE_API_KEY).
 export const PROVIDERS = Object.freeze({
   groq: {
     baseUrl: "https://api.groq.com/openai/v1",
     envKeys: ["GROQ_API_KEY"],
     models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"],
+    label: "Groq",
+    signupUrl: "https://console.groq.com/keys",
+    freeTier: "free tier, no credit card",
+    ratePerMin: 30,
+    creditCard: false,
   },
   cerebras: {
     baseUrl: "https://api.cerebras.ai/v1",
     envKeys: ["CEREBRAS_API_KEY"],
     models: ["llama3.1-8b", "llama3.1-70b", "qwen-3-32b"],
+    label: "Cerebras",
+    signupUrl: "https://cloud.cerebras.ai",
+    freeTier: "free tier, no credit card",
+    ratePerMin: 30,
+    creditCard: false,
   },
   mistral: {
     baseUrl: "https://api.mistral.ai/v1",
     envKeys: ["MISTRAL_API_KEY"],
     models: ["mistral-small-latest", "mistral-large-latest", "open-mistral-nemo", "codestral-latest"],
+    label: "Mistral",
+    signupUrl: "https://console.mistral.ai/api-keys",
+    freeTier: "free tier (rate-limited), no credit card",
+    ratePerMin: null,
+    creditCard: false,
   },
   gemini: {
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     envKeys: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
     models: ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
+    label: "Google Gemini",
+    signupUrl: "https://aistudio.google.com/apikey",
+    freeTier: "free tier, no credit card",
+    ratePerMin: 15,
+    creditCard: false,
   },
   openrouter: {
     baseUrl: "https://openrouter.ai/api/v1",
     envKeys: ["OPENROUTER_API_KEY"],
     models: ["auto", "meta-llama/llama-3.3-70b-instruct:free", "mistralai/mistral-7b-instruct:free"],
+    label: "OpenRouter",
+    signupUrl: "https://openrouter.ai/keys",
+    freeTier: "free models available, no credit card",
+    ratePerMin: null,
+    creditCard: false,
+  },
+  cloudflare: {
+    // The account id is part of the path, not just the credential: both the token
+    // and the account id must be present before this provider is usable.
+    baseUrl: "https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1",
+    envKeys: ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"],
+    multiKey: true,
+    models: ["@cf/meta/llama-3.1-8b-instruct", "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b"],
+    label: "Cloudflare Workers AI",
+    signupUrl: "https://dash.cloudflare.com/profile/api-tokens",
+    freeTier: "10,000 neurons/day, no credit card",
+    ratePerMin: null,
+    creditCard: false,
+  },
+  hf: {
+    baseUrl: "https://api-inference.huggingface.co/v1",
+    envKeys: ["HF_TOKEN"],
+    models: [
+      "meta-llama/Llama-3.1-8B-Instruct",
+      "Qwen/Qwen2.5-72B-Instruct",
+      "mistralai/Mistral-7B-Instruct-v0.3",
+    ],
+    label: "HuggingFace Inference",
+    signupUrl: "https://huggingface.co/settings/tokens",
+    freeTier: "shared rate limit, varies by model, no credit card",
+    ratePerMin: null,
+    creditCard: false,
+  },
+  together: {
+    baseUrl: "https://api.together.xyz/v1",
+    envKeys: ["TOGETHER_API_KEY"],
+    models: ["meta-llama/Llama-3.3-70B-Instruct-Turbo", "Qwen/Qwen2.5-72B-Instruct-Turbo"],
+    label: "Together AI",
+    signupUrl: "https://api.together.xyz/settings/api-keys",
+    freeTier: "$5 free credit on signup (credit card not required)",
+    ratePerMin: null,
+    creditCard: false,
+  },
+  fireworks: {
+    baseUrl: "https://api.fireworks.ai/inference/v1",
+    envKeys: ["FIREWORKS_API_KEY"],
+    models: [
+      "accounts/fireworks/models/llama-v3p3-70b-instruct",
+      "accounts/fireworks/models/qwen2p5-72b-instruct",
+    ],
+    label: "Fireworks AI",
+    signupUrl: "https://fireworks.ai/account/api-keys",
+    freeTier: "$1 free credit on signup, no credit card",
+    ratePerMin: null,
+    creditCard: false,
+  },
+  deepinfra: {
+    baseUrl: "https://api.deepinfra.com/v1/openai",
+    envKeys: ["DEEPINFRA_API_KEY"],
+    models: ["meta-llama/Llama-3.3-70B-Instruct", "Qwen/Qwen2.5-72B-Instruct"],
+    label: "DeepInfra",
+    signupUrl: "https://deepinfra.com/dash/api_keys",
+    freeTier: "free tier available, no credit card",
+    ratePerMin: null,
+    creditCard: false,
+  },
+  sambanova: {
+    baseUrl: "https://api.sambanova.ai/v1",
+    envKeys: ["SAMBANOVA_API_KEY"],
+    models: ["Meta-Llama-3.3-70B-Instruct", "Qwen2.5-72B-Instruct"],
+    label: "SambaNova",
+    signupUrl: "https://cloud.sambanova.ai/apis",
+    freeTier: "free tier available, no credit card",
+    ratePerMin: null,
+    creditCard: false,
   },
   ollama: {
     baseUrl: GATEWAY_DEFAULTS.ollamaUrl,
     envKeys: [],
     models: [],
     local: true,
+    label: "Ollama (local)",
+    freeTier: "unlimited, no key needed",
+    ratePerMin: null,
+    creditCard: false,
   },
 });
 
@@ -103,10 +215,16 @@ const GATEWAY_USER_AGENT = `AgentFlow-Gateway/${GATEWAY_VERSION}`;
 // claim ids whose shape is distinctive, and only when that provider has a key.
 // Anything unmatched stays local.
 const MODEL_PATTERNS = [
+  { provider: "cloudflare", re: /^@cf\//i },
   { provider: "gemini", re: /^gemini-/i },
   { provider: "mistral", re: /^(mistral-|codestral|open-mistral|open-mixtral|pixtral)/i },
   { provider: "cerebras", re: /^llama3\.\d/i },
   { provider: "groq", re: /^(llama-|mixtral|gemma|deepseek-)/i },
+  // SambaNova capitalises its Llama ids ("Meta-Llama-3.3-70B-Instruct"), a shape
+  // no other catalogue here uses, so it is safe to claim. Bare HuggingFace/Together
+  // ids like "meta-llama/..." are deliberately NOT matched: they carry a slash
+  // that looks like a provider prefix and would be guessed ambiguously.
+  { provider: "sambanova", re: /^Meta-Llama-/i },
 ];
 
 /**
@@ -117,26 +235,34 @@ const MODEL_PATTERNS = [
  * never containing a key.
  */
 export class ProviderAuthMissingError extends Error {
-  constructor(provider, envKeys = []) {
+  constructor(provider, envKeys = [], { allRequired = false } = {}) {
+    // "A or B" (Gemini accepts either key) reads very differently from "A and B"
+    // (Cloudflare needs both). Saying the wrong one sends the user down a path
+    // that cannot work, so the connector is chosen by the caller.
     const need =
       envKeys.length <= 1
         ? envKeys[0] || "an API key"
-        : `${envKeys[0]} (or ${envKeys.slice(1).join(", ")})`;
+        : allRequired
+          ? envKeys.join(" and ")
+          : `${envKeys[0]} (or ${envKeys.slice(1).join(", ")})`;
     super(`Provider ${provider} requires ${need} to be set in environment`);
     this.name = "ProviderAuthMissingError";
     this.code = "provider_auth_missing";
     this.provider = provider;
     this.envKeys = [...envKeys];
+    this.allRequired = Boolean(allRequired);
   }
 }
 
-/** First non-empty credential among a provider's accepted env vars. */
-function resolveProviderKey(spec, env) {
-  for (const envKey of spec?.envKeys || []) {
-    const value = env?.[envKey];
-    if (typeof value === "string" && value.trim()) return { key: value.trim(), envKey };
-  }
-  return { key: null, envKey: null };
+/**
+ * A provider is usable when its credential rules are satisfied: a single key for
+ * an ordinary provider, every key for a `multiKey` one. The decision lives in
+ * keys.js so the gateway, the wizard, and doctor cannot disagree about whether a
+ * provider is configured.
+ */
+function providerUsable(spec, env) {
+  if (spec.multiKey) return missingEnvKeys(spec, env).length === 0;
+  return Boolean(firstKey(spec, env));
 }
 
 /**
@@ -182,9 +308,16 @@ export function resolveTargetProvider(modelId, env = process.env, providers = PR
       if (spec.local) {
         return { provider: prefix, model, baseUrl: spec.baseUrl, apiKey: null, local: true };
       }
-      const { key } = resolveProviderKey(spec, env);
-      if (!key) throw new ProviderAuthMissingError(prefix, spec.envKeys || []);
-      return { provider: prefix, model, baseUrl: spec.baseUrl, apiKey: key, local: false };
+      if (!providerUsable(spec, env)) {
+        throw new ProviderAuthMissingError(prefix, spec.envKeys || [], { allRequired: Boolean(spec.multiKey) });
+      }
+      return {
+        provider: prefix,
+        model,
+        baseUrl: providerBaseUrl(spec.baseUrl, env),
+        apiKey: firstKey(spec, env),
+        local: false,
+      };
     }
   }
 
@@ -192,9 +325,8 @@ export function resolveTargetProvider(modelId, env = process.env, providers = PR
     if (!re.test(id)) continue;
     const spec = providers[provider];
     if (!spec || spec.local) continue;
-    const { key } = resolveProviderKey(spec, env);
-    if (!key) continue; // shaped like a remote model, but no credential to use
-    return { provider, model: id, baseUrl: spec.baseUrl, apiKey: key, local: false };
+    if (!providerUsable(spec, env)) continue; // shaped like a remote model, but no credential to use
+    return { provider, model: id, baseUrl: providerBaseUrl(spec.baseUrl, env), apiKey: firstKey(spec, env), local: false };
   }
 
   return {
@@ -563,6 +695,11 @@ export class GatewayServer {
    *                                        loopback-only use, refused on 0.0.0.0.
    * @param {object}  [opts.env=process.env] environment holding provider API keys
    *                                        (GROQ_API_KEY, ...). Read per request.
+   * @param {string}  [opts.keysFile=null]  path to a `keys.env` written by
+   *                                        `aflow setup`. Merged UNDER `env`, so a
+   *                                        real environment variable always wins.
+   *                                        Null (default) loads nothing, which keeps
+   *                                        unit tests hermetic.
    * @param {object}  [opts.providers=null] override the built-in provider registry
    *                                        (tests point a provider at a mock port).
    * @param {Function}[opts.fetchImpl]      injectable fetch (tests / instrumentation).
@@ -577,6 +714,7 @@ export class GatewayServer {
     bodyLimit = DEFAULT_BODY_LIMIT,
     apiKey = null,
     env = process.env,
+    keysFile = null,
     providers = null,
     fetchImpl = globalThis.fetch,
     logger = null,
@@ -588,9 +726,12 @@ export class GatewayServer {
     this.timeoutMs = timeoutMs;
     this.bodyLimit = bodyLimit;
     this.apiKey = apiKey ? String(apiKey) : null;
-    // Provider credentials are read from `env` at request time and never stored
-    // as a field, so they cannot be serialised into state or logged by accident.
-    this.env = env && typeof env === "object" ? env : {};
+    // Provider credentials are read from the merged environment at request time
+    // and never stored as a field, so they cannot be serialised into state or
+    // logged by accident. A keys.env written by `aflow setup` is folded in here,
+    // under `env`, so process.env still wins key by key.
+    const fileKeys = keysFile ? readKeysFile(keysFile) : {};
+    this.env = mergeEnv(fileKeys, env && typeof env === "object" ? env : {});
     this.providers = mergeProviders(providers || {});
     // Bound, not looked up per call: an injected fetch and the global fetch are
     // both "the fetch", and resolving that at construction keeps the request
@@ -770,7 +911,10 @@ export class GatewayServer {
     const remote = [];
     for (const [name, spec] of Object.entries(this.providers)) {
       if (spec.local) continue;
-      if (!resolveProviderKey(spec, this.env).key) continue;
+      // Advertise a provider's catalogue only when it is actually usable -- a
+      // multiKey provider with one of its keys missing cannot authenticate, so
+      // listing its models would turn every selection of them into a 400.
+      if (!providerUsable(spec, this.env)) continue;
       for (const model of spec.models || []) {
         remote.push({ id: `${name}/${model}`, object: "model", created: 0, owned_by: name });
       }
