@@ -84,7 +84,14 @@ const noCredentials = () => Object.assign(new Error("missing api key"), { code: 
  */
 const noRetryAgent = (over = {}) => agent({ failure: { maxRetries: 0 }, ...over });
 
-/** A runtime wired with the real stores, plus a catalogue of two providers. */
+/**
+ * A runtime wired with the real stores, plus a catalogue of two providers.
+ *
+ * `session` is accepted (and ignored) so a call site can name the session it is
+ * about without the runtime needing it -- it is wired from the `sessions` store.
+ *
+ * @param {{ complete: any, sessions: any, board: any, specs?: any[], session?: any }} args
+ */
 function wired({ complete, sessions, board, specs = [noRetryAgent()] }) {
   return runtime({
     specs,
