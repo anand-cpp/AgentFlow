@@ -79,6 +79,7 @@ function coder() {
   });
 }
 
+/** @param {any} [opts] */
 function runtime({ specs, complete, approver = null, workspaceRoot = null, ...rest } = {}) {
   const registry = new AgentRegistry(specs || [coder()]);
   return new AgentRuntime({

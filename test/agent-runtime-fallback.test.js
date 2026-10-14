@@ -34,6 +34,7 @@ function agent(over = {}) {
   });
 }
 
+/** @param {any} [opts] */
 function runtime({ specs, complete, catalogue = [], hints = {}, ...rest } = {}) {
   const registry = new AgentRegistry(specs || [agent()]);
   return new AgentRuntime({ registry, tools: {}, catalogue, hints, complete, ...rest });

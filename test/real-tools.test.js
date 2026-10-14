@@ -48,7 +48,13 @@ function agentWith(scopes, policy = {}) {
   });
 }
 
-/** Call a tool the way the runtime does: through the waterfall, with a workspace. */
+/**
+ * Call a tool the way the runtime does: through the waterfall, with a workspace.
+ *
+ * @param {any} tool
+ * @param {any} args
+ * @param {any} [opts]
+ */
 async function call(tool, args, { agent, approver = null, signal = null, workspaceRoot } = {}) {
   const root = workspaceRoot;
   return runTool(agent, tool, { tool: tool.name, args }, { approver, signal, workspaceRoot: root });
