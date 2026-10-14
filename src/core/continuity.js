@@ -151,7 +151,9 @@ export function fallbackEligibility({
   failureClass = PROVIDER_FAILURE.UNKNOWN,
   candidates = 0,
   candidateHasCapacity = false,
-  candidateCircuitState = null,
+  // Accepted for call-site symmetry with planContinuation; candidate circuit
+  // state is enforced by the health engine before this primitive is consulted.
+  _candidateCircuitState = null,
 } = {}) {
   const none = { eligible: false, reason: "no_candidate", uncertain: false };
   if (candidates <= 0) return none;
@@ -193,7 +195,7 @@ export function fallbackEligibility({
  * a dispatch with no record makes it uncertain. Only reads/searches/tests are
  * replayed without asking, and only when they were never observed to complete.
  */
-export function toolRecoverySituation({ tool = null, scope = null, dispatched = false, recorded = null } = {}) {
+export function toolRecoverySituation({ _tool = null, scope = null, dispatched = false, recorded = null } = {}) {
   if (recorded) {
     const terminal = recorded.ok === true || recorded.status === "ok";
     const failed = recorded.status === "denied" || recorded.status === "error" || recorded.status === "cancelled";
