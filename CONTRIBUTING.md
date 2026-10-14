@@ -73,8 +73,9 @@ node bin/aflow.js --help
 
 Known debt is tracked in [`docs/DEBT_LEDGER.md`](docs/DEBT_LEDGER.md). Each
 entry states the rule it violates, why it is deferred, and what would make it
-worth paying down. `src/core/` must stay lint-clean and typecheck-clean; debt
-outside that scope is logged in the ledger rather than silently carried.
+worth paying down. The active codebase — everything outside the inherited
+`open-sse/` routing engine — must stay lint-clean and typecheck-clean; debt is
+logged in the ledger rather than silently carried.
 
 ## Project Structure
 
