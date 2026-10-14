@@ -786,6 +786,14 @@ export class AgentRuntime {
     const failureKind = lastCascadeFailureKind(receipt);
     if (!failureKind || !CONTINUATION_TRANSIENT.has(failureKind)) return null;
 
+    // Continuity reconstructs the work from the Session and the Blackboard. With no
+    // session there is nothing to reconstruct from, so there is nothing to continue
+    // -- recorded rather than silently skipped, so the refusal is legible.
+    if (!sessionId || !this.sessions) {
+      result.continuation = { action: "stop", reason: "no_session_store", failureClass: failureKind, model: null };
+      return null;
+    }
+
     const nextModel = this.#untriedCandidate(plan, receipt);
     if (!nextModel) return null;
 
@@ -814,7 +822,7 @@ export class AgentRuntime {
       },
       cancelled: Boolean(signal?.aborted),
       health: this.providerHealth,
-      log: this.log,
+      log: continuityLogger(this.log),
       budgetChars: bounds.maxContextChars,
       task,
       extra,
@@ -1278,6 +1286,19 @@ function providerOfModel(modelId) {
  */
 function isNonIdempotentScope(scope) {
   return scope === null || scope === undefined || NON_IDEMPOTENT_SCOPES.has(scope);
+}
+
+/**
+ * Adapt the runtime's `safeLog` wrapper to the continuity logger contract.
+ *
+ * The runtime logs through a `{ emit(type, payload, level) }` wrapper by design --
+ * a broken logger must not fail a run. Continuity (like the EventLog it is normally
+ * handed) calls `info`/`warn`/`error` instead. Bridging here keeps continuity's
+ * events flowing through the same safety wrapper rather than around it.
+ */
+function continuityLogger(log) {
+  const to = (level) => (type, payload) => log?.emit?.(type, payload, level);
+  return { info: to("info"), warn: to("warn"), error: to("error") };
 }
 
 /**
