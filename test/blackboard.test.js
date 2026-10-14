@@ -425,7 +425,7 @@ test("a completed review is a checkpoint and keeps its findings", () => {
 test("a malformed review finding is rejected rather than stored", () => {
   const { store } = tmp();
   store.create();
-  assert.throws(() => store.recordReview({ summary: "s", findings: "not an array" }), ValidationError);
+  assert.throws(() => store.recordReview(/** @type {any} */ ({ summary: "s", findings: "not an array" })), ValidationError);
   assert.throws(() => store.recordReview({ summary: "s", findings: [{ severity: "low" }] }), ValidationError);
   assert.throws(() => store.recordReview({ summary: "s", findings: [null] }), ValidationError);
   assert.equal(store.reviews().length, 0, "a rejected review must leave nothing behind");
@@ -507,7 +507,7 @@ test("negative test counts are rejected", () => {
   const { store } = tmp();
   store.create();
   assert.throws(() => store.recordTest({ suite: "unit", passed: -1 }), ValidationError);
-  assert.throws(() => store.recordTest({ suite: "unit", passed: "many" }), ValidationError);
+  assert.throws(() => store.recordTest(/** @type {any} */ ({ suite: "unit", passed: "many" })), ValidationError);
 });
 
 test("evidence records a typed reference and can be noted", () => {
@@ -579,11 +579,10 @@ test("a malformed session reference is rejected", () => {
 });
 
 test("blackboard and session reference each other without duplicating content", async () => {
-  const { SessionStore, blackboardIdForProject: _unused } = await import("../src/core/sessions.js");
-  void _unused;
+  const { SessionStore } = await import("../src/core/sessions.js");
 
   const { dir, projectRoot, store } = tmp();
-  const sessions = new SessionStore({ dir: path.join(dir, "sessions"), projectRoot });
+  const sessions = new SessionStore(/** @type {any} */ ({ dir: path.join(dir, "sessions"), projectRoot }));
 
   const session = sessions.create({ objective: "wire the blackboard", projectRoot });
   const blackboardId = blackboardIdForProject(projectRoot);
@@ -891,7 +890,7 @@ test("required text fields reject empty, whitespace-only and wrong types", () =>
   assert.throws(() => store.addTask({}), ValidationError);
   assert.throws(() => store.addTask({ title: "" }), ValidationError);
   assert.throws(() => store.addTask({ title: "   " }), ValidationError);
-  assert.throws(() => store.addTask({ title: 42 }), ValidationError);
+  assert.throws(() => store.addTask(/** @type {any} */ ({ title: 42 })), ValidationError);
   assert.throws(() => store.recordDecision({}), ValidationError);
   assert.throws(() => store.recordBlocker({}), ValidationError);
   assert.throws(() => store.recordBug({}), ValidationError);
@@ -926,12 +925,14 @@ test("over-long text is rejected instead of silently truncated", () => {
 test("unknown keys in a payload are dropped rather than stored", () => {
   const { store } = tmp();
   store.create();
-  const task = store.addTask({
-    title: "legitimate",
-    injected: "should not be stored",
-    __proto__: { polluted: true },
-    nested: { deep: "also dropped" },
-  });
+  const task = store.addTask(
+    /** @type {any} */ ({
+      title: "legitimate",
+      injected: "should not be stored",
+      __proto__: { polluted: true },
+      nested: { deep: "also dropped" },
+    })
+  );
 
   assert.equal(task.injected, undefined);
   assert.equal(task.nested, undefined);
@@ -942,7 +943,7 @@ test("unknown keys in a payload are dropped rather than stored", () => {
 test("a list field rejects a non-array and an oversized list", () => {
   const { store } = tmp();
   store.create();
-  assert.throws(() => store.addTask({ title: "t", dependsOn: "t1" }), ValidationError);
+  assert.throws(() => store.addTask(/** @type {any} */ ({ title: "t", dependsOn: "t1" })), ValidationError);
   assert.throws(() => store.recordImplementation({ summary: "s", files: new Array(100).fill("a.js") }), ValidationError);
 });
 

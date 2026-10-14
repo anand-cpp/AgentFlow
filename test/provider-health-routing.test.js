@@ -53,7 +53,7 @@ test("failures accumulate on provider health and open the circuit", async () => 
     execute: async (id) => {
       if (id.startsWith("q")) return ok(id);
       const err = new Error("503 bad gateway");
-      err.status = 503;
+      /** @type {any} */ (err).status = 503;
       throw err;
     },
     providerHealth: ph,
@@ -107,7 +107,7 @@ test("no-credentials failure counts toward provider health but is skipped by Hea
     execute: async (id) => {
       if (id === "ok/m") return ok(id);
       const err = new Error("missing api key");
-      err.status = 401;
+      /** @type {any} */ (err).status = 401;
       throw err;
     },
     providerHealth: ph,

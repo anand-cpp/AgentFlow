@@ -58,7 +58,7 @@ test("declared hints win over inferred ones and are additive", () => {
 });
 
 test("declared numeric hints are carried through", () => {
-  const merged = resolveHints("oc/muse", { contextWindow: 128000, toolCalling: true });
+  const merged = /** @type {any} */ (resolveHints("oc/muse", { contextWindow: 128000, toolCalling: true }));
   assert.equal(merged.contextWindow, 128000);
   assert.equal(merged.toolCalling, true);
 });
@@ -125,7 +125,7 @@ test("an empty catalogue is refused before any capability reasoning", () => {
   assert.throws(
     () => resolveModelPlan(agent(), { catalogue: [] }),
     (err) => {
-      assert.equal(err.code, "empty_catalogue");
+      assert.equal(/** @type {any} */ (err).code, "empty_catalogue");
       return true;
     }
   );
@@ -206,7 +206,7 @@ test("excluding every model is refused rather than returning nothing", () => {
   assert.throws(
     () => resolveModelPlan(agent(), { catalogue: ["oc/deepseek-r1"], includeUnhinted: false }),
     (err) => {
-      assert.equal(err.code, "no_tiers");
+      assert.equal(/** @type {any} */ (err).code, "no_tiers");
       return true;
     }
   );

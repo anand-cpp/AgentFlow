@@ -324,6 +324,6 @@ test("no built-in declares escalation to an agent that does not exist", () => {
   // promise nothing keeps. Escalation is not wired up yet; when it is, it gets
   // validated here rather than noticed at 3am.
   for (const agent of builtinSpecs()) {
-    assert.equal(agent.failure.escalateTo ?? null, null, `${agent.id} declares unvalidated escalation`);
+    assert.equal(/** @type {any} */ (agent.failure).escalateTo ?? null, null, `${agent.id} declares unvalidated escalation`);
   }
 });

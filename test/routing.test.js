@@ -98,7 +98,7 @@ test("rate limiting falls through without penalising the provider", async () => 
     execute: async (id) => {
       if (id === "a") {
         const e = new Error("429 rate limit exceeded");
-        e.status = 429;
+        /** @type {any} */ (e).status = 429;
         throw e;
       }
       return ok();
@@ -187,7 +187,7 @@ test("a receipt explains every attempt, not just the winner", async () => {
   assert.equal(res.attempts.length, 2);
   assert.equal(res.attempts[0].model, "x/m");
   assert.equal(res.attempts[0].outcome, FAILURE.SERVER);
-  assert.ok(res.attempts[0].elapsedMs >= 0);
+  assert.ok(/** @type {any} */ (res.attempts[0]).elapsedMs >= 0);
   assert.equal(res.attempts[1].outcome, "ok");
 });
 

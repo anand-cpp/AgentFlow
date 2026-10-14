@@ -35,7 +35,7 @@ function workspace() {
  * stays inside it.
  */
 function linkDir(target, at, type = process.platform === "win32" ? "junction" : "dir") {
-  fs.symlinkSync(target, at, type);
+  fs.symlinkSync(target, at, /** @type {any} */ (type));
 }
 
 function codeOf(fn) {

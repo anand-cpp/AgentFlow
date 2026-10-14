@@ -72,9 +72,9 @@ test("a returned definition is frozen so a holder cannot mutate what is register
   const def = defineAgent(spec());
   assert.throws(() => {
     "use strict";
-    def.id = "hijacked";
+    /** @type {any} */ (def).id = "hijacked";
   }, TypeError);
-  assert.throws(() => def.capabilities.push(CAPABILITY.REASONING), TypeError);
+  assert.throws(() => /** @type {any} */ (def.capabilities).push(CAPABILITY.REASONING), TypeError);
 });
 
 // ---------------------------------------------------------------------------
@@ -123,7 +123,7 @@ test("oversized fields are rejected with the limit stated", () => {
   assert.throws(
     () => defineAgent(spec({ purpose: "x".repeat(5000) })),
     (err) => {
-      assert.match(err.message, /purpose exceeds 400 characters/);
+      assert.match(/** @type {Error} */ (err).message, /purpose exceeds 400 characters/);
       return true;
     }
   );
@@ -143,8 +143,8 @@ test("an unknown capability is rejected at registration, not left to fail downst
   assert.throws(
     () => defineAgent(spec({ capabilities: ["codeing"] })),
     (err) => {
-      assert.match(err.message, /unknown value: codeing/);
-      assert.match(err.message, /allowed:/);
+      assert.match(/** @type {Error} */ (err).message, /unknown value: codeing/);
+      assert.match(/** @type {Error} */ (err).message, /allowed:/);
       return true;
     }
   );
@@ -213,7 +213,7 @@ test("pinning a model and also requiring capabilities is contradictory and rejec
   assert.throws(
     () => defineAgent(spec({ model: { pinModel: "oc/muse", requireCapabilities: [CAPABILITY.CODING] } })),
     (err) => {
-      assert.match(err.message, /mutually exclusive/);
+      assert.match(/** @type {Error} */ (err).message, /mutually exclusive/);
       return true;
     }
   );

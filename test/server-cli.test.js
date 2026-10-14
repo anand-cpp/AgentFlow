@@ -108,7 +108,7 @@ function freePort() {
     const srv = net.createServer();
     srv.on("error", reject);
     srv.listen(0, "127.0.0.1", () => {
-      const { port } = srv.address();
+      const { port } = /** @type {{ port: number }} */ (srv.address());
       srv.close(() => resolve(port));
     });
   });
@@ -231,9 +231,9 @@ test("start fails clearly when the port is already in use", { timeout: 12000 }, 
   heldServers.add(blocker);
   await new Promise((resolve, reject) => {
     blocker.once("error", reject);
-    blocker.listen(0, "127.0.0.1", resolve);
+    blocker.listen(0, "127.0.0.1", () => resolve());
   });
-  const port = blocker.address().port;
+  const port = /** @type {any} */ (blocker.address()).port;
 
   const { code, output } = await runCli([
     "server",

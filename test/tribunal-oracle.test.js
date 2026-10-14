@@ -89,6 +89,7 @@ function stage2Result(survivalScore = 1, aggregatedFindings = []) {
   };
 }
 
+/** @param {string} [verdict] */
 function stage4Result(verdict = TRIAL_VERDICT.ACQUITTED, findings = [], extra = {}) {
   return {
     stage: "TRIAL",
@@ -234,7 +235,7 @@ test("an invalid check domain or unknown round stage is invalid", () => {
   assert.equal(validateOracleReport(badDomain).valid, false);
 
   const badStage = oracleReport();
-  badStage.battle_report.rounds[0] = { ...badStage.battle_report.rounds[0], stage: "NOPE" };
+  badStage.battle_report.rounds[0] = /** @type {any} */ ({ ...badStage.battle_report.rounds[0], stage: "NOPE" });
   assert.equal(validateOracleReport(badStage).valid, false);
 });
 

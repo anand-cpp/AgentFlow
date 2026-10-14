@@ -439,7 +439,7 @@ test("a pre-execute step may transform the call before dispatch", async () => {
     }
   );
   assert.equal(result.outcome, OUTCOME.OK);
-  assert.equal(seenArgs.command, "git status");
+  assert.equal(/** @type {any} */ (seenArgs).command, "git status");
 });
 
 test("a pre-execute transform cannot smuggle a call past the permission check", async () => {

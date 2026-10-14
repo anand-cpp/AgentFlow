@@ -429,7 +429,7 @@ test("the full SYNTHESIZED path completes and records model and timing", async (
   assert.equal(stage.modelId, "synth-1");
   assert.equal(typeof stage.elapsed_ms, "number");
   assert.equal(stage.completedAt, "2026-01-01T00:00:00.000Z");
-  assert.ok(seenPrompt.includes("f1"), "the critical finding must reach the synthesizer");
+  assert.ok(/** @type {any} */ (seenPrompt).includes("f1"), "the critical finding must reach the synthesizer");
 });
 
 test("all-flawed proposals skip the merge without calling the model", async () => {

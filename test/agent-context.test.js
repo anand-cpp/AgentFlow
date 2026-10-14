@@ -191,7 +191,7 @@ test("a budget too small for the intent is a named configuration error", () => {
 
 test("an agent without a budget cannot assemble context", () => {
   assert.throws(() => buildAgentContext({}), (err) => {
-    assert.equal(err.code, "no_budget");
+    assert.equal(/** @type {any} */ (err).code, "no_budget");
     return true;
   });
 });

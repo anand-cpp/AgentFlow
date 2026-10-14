@@ -288,8 +288,8 @@ test("a corrupt session throws a typed error naming the file", () => {
     () => store.read(made.id),
     (err) => {
       assert.equal(err instanceof SessionCorruptError, true);
-      assert.equal(err.code, "session_corrupt");
-      assert.ok(err.file.endsWith(".json"));
+      assert.equal(/** @type {any} */ (err).code, "session_corrupt");
+      assert.ok(/** @type {any} */ (err).file.endsWith(".json"));
       return true;
     },
   );
