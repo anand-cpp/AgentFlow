@@ -300,3 +300,31 @@ failed is not tried first. The gateway is OpenAI-compatible, so anything that
 speaks `/v1` can sit in front of it: the bundled one, or your own. Tribunal and
 the session/blackboard stores hang off the runtime — the first to review a
 proposal, the second to remember the conversation and every decision made.
+
+---
+
+## Twelve providers, one endpoint
+
+Every provider below is OpenAI-compatible and free to start. `aflow setup` writes
+the key to a single owner-only `keys.env`; the exact env-var names and model
+prefixes live in [docs/PROVIDERS.md](docs/PROVIDERS.md).
+
+| Provider | Models | Free tier | Rate limit | Credit card |
+|---|---|---|---|---|
+| **Groq** | llama-3.3-70b-versatile, llama-3.1-8b-instant, mixtral-8x7b-32768, gemma2-9b-it | yes | 30 req/min | no |
+| **Cerebras** | llama3.1-8b, llama3.1-70b, qwen-3-32b | yes | 30 req/min | no |
+| **Mistral** | mistral-small-latest, mistral-large-latest, open-mistral-nemo, codestral-latest | yes (rate-limited) | provider-set | no |
+| **Google Gemini** | gemini-2.0-flash, gemini-2.5-flash, gemini-1.5-flash, gemini-1.5-pro | yes | 15 req/min | no |
+| **OpenRouter** | auto, meta-llama/llama-3.3-70b-instruct:free, mistralai/mistral-7b-instruct:free | free models | provider-set | no |
+| **Cloudflare Workers AI** | @cf/meta/llama-3.1-8b-instruct, @cf/deepseek-ai/deepseek-r1-distill-qwen-32b | 10,000 neurons/day | daily quota | no |
+| **HuggingFace** | meta-llama/Llama-3.1-8B-Instruct, Qwen/Qwen2.5-72B-Instruct, mistralai/Mistral-7B-Instruct-v0.3 | shared | shared | no |
+| **Together AI** | meta-llama/Llama-3.3-70B-Instruct-Turbo, Qwen/Qwen2.5-72B-Instruct-Turbo | $5 signup credit | provider-set | no |
+| **Fireworks AI** | accounts/fireworks/models/llama-v3p3-70b-instruct, accounts/fireworks/models/qwen2p5-72b-instruct | $1 signup credit | provider-set | no |
+| **DeepInfra** | meta-llama/Llama-3.3-70B-Instruct, Qwen/Qwen2.5-72B-Instruct | free tier | provider-set | no |
+| **SambaNova** | Meta-Llama-3.3-70B-Instruct, Qwen2.5-72B-Instruct | free tier | provider-set | no |
+| **Ollama** (local) | any model you pull | unlimited | none | no |
+
+`process.env` always overrides the keys file, so a key you export in your shell
+wins over one saved on disk. Address a model by prefix
+(`groq/llama-3.3-70b-versatile`), or leave the prefix off and let AgentFlow
+infer the provider from the model id's shape when only one can serve it.
