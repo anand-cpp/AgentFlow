@@ -80,25 +80,20 @@ One command. A verdict, the findings behind it, and the exact weights that
 produced the score — so you can see *why* the tribunal trusts the answer, not
 just that it does.
 
----
-
 ## The problem
 
 A gateway hands you a catalogue of models. What it does not tell you is which of
 them will answer *right now*.
 
 Free-tier and aggregator endpoints are the worst offenders: the catalogue is
-large, the credentials are shared or expired, and a dead model often fails as a
-`200` with an empty body rather than an error you can catch. The request
-"succeeds." The response is empty. Your tool reports success.
+large, the credentials shared or expired, and a dead model often fails as a `200`
+with an empty body rather than an error you can catch. Your tool reports success.
 
 **Advertised** and **working** are different facts, and most tooling collapses
 them into one. AgentFlow measures the gap — in `aflow doctor` (probes specific
 models), in `aflow route` (walks a fallback order and records why each step
 failed), and in the router itself, which orders candidates by observed health
 rather than by the order a provider happened to list them.
-
----
 
 ## Quick start
 
@@ -139,8 +134,6 @@ type /help for commands, /quit to exit. Ctrl+C cancels a response.
 >
 ```
 
----
-
 ## What you get
 
 ```
@@ -163,8 +156,6 @@ type /help for commands, /quit to exit. Ctrl+C cancels a response.
 ║ Ollama (local).               ║                                    
 ╚═══════════════════════════════╝                                    
 ```
-
----
 
 ## The tribunal
 
@@ -212,8 +203,6 @@ trial 0.30, validation 0.10 — and returns a verdict against a 0.95 gate.
 A run that cannot finish is not a pass. A skipped stage yields **ABORTED**, not
 a quiet success. The tribunal fails closed.
 
----
-
 ## Chat that survives a dead provider
 
 When a model fails or returns an empty body, the next candidate answers. The
@@ -229,10 +218,9 @@ type /help for commands, /quit to exit. Ctrl+C cancels a response.
 
 > why is an empty 200 worse than a 500?
 
-A 500 tells you the truth. An empty 200 tells you the request succeeded, hands
-you nothing, and lets every layer above it assume there was simply no output —
-so the failure surfaces later, as a wrong answer, far from its cause. Here an
-empty completion is a failure: it is retried across candidates, not returned.
+A 500 tells you the truth. An empty 200 says the request succeeded and hands you
+nothing, so every layer above assumes there was no output — the failure surfaces
+later, as a wrong answer, far from its cause. Here it is retried, not returned.
 
 > summarize src/core/continuity.js in three lines
 
@@ -258,8 +246,6 @@ resume: aflow chat --resume ses_20261015T172503281Z_93qr3p
 
 Failover is not a retry of your message — it is the same turn, finished by
 someone else, with the switch recorded so a later reader can tell what happened.
-
----
 
 ## Architecture
 
@@ -297,11 +283,8 @@ someone else, with the switch recorded so a later reader can tell what happened.
 A single request flows CLI → runtime → router → gateway → provider. The router
 walks quality tiers and reorders them by observed health, so a model that just
 failed is not tried first. The gateway is OpenAI-compatible, so anything that
-speaks `/v1` can sit in front of it: the bundled one, or your own. Tribunal and
-the session/blackboard stores hang off the runtime — the first to review a
-proposal, the second to remember the conversation and every decision made.
-
----
+speaks `/v1` can sit in front of it. Tribunal and the session/blackboard stores
+hang off the runtime — one reviews a proposal, the other remembers every decision.
 
 ## Twelve providers, one endpoint
 
@@ -328,8 +311,6 @@ prefixes live in [docs/PROVIDERS.md](docs/PROVIDERS.md).
 wins over one saved on disk. Address a model by prefix
 (`groq/llama-3.3-70b-versatile`), or leave the prefix off and let AgentFlow
 infer the provider from the model id's shape when only one can serve it.
-
----
 
 ## Command reference
 
@@ -359,8 +340,6 @@ aflow <command> [options]
 Global flags: `--json`, `--quiet`, `--verbose`, `--no-color`, `--port`,
 `--model`, `--base-url`. Configuration resolves low → high:
 `defaults < global file < project file < AGENTFLOW_* env < flags`.
-
----
 
 ## Philosophy
 
@@ -398,19 +377,14 @@ Global flags: `--json`, `--quiet`, `--verbose`, `--no-color`, `--port`,
   exposure-check job stays intentionally red until the rotation is confirmed.
   Details in [SECURITY.md](SECURITY.md).
 
----
-
 ## Project origin
 
 AgentFlow is derived from **9Router** (`decolua/9router`, commit `a99cf572`, tag
 `v0.5.95`, MIT). The provider engine and the gateway were inherited; the routing,
 tribunal, session, and continuity layers are this project's own. Provenance is
-carried by documentation rather than by history — this repository begins from an
+carried by documentation rather than by history — the repository begins from an
 independent initial commit, because copying upstream history would republish
-credentials upstream still needs to rotate. The full account, file by file, is
-in [PROJECT_ORIGIN.md](PROJECT_ORIGIN.md).
-
----
+credentials upstream must still rotate. Full account: [PROJECT_ORIGIN.md](PROJECT_ORIGIN.md).
 
 <div align="center">
 
