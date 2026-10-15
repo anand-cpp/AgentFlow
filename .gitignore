@@ -44,3 +44,6 @@ coverage/
 npm-shrinkwrap.json
 # Archived audit reports (point-in-time)
 docs/audits/
+
+.gitattributes
+
