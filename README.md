@@ -258,3 +258,45 @@ resume: aflow chat --resume ses_20261015T172503281Z_93qr3p
 
 Failover is not a retry of your message — it is the same turn, finished by
 someone else, with the switch recorded so a later reader can tell what happened.
+
+---
+
+## Architecture
+
+```
+               ┌───────────────┬──────────────┐
+               │          aflow CLI           │
+               │ 16 commands · --json · flags │
+               └───────────────┬──────────────┘
+                               │
+      ┬────────────────────────┼────────────────────────┬
+      │                        │                        │
+┌─────┬──────┐        ┌────────┬───────┐        ┌────────┬───────────┐
+│  TRIBUNAL  │        │ Agent Runtime  │        │     Sessions +     │
+│  5 stages  │        │ agents · tools │        │     Blackboard     │
+└────────────┘        │                │        │ resume · decisions │
+                      └────────┬───────┘        └────────────────────┘
+                               │
+                  ┌────────────┬─────────────┐
+                  │          Router          │
+                  │tiers · health · failover │
+                  └────────────┬─────────────┘
+                               │
+                  ┌────────────┬─────────────┐
+                  │      Gateway Server      │
+                  │  OpenAI-compatible /v1   │
+                  └────────────┬─────────────┘
+                               │
+ ┌─────────────────────────────┬──────────────────────────────┐
+ │           groq · cerebras · gemini · openrouter            │
+ │           cloudflare · hf · together · fireworks           │
+ │           deepinfra · sambanova · ollama (local)           │
+ └─────────────────────────────┬──────────────────────────────┘
+```
+
+A single request flows CLI → runtime → router → gateway → provider. The router
+walks quality tiers and reorders them by observed health, so a model that just
+failed is not tried first. The gateway is OpenAI-compatible, so anything that
+speaks `/v1` can sit in front of it: the bundled one, or your own. Tribunal and
+the session/blackboard stores hang off the runtime — the first to review a
+proposal, the second to remember the conversation and every decision made.
