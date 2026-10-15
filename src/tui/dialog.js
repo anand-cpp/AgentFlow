@@ -13,9 +13,140 @@
 //
 // Zero runtime dependencies: composes the ANSI primitives in components.js.
 
-import { drawOverlay } from "./components.js";
+import { drawBox, drawOverlay, drawInput } from "./components.js";
 
 const DEFAULT_WIDTH = 60;
+
+function isCommit(key) {
+  return key.name === "return" || key.name === "enter";
+}
+
+function isCancel(str, key) {
+  return key.name === "escape" || (key.ctrl && key.name === "c");
+}
+
+/**
+ * Informational dialog dismissed with any key.
+ * @param {{title?:string, message?:string, variant?:string, width?:number, borderColor?:string}} [spec]
+ */
+export function alertDialog(spec = {}) {
+  const title = spec.title || "Alert";
+  const message = spec.message || "";
+  const width = spec.width || DEFAULT_WIDTH;
+  return {
+    type: spec.variant === "info" ? "info" : "alert",
+    title,
+    render() {
+      return drawBox(title, message, { width, borderColor: spec.borderColor || "cyan" });
+    },
+    handleKey() {
+      return { done: true, value: true };
+    },
+  };
+}
+
+/** Informational dialog — same shape as alert, distinct type for callers. */
+export function infoDialog(spec = {}) {
+  return { ...alertDialog({ ...spec, variant: "info" }), type: "info" };
+}
+
+/**
+ * Yes/no dialog.
+ * @param {{title?:string, message?:string, defaultValue?:boolean, width?:number}} [spec]
+ */
+export function confirmDialog(spec = {}) {
+  const title = spec.title || "Confirm";
+  const message = spec.message || "";
+  const width = spec.width || DEFAULT_WIDTH;
+  const fallback = spec.defaultValue === true;
+  return {
+    type: "confirm",
+    title,
+    defaultValue: fallback,
+    render() {
+      const hint = fallback ? "Y/n" : "y/N";
+      return drawBox(title, `${message}  (${hint})`, { width, borderColor: "yellow" });
+    },
+    handleKey(str, key) {
+      if (isCancel(str, key)) return { done: true, value: fallback };
+      if (isCommit(key)) return { done: true, value: fallback };
+      const ch = String(str || "").toLowerCase();
+      if (ch === "y") return { done: true, value: true };
+      if (ch === "n") return { done: true, value: false };
+      return { done: false };
+    },
+  };
+}
+
+/**
+ * Single-line text prompt.
+ * @param {{title?:string, label?:string, initial?:string, validate?:(v:string)=>(boolean|string), width?:number}} [spec]
+ */
+export function promptDialog(spec = {}) {
+  const title = spec.title || "Input";
+  const label = spec.label || ">";
+  const width = spec.width || DEFAULT_WIDTH;
+  let buffer = spec.initial === undefined ? "" : String(spec.initial);
+  let cursor = buffer.length;
+  let error = "";
+  return {
+    type: "prompt",
+    title,
+    get value() {
+      return buffer;
+    },
+    render() {
+      const field = drawInput(label, buffer, cursor);
+      const body = error ? `${field}\n${error}` : field;
+      return drawBox(title, body, { width, borderColor: error ? "red" : "cyan" });
+    },
+    handleKey(str, key) {
+      if (isCancel(str, key)) return { done: true, value: null };
+      if (isCommit(key)) {
+        const verdict = spec.validate ? spec.validate(buffer) : true;
+        if (verdict === true) return { done: true, value: buffer };
+        error = typeof verdict === "string" ? verdict : "invalid input";
+        return { done: false };
+      }
+      if (key.name === "backspace") {
+        if (cursor > 0) {
+          buffer = buffer.slice(0, cursor - 1) + buffer.slice(cursor);
+          cursor -= 1;
+        }
+        error = "";
+        return { done: false };
+      }
+      if (key.name === "delete") {
+        buffer = buffer.slice(0, cursor) + buffer.slice(cursor + 1);
+        error = "";
+        return { done: false };
+      }
+      if (key.name === "left") {
+        cursor = Math.max(0, cursor - 1);
+        return { done: false };
+      }
+      if (key.name === "right") {
+        cursor = Math.min(buffer.length, cursor + 1);
+        return { done: false };
+      }
+      if (key.name === "home") {
+        cursor = 0;
+        return { done: false };
+      }
+      if (key.name === "end") {
+        cursor = buffer.length;
+        return { done: false };
+      }
+      if (str && str.length === 1 && str >= " ") {
+        buffer = buffer.slice(0, cursor) + str + buffer.slice(cursor);
+        cursor += str.length;
+        error = "";
+        return { done: false };
+      }
+      return { done: false };
+    },
+  };
+}
 
 /**
  * Owns the dialog stack and renders the active dialog over a dimmed backdrop.
@@ -79,4 +210,4 @@ export class DialogManager {
   }
 }
 
-export default { DialogManager, DEFAULT_WIDTH };
+export default { DialogManager, alertDialog, infoDialog, confirmDialog, promptDialog, DEFAULT_WIDTH };
