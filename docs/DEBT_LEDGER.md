@@ -56,3 +56,23 @@ but stale working-tree stat) was left untouched. `npm run lint`,
 `npm run typecheck` and `npm test` (993 tests, 992 pass, 1 Windows skip) are all
 clean. The one deferred item surfaced by the sweep is the `open-sse/` exclusion
 above.
+
+## CLI argument parser — unknown flags are silently accepted
+
+### [src/cli/index.js:41 `parseArgv`]-[rule 2: validate at the boundary]
+
+- Issue: `parseArgv` records any `--flag` / `-f` token it sees, so a typo such as
+  `aflow status --bogus` is accepted and ignored — the command runs as though the
+  flag were absent. `GLOBAL_FLAGS` (`index.js:20`) names the global flags but is
+  never consulted to reject anything. Command-level *positional* validation is
+  strict (an unknown subcommand returns the usage error, exit 2), but unknown
+  flags are not validated anywhere.
+- Why deferred: rejecting unknown flags requires each command to declare its full
+  flag surface, including boolean flags. `defineCommand` (`registry.js:9`) declares
+  only `valueFlags`; there is no boolean-flag list, so a strict validator added
+  today would reject legitimate flags (`--daemon`, `--record`, `--check`) that no
+  command declares. Introducing that surface touches all 16 command modules and
+  the parser at once — too wide to change safely in a pass that must keep the
+  whole suite green. Logged here rather than left as an implicit behaviour.
+- Fix trigger: the next report of a flag being silently ignored, or any change to
+  `defineCommand` that adds a boolean-flag declaration.
