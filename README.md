@@ -163,3 +163,51 @@ type /help for commands, /quit to exit. Ctrl+C cancels a response.
 ║ Ollama (local).               ║                                    
 ╚═══════════════════════════════╝                                    
 ```
+
+---
+
+## The tribunal
+
+Every proposal runs the same five stages, in order. Each stage narrows the field
+and leaves behind a record the next one reads.
+
+```
+        proposal
+           │
+           ▼
+      ╔════════╗
+      ║ FORGE  ║   self-adversarial review
+      ╚════╤═══╝
+           │
+           ▼
+      ╔════════╗
+      ║CRUCIBLE║   cross-examination
+      ╚════╤═══╝
+           │
+           ▼
+      ╔════════╗
+      ║ MERGE  ║   hybrid synthesis
+      ╚════╤═══╝
+           │
+           ▼
+      ╔════════╗
+      ║ TRIAL  ║   prosecution
+      ╚════╤═══╝
+           │
+           ▼
+      ╔════════╗
+      ║ ORACLE ║   confidence gate
+      ╚════╤═══╝
+           │
+           ▼
+   VERIFIED · INSUFFICIENT_CONFIDENCE · REJECTED · ABORTED
+```
+
+Forge reviews a proposal against itself. Crucible cross-examines it from
+adversarial vectors and scores its survival. Merge synthesizes the survivors
+into a hybrid. Trial prosecutes the hybrid and can send it back for another
+merge. Oracle weighs all five scores — self 0.15, survival 0.25, merge 0.20,
+trial 0.30, validation 0.10 — and returns a verdict against a 0.95 gate.
+
+A run that cannot finish is not a pass. A skipped stage yields **ABORTED**, not
+a quiet success. The tribunal fails closed.
