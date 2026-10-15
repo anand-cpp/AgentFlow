@@ -43,6 +43,8 @@ import { listModels, ping } from "../core/gateway.js";
 import { EventLog, defaultLogPath } from "../core/events.js";
 import { executeTribunal } from "./tribunal.js";
 import { bold, dim, red, green, yellow, cyan } from "../cli/ui.js";
+import { fuzzyPick } from "../tui/interact.js";
+import { buildModelItems, configuredProviders } from "../tui/model-picker.js";
 
 const USAGE_ERROR = 2;
 const FAILURE = 1;
@@ -273,6 +275,25 @@ async function conversationLoop(session, io) {
 
     const parsed = parseSlash(text);
     if (parsed) {
+      // `/model` with no argument is an invitation to pick, not a status line.
+      // On a TTY we open the fuzzy picker over the provider catalogue; when a
+      // model is chosen it is applied through the same engine command the user
+      // would have typed. Non-interactive input keeps the plain status text.
+      if (parsed.name === "model" && !parsed.arg && io.interactive) {
+        const items = buildModelItems({
+          configured: configuredProviders(),
+          currentModel: session.modelId,
+        });
+        if (items.length) {
+          io.output.write("\n");
+          const choice = await fuzzyPick(items, { title: "Select model", max: 14, width: 72, input: io.input, output: io.output });
+          if (choice) {
+            const result = await session.command({ name: "model", arg: choice });
+            if (result.text) io.output.write(`${result.text}\n`);
+          }
+          continue;
+        }
+      }
       const result = await session.command(parsed);
       if (result.exit) break;
       if (result.text) io.output.write(`${result.text}\n`);
