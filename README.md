@@ -397,3 +397,29 @@ Global flags: `--json`, `--quiet`, `--verbose`, `--no-color`, `--port`,
   (advisory **GHSA-35rj-mq32-7gcj**) is that project's to fix; AgentFlow's
   exposure-check job stays intentionally red until the rotation is confirmed.
   Details in [SECURITY.md](SECURITY.md).
+
+---
+
+## Project origin
+
+AgentFlow is derived from **9Router** (`decolua/9router`, commit `a99cf572`, tag
+`v0.5.95`, MIT). The provider engine and the gateway were inherited; the routing,
+tribunal, session, and continuity layers are this project's own. Provenance is
+carried by documentation rather than by history — this repository begins from an
+independent initial commit, because copying upstream history would republish
+credentials upstream still needs to rotate. The full account, file by file, is
+in [PROJECT_ORIGIN.md](PROJECT_ORIGIN.md).
+
+---
+
+<div align="center">
+
+[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) · [Architecture](ARCHITECTURE.md) · [Tribunal](docs/TRIBUNAL.md) · [Providers](docs/PROVIDERS.md) · [Origin](PROJECT_ORIGIN.md) · [MIT License](LICENSE)
+
+<br>
+
+**If this saves you one dead-provider mystery, star the repo.**
+
+[github.com/anand-cpp/AgentFlow](https://github.com/anand-cpp/AgentFlow)
+
+</div>
