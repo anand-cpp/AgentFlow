@@ -293,11 +293,15 @@ export async function streamComplete(
   // the other.
   const controller = new AbortController();
   const onAbort = () => controller.abort(signal?.reason);
+  let timedOut = false;
   if (signal) {
     if (signal.aborted) controller.abort(signal.reason);
     else signal.addEventListener("abort", onAbort, { once: true });
   }
-  const timer = setTimeout(() => controller.abort(new Error("stream timeout")), ms);
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new Error("stream timeout"));
+  }, ms);
   if (typeof timer.unref === "function") timer.unref();
 
   let res;
@@ -316,7 +320,7 @@ export async function streamComplete(
       cancelled.name = "AbortError";
       throw cancelled;
     }
-    if (err?.name === "TimeoutError" || err?.name === "AbortError") {
+    if (timedOut || err?.name === "TimeoutError" || err?.name === "AbortError") {
       throw new GatewayError(`gateway timed out after ${ms}ms (${url})`, { code: "timeout" });
     }
     throw new GatewayError(`cannot reach gateway at ${config.baseUrl}`, { code: "unreachable", detail: err?.message });
