@@ -359,3 +359,41 @@ aflow <command> [options]
 Global flags: `--json`, `--quiet`, `--verbose`, `--no-color`, `--port`,
 `--model`, `--base-url`. Configuration resolves low → high:
 `defaults < global file < project file < AGENTFLOW_* env < flags`.
+
+---
+
+## Philosophy
+
+- **Advertised ≠ working.** A model in a catalogue is a claim; a model that
+  returns content is a fact. The tool is built around the gap between them.
+- **Continuity over provider loyalty.** The conversation matters more than which
+  model serves it. Failover is automatic and recorded, never silent.
+- **Truth over impressive claims.** If the tribunal cannot reach a verdict it
+  reports `ABORTED`. If a key is missing the error names the variable. There is
+  no lenient fallback to a plausible-looking success.
+- **Safety by default.** Destructive tools ask first. A switch that might repeat
+  a tool call asks first. EOF means no.
+- **Honest provenance.** Every verdict is your own model's output, with the
+  weights and the findings shown. Nothing is presented as more certain than it
+  is.
+
+## Quality
+
+- **1177+ tests** (`npm test`) across the router, the tribunal stages, the
+  gateway, continuity, and every command.
+- **Zero runtime dependencies** — the Node standard library and nothing else.
+- **Blocking CI**: `npm run lint` and `npm run typecheck` must both pass before a
+  change lands. Neither is advisory.
+
+## Security
+
+- **Credentials are redacted at one chokepoint** (`src/core/redact.js`) before
+  any output, log, or session file — by field name *and* by value shape, so a
+  leak under either is masked.
+- **`npm run scan-secrets`** scans the working tree, and `--history` scans every
+  reachable blob. Both run in CI.
+- **Honest about upstream risk.** AgentFlow is dependency-free, so it carries no
+  transitive supply chain. The upstream credential exposure at `decolua/9router`
+  (advisory **GHSA-35rj-mq32-7gcj**) is that project's to fix; AgentFlow's
+  exposure-check job stays intentionally red until the rotation is confirmed.
+  Details in [SECURITY.md](SECURITY.md).
