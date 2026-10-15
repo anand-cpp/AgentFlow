@@ -208,19 +208,22 @@ async function startSub({ flags, config, out }) {
 
   // Hold the foreground process open until a signal arrives. The listening
   // socket already keeps the event loop alive, but awaiting a shutdown promise
-  // gives SIGINT/SIGTERM a single, ordered place to close the server and clear
-  // the state file before the process exits.
+  // gives SIGINT/SIGTERM a single, ordered place to drain in-flight requests,
+  // close the server, and clear the state file before the process exits.
   return await new Promise((resolve) => {
     let settled = false;
     const finish = async (code) => {
       if (settled) return;
       settled = true;
-      await server.close().catch(() => {});
+      // Graceful: stop accepting, let in-flight requests finish (up to 2s),
+      // then force-close. `stop` waits 4s for the process to exit, so 2s of
+      // drain leaves room for the rest of shutdown.
+      await server.close({ graceMs: 2000 }).catch(() => {});
       removeState(flags);
       resolve(code);
     };
     process.once("SIGINT", () => {
-      out.info(dim("shutting down"));
+      out.info(dim("shutting down (draining in-flight requests)"));
       finish(0);
     });
     process.once("SIGTERM", () => finish(0));

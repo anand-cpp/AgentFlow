@@ -827,18 +827,53 @@ export class GatewayServer {
   /**
    * Stop listening and release the port.
    *
-   * Idempotent: closing an unstarted server is a no-op. Known sockets are
-   * destroyed so a keep-alive client (fetch keeps connections warm) cannot hold
-   * the port open past close().
+   * Idempotent: closing an unstarted server is a no-op.
+   *
+   * Default behaviour is immediate: every known socket is destroyed at once so
+   * a keep-alive client (fetch keeps connections warm) cannot hold the port
+   * open past close(). Pass `{ graceMs }` for a graceful drain -- the listener
+   * stops accepting, idle keep-alive sockets are closed at once, in-flight
+   * requests get up to `graceMs` to finish, and only then are the stragglers
+   * force-closed. This is what a SIGTERM handler wants: stop taking work, let
+   * the work in hand complete, then exit.
+   *
+   * @param {{ graceMs?: number }} [options]
    */
-  async close() {
+  async close(options = {}) {
     const server = this.server;
     if (!server) return;
     this.server = null;
+    const graceMs = Number.isFinite(options.graceMs) ? Math.max(0, options.graceMs) : 0;
+
     await new Promise((resolve) => {
-      server.close(() => resolve());
-      for (const socket of this._sockets) socket.destroy();
-      this._sockets.clear();
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        for (const socket of this._sockets) socket.destroy();
+        this._sockets.clear();
+        resolve();
+      };
+
+      // server.close() stops accepting new connections and fires its callback
+      // once existing ones are gone. Without a drain we also force-close now so
+      // an idle keep-alive socket cannot keep the callback from ever firing.
+      server.close(() => finish());
+
+      if (graceMs <= 0) {
+        server.closeAllConnections?.();
+        finish();
+        return;
+      }
+
+      // Drain: drop sockets that are sitting idle (keep-alive but no request in
+      // flight) so only genuinely-running requests hold the deadline open.
+      server.closeIdleConnections?.();
+      const timer = setTimeout(() => {
+        server.closeAllConnections?.();
+        finish();
+      }, graceMs);
+      timer.unref?.();
     });
     this.log?.info?.("gateway server stopped");
   }

@@ -610,3 +610,84 @@ test("binds 0.0.0.0 when an API key is provided", async () => {
     await server.close();
   }
 });
+
+// ---------------------------------------------------------------------------
+// graceful shutdown
+// ---------------------------------------------------------------------------
+
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test("graceful close lets an in-flight request finish before releasing the port", async () => {
+  // An Ollama that is slow enough that the request is still running when close()
+  // is called -- the exact window a SIGTERM drain must protect.
+  const ollama = await startMockOllama({
+    "GET /api/tags": (req, res, body, requests) => {
+      void body;
+      void requests;
+      setTimeout(() => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(TAGS_BODY));
+      }, 150);
+    },
+  });
+  const gateway = new GatewayServer({ port: 0, ollamaUrl: ollama.url });
+  await gateway.start();
+  const url = gateway.url();
+  const port = gateway.address().port;
+
+  // Fire the request but do not await it yet, so close() lands mid-flight.
+  // Connection: close keeps the socket from pooling, so once the drained
+  // response is sent the listener can release immediately rather than waiting
+  // out the grace window for an idle keep-alive socket.
+  const pending = fetch(`${url}/v1/models`, { headers: { connection: "close" } });
+  await delay(40);
+  const closing = gateway.close({ graceMs: 2000 });
+
+  const res = await pending;
+  assert.equal(res.status, 200, "the in-flight request must be drained, not aborted");
+  const body = /** @type {any} */ (await res.json());
+  assert.equal(body.object, "list");
+  assert.equal(body.data.length, TAGS_BODY.models.length);
+
+  await closing;
+  assert.equal(gateway.listening, false);
+
+  // The port must be fully released: a fresh server can take it.
+  const again = new GatewayServer({ port, ollamaUrl: null });
+  await again.start();
+  assert.equal(again.address().port, port);
+  await again.close();
+  await closeServer(ollama.server);
+});
+
+test("graceful close enforces the deadline on a request that overruns it", async () => {
+  // Ollama slower than the grace window. The request cannot finish in time, so
+  // the drain must give up, force-close, and let close() resolve on schedule.
+  const ollama = await startMockOllama({
+    "GET /api/tags": (req, res) => {
+      setTimeout(() => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(TAGS_BODY));
+      }, 1000);
+    },
+  });
+  const gateway = new GatewayServer({ port: 0, ollamaUrl: ollama.url });
+  await gateway.start();
+  const url = gateway.url();
+
+  const pending = fetch(`${url}/v1/models`);
+  await delay(40);
+
+  const started = Date.now();
+  await gateway.close({ graceMs: 150 });
+  const elapsed = Date.now() - started;
+
+  // close() waits no longer than the grace window (plus scheduling slack).
+  assert.ok(elapsed < 900, `close() must not wait for the slow request (waited ${elapsed}ms)`);
+  assert.equal(gateway.listening, false);
+
+  // The overrun request is terminated rather than left hanging.
+  await assert.rejects(() => pending);
+
+  await closeServer(ollama.server);
+});
