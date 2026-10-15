@@ -1,8 +1,8 @@
 <div align="center">
 
 ```
-▄▀█ █▀▀ █▀▀ █▄░█ ▀█▀ █▀▀ █░░ █▀█ █░█
-█▀█ █▄█ ██▄ █░▀█ ░█░ █▀░ █▄▄ █▄█ ▀▄▀
+▄▀█ █▀▀ █▀▀ █▄█ ▀█▀ █▀▀ █   █▀█ █ █
+█▀█ █▄█ ██▄ █ █  █  █▀  █▄▄ █▄█ ▀▄▀
 ```
 
 **A terminal-first CLI that routes work across many models — and tells you which of them actually answer.**
