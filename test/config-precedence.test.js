@@ -179,6 +179,6 @@ test("an unrelated AGENTFLOW_* variable is ignored by the env layer", (t) => {
   });
 
   assert.deepEqual(sources, [], "unmapped variables do not become config keys");
-  assert.equal(config.NOT_A_SETTING, undefined);
+  assert.equal(/** @type {any} */ (config).NOT_A_SETTING, undefined);
   assert.equal(globalConfigPath().endsWith("config.json"), true);
 });

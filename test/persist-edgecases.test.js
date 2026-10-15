@@ -52,7 +52,7 @@ test("readJsonFile distinguishes missing, unparseable, non-object and valid", (t
 
   const arr = path.join(dir, "arr.json");
   fs.writeFileSync(arr, "[1,2]");
-  assert.equal(readJsonFile(arr).reason, "unparseable", "a top-level array is not a record");
+  assert.equal(/** @type {any} */ (readJsonFile(arr)).reason, "unparseable", "a top-level array is not a record");
 
   const good = path.join(dir, "good.json");
   fs.writeFileSync(good, '{"version":1}');
