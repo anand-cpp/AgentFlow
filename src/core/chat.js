@@ -109,6 +109,7 @@ export const SLASH_HELP = [
   "  /doctor              quick gateway and provider health check",
   "  /status              provider health and current tier",
   "  /add <file>          add a file to the context",
+  "  @                    open the file picker to add a file to context",
   "  /drop <file>         remove a file from the context",
   "  /context             show what is in the current context",
   "",

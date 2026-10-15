@@ -45,6 +45,7 @@ import { executeTribunal } from "./tribunal.js";
 import { bold, dim, red, green, yellow, cyan } from "../cli/ui.js";
 import { fuzzyPick } from "../tui/interact.js";
 import { buildModelItems, configuredProviders } from "../tui/model-picker.js";
+import { pickFile } from "../tui/file-picker.js";
 
 const USAGE_ERROR = 2;
 const FAILURE = 1;
@@ -155,7 +156,7 @@ function renderExit(session) {
  * persistent 'line' listener plus a queue loses nothing, and the `close`
  * handshake resolves a pending read on EOF so the loop cannot hang.
  */
-async function conversationLoop(session, io) {
+async function conversationLoop(session, io, workspace) {
   const rl = readline.createInterface({ input: io.input, output: io.output, terminal: io.interactive });
   let closed = false;
   let waiter = null;
@@ -272,6 +273,19 @@ async function conversationLoop(session, io) {
     if (block === null) break;
     const text = block.trim();
     if (!text) continue;
+
+    // A lone `@` opens the file picker over the workspace. Enter on a file adds
+    // it to the prompt context through the existing `/add` command, so the picker
+    // is a front-end for a capability the engine already has.
+    if (text === "@" && io.interactive) {
+      io.output.write("\n");
+      const chosen = await pickFile({ root: workspace.root, input: io.input, output: io.output });
+      if (chosen) {
+        const result = await session.command({ name: "add", arg: chosen });
+        if (result.text) io.output.write(`${result.text}\n`);
+      }
+      continue;
+    }
 
     const parsed = parseSlash(text);
     if (parsed) {
@@ -431,7 +445,7 @@ export async function runChat({ args = [], flags = {}, config = {}, out, deps = 
 
   if (io.interactive) out.info(renderBanner(session, workspace));
 
-  const code = await conversationLoop(session, io);
+  const code = await conversationLoop(session, io, workspace);
 
   await session.close();
   if (io.interactive) out.info(renderExit(session));
