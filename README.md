@@ -97,3 +97,44 @@ them into one. AgentFlow measures the gap — in `aflow doctor` (probes specific
 models), in `aflow route` (walks a fallback order and records why each step
 failed), and in the router itself, which orders candidates by observed health
 rather than by the order a provider happened to list them.
+
+---
+
+## Quick start
+
+No build step. No `npm install`. Zero runtime dependencies — it runs on the Node
+standard library alone. Clone it and go:
+
+```sh
+git clone https://github.com/anand-cpp/AgentFlow.git
+cd AgentFlow
+node bin/aflow.js setup --check
+```
+
+```
+$ node bin/aflow.js setup --check
+
+keys file: C:\Users\anand\AppData\Local\agentflow\keys.env
+  · ollama                 fetch failed
+
+No hosted providers are configured yet — run `aflow setup`.
+```
+
+`setup` writes keys to a single `keys.env` under your state directory — never to
+the repo, never to your shell history. Run the wizard once, add any of the free
+providers, and you are routing.
+
+```sh
+node bin/aflow.js setup      # wizard: pick a provider, paste a key, it is tested before it is saved
+node bin/aflow.js chat       # start a session
+```
+
+```
+$ node bin/aflow.js chat
+
+aflow chat · coder · no model · session ses_20261015T172503281Z_93qr3p (new)
+workspace C:\Users\anand\9router (git)
+type /help for commands, /quit to exit. Ctrl+C cancels a response.
+
+>
+```
