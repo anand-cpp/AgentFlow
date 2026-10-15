@@ -328,3 +328,34 @@ prefixes live in [docs/PROVIDERS.md](docs/PROVIDERS.md).
 wins over one saved on disk. Address a model by prefix
 (`groq/llama-3.3-70b-versatile`), or leave the prefix off and let AgentFlow
 infer the provider from the model id's shape when only one can serve it.
+
+---
+
+## Command reference
+
+```sh
+aflow <command> [options]
+```
+
+| Command | Purpose |
+|---|---|
+| `agent` | run and inspect the built-in agents |
+| `blackboard` | record and recover durable project workflow state |
+| `chat` | interactive chat with streaming, sessions, and provider failover |
+| `config` | show effective configuration and where each value came from |
+| `dashboard` | open the interactive terminal dashboard |
+| `doctor` | check environment, gateway, and live provider reachability |
+| `fight` | alias for `aflow tribunal run` |
+| `init` | create a starter project config |
+| `logs` | read the structured event log |
+| `models` | list models by provider, optionally probing reachability |
+| `route` | run a completion through the fallback cascade |
+| `server` | run and control the standalone in-repo gateway |
+| `sessions` | start, resume, and inspect persistent sessions |
+| `setup` | configure free provider API keys with a guided wizard |
+| `status` | show gateway health and version |
+| `tribunal` | run the five-stage self-adversarial tribunal on a proposal |
+
+Global flags: `--json`, `--quiet`, `--verbose`, `--no-color`, `--port`,
+`--model`, `--base-url`. Configuration resolves low → high:
+`defaults < global file < project file < AGENTFLOW_* env < flags`.
