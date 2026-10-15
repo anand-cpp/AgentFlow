@@ -691,3 +691,80 @@ test("graceful close enforces the deadline on a request that overruns it", async
 
   await closeServer(ollama.server);
 });
+
+
+// ---------------------------------------------------------------------------
+// /v1/models listing cache
+// ---------------------------------------------------------------------------
+
+test("caches the /v1/models listing for modelsCacheMs", async () => {
+  const ollama = await startMockOllama({
+    "GET /api/tags": (req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(TAGS_BODY));
+    },
+  });
+  const gateway = new GatewayServer({ port: 0, ollamaUrl: ollama.url, modelsCacheMs: 60_000 });
+  await gateway.start();
+  try {
+    const first = await (await fetch(`${gateway.url()}/v1/models`)).json();
+    const second = await (await fetch(`${gateway.url()}/v1/models`)).json();
+
+    assert.deepEqual(second, first, "the cached reply must be identical");
+    assert.equal(
+      ollama.requests.filter((r) => r.url === "/api/tags").length,
+      1,
+      "the second list must be served from cache, not re-query Ollama"
+    );
+  } finally {
+    await gateway.close();
+    await closeServer(ollama.server);
+  }
+});
+
+test("a modelsCacheMs of 0 disables the cache", async () => {
+  const ollama = await startMockOllama({
+    "GET /api/tags": (req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(TAGS_BODY));
+    },
+  });
+  const gateway = new GatewayServer({ port: 0, ollamaUrl: ollama.url, modelsCacheMs: 0 });
+  await gateway.start();
+  try {
+    await fetch(`${gateway.url()}/v1/models`);
+    await fetch(`${gateway.url()}/v1/models`);
+    assert.equal(
+      ollama.requests.filter((r) => r.url === "/api/tags").length,
+      2,
+      "with the cache disabled every list must reach Ollama"
+    );
+  } finally {
+    await gateway.close();
+    await closeServer(ollama.server);
+  }
+});
+
+test("the /v1/models cache expires and re-queries upstream", async () => {
+  const ollama = await startMockOllama({
+    "GET /api/tags": (req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(TAGS_BODY));
+    },
+  });
+  const gateway = new GatewayServer({ port: 0, ollamaUrl: ollama.url, modelsCacheMs: 60 });
+  await gateway.start();
+  try {
+    await fetch(`${gateway.url()}/v1/models`);
+    await new Promise((r) => setTimeout(r, 90)); // past the 60ms window
+    await fetch(`${gateway.url()}/v1/models`);
+    assert.equal(
+      ollama.requests.filter((r) => r.url === "/api/tags").length,
+      2,
+      "an expired cache must re-query Ollama"
+    );
+  } finally {
+    await gateway.close();
+    await closeServer(ollama.server);
+  }
+});

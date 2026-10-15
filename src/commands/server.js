@@ -120,7 +120,13 @@ function resolveServerOptions(flags, config) {
   // Keys written by `aflow setup` are folded into provider resolution, so the
   // server picks them up without the user having to source anything.
   const keysFile = flags["keys-file"] ? String(flags["keys-file"]) : defaultKeysFile();
-  return { port, host, ollamaUrl, apiKey, keysFile };
+  // How long /v1/models reuses the last listing. 0 disables the cache, which is
+  // what you want while adding keys or pulling models and watching the list.
+  const modelsCacheMs =
+    flags["models-cache-ms"] != null && flags["models-cache-ms"] !== true
+      ? Number(flags["models-cache-ms"])
+      : config?.serverModelsCacheMs ?? GATEWAY_DEFAULTS.modelsCacheMs;
+  return { port, host, ollamaUrl, apiKey, keysFile, modelsCacheMs };
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +240,7 @@ async function startSub({ flags, config, out }) {
 async function spawnDaemon(flags, opts, out) {
   const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "bin", "aflow.js");
   const args = ["server", "start", "--port", String(opts.port), "--host", opts.host, "--ollama-url", opts.ollamaUrl];
+  args.push("--models-cache-ms", String(opts.modelsCacheMs));
   if (flags["state-dir"]) args.push("--state-dir", String(flags["state-dir"]));
   // Only forward an explicit keys file; otherwise the child resolves the same
   // platform default the parent would have.
@@ -387,7 +394,7 @@ function formatDuration(ms) {
 
 export const serverCommand = defineCommand("server", {
   summary: "run and control the standalone in-repo gateway",
-  valueFlags: ["host", "ollama-url", "state-dir", "keys-file"],
+  valueFlags: ["host", "ollama-url", "state-dir", "keys-file", "models-cache-ms"],
   usage: `aflow server [status]
   aflow server start [--port N] [--host HOST] [--ollama-url URL] [--daemon]
   aflow server stop [--state-dir PATH]
@@ -408,6 +415,8 @@ local Ollama instance when one is configured.
   --daemon        run detached in the background
   --state-dir P   where the pid/state file lives
   --keys-file P   keys.env to load provider keys from (default <state dir>/keys.env)
+  --models-cache-ms N  how long /v1/models reuses the last upstream listing
+                       (default 60000; 0 re-queries on every request)
 
 Provider keys from 'aflow setup' are loaded automatically; an environment
 variable always overrides the same key coming from the file.

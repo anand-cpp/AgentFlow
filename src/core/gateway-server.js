@@ -46,6 +46,10 @@ export const GATEWAY_DEFAULTS = Object.freeze({
   port: 20127,
   host: "127.0.0.1",
   ollamaUrl: "http://127.0.0.1:11434",
+  // /v1/models re-queries upstream on every call by default; a short cache
+  // keeps dashboard/tooling polling from turning into a hot loop against the
+  // local daemon, and models change rarely (a pull is a deliberate act).
+  modelsCacheMs: 60_000,
 });
 
 // ---------------------------------------------------------------------------
@@ -702,6 +706,8 @@ export class GatewayServer {
    *                                        unit tests hermetic.
    * @param {object}  [opts.providers=null] override the built-in provider registry
    *                                        (tests point a provider at a mock port).
+   * @param {number}  [opts.modelsCacheMs]  how long /v1/models reuses the last
+   *                                        upstream listing; 0 disables the cache.
    * @param {Function}[opts.fetchImpl]      injectable fetch (tests / instrumentation).
    * @param {object}  [opts.logger=null]    optional { info, warn, error } sink.
    */
@@ -716,6 +722,7 @@ export class GatewayServer {
     env = process.env,
     keysFile = null,
     providers = null,
+    modelsCacheMs = GATEWAY_DEFAULTS.modelsCacheMs,
     fetchImpl = globalThis.fetch,
     logger = null,
   } = {}) {
@@ -744,6 +751,10 @@ export class GatewayServer {
     // Track sockets ourselves so close() can force keep-alive connections shut
     // instead of waiting on a client that has no reason to hang up.
     this._sockets = new Set();
+    // /v1/models listing cache. 0 (or any non-positive) disables it, which is
+    // what a test that mutates keys between listings wants.
+    this.modelsCacheMs = Number.isFinite(Number(modelsCacheMs)) ? Math.max(0, Number(modelsCacheMs)) : GATEWAY_DEFAULTS.modelsCacheMs;
+    this._modelsCache = null;
   }
 
   /** True once the server is listening. */
@@ -916,6 +927,12 @@ export class GatewayServer {
   }
 
   async _models(res) {
+    // The listing is assembled from Ollama plus the keyed provider catalogues;
+    // both move slowly, so a short cache keeps polling clients off the upstream.
+    if (this.modelsCacheMs > 0 && this._modelsCache && Date.now() - this._modelsCache.at < this.modelsCacheMs) {
+      return this._json(res, 200, this._modelsCache.payload);
+    }
+
     let data = [];
     let source = "ollama";
 
@@ -968,7 +985,9 @@ export class GatewayServer {
       source = `${source}_fallback`;
     }
 
-    return this._json(res, 200, { object: "list", data, source });
+    const payload = { object: "list", data, source };
+    if (this.modelsCacheMs > 0) this._modelsCache = { at: Date.now(), payload };
+    return this._json(res, 200, payload);
   }
 
   async _chat(req, res) {
