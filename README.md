@@ -79,3 +79,21 @@ $ aflow tribunal run "Should we use microservices for a team of 3?"
 One command. A verdict, the findings behind it, and the exact weights that
 produced the score — so you can see *why* the tribunal trusts the answer, not
 just that it does.
+
+---
+
+## The problem
+
+A gateway hands you a catalogue of models. What it does not tell you is which of
+them will answer *right now*.
+
+Free-tier and aggregator endpoints are the worst offenders: the catalogue is
+large, the credentials are shared or expired, and a dead model often fails as a
+`200` with an empty body rather than an error you can catch. The request
+"succeeds." The response is empty. Your tool reports success.
+
+**Advertised** and **working** are different facts, and most tooling collapses
+them into one. AgentFlow measures the gap — in `aflow doctor` (probes specific
+models), in `aflow route` (walks a fallback order and records why each step
+failed), and in the router itself, which orders candidates by observed health
+rather than by the order a provider happened to list them.
