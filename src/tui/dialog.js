@@ -13,9 +13,27 @@
 //
 // Zero runtime dependencies: composes the ANSI primitives in components.js.
 
-import { drawBox, drawOverlay, drawInput } from "./components.js";
+import { drawBox, drawOverlay, drawSelectList, drawInput } from "./components.js";
+import { filterFuzzy } from "./interact.js";
 
 const DEFAULT_WIDTH = 60;
+
+/** Move the selection, skipping disabled rows and wrapping. */
+function step(items, from, dir) {
+  const n = items.length;
+  if (n === 0) return 0;
+  let i = from;
+  for (let guard = 0; guard < n; guard += 1) {
+    i = (i + dir + n) % n;
+    if (!items[i].disabled) return i;
+  }
+  return from;
+}
+
+function firstEnabled(items) {
+  const idx = items.findIndex((it) => !it.disabled);
+  return idx === -1 ? 0 : idx;
+}
 
 function isCommit(key) {
   return key.name === "return" || key.name === "enter";
@@ -149,6 +167,105 @@ export function promptDialog(spec = {}) {
 }
 
 /**
+ * Pick one item from a list.
+ * @param {{title?:string, items:Array<object>, initialIndex?:number, max?:number, width?:number, describe?:boolean}} spec
+ */
+export function selectDialog(spec) {
+  const title = spec.title || "Select";
+  const items = spec.items || [];
+  const width = spec.width || DEFAULT_WIDTH;
+  const describe = spec.describe !== false;
+  let index = spec.initialIndex === undefined ? firstEnabled(items) : spec.initialIndex;
+  if (items[index] && items[index].disabled) index = firstEnabled(items);
+  return {
+    type: "select",
+    title,
+    get index() {
+      return index;
+    },
+    render() {
+      const body = drawSelectList(items, index, {
+        max: spec.max || 10,
+        width: width - 4,
+        describe,
+      });
+      return drawBox(title, body, { width, borderColor: "gray" });
+    },
+    handleKey(str, key) {
+      if (isCancel(str, key)) return { done: true, value: null };
+      if (key.name === "up" || key.name === "k") {
+        index = step(items, index, -1);
+        return { done: false };
+      }
+      if (key.name === "down" || key.name === "j") {
+        index = step(items, index, 1);
+        return { done: false };
+      }
+      if (isCommit(key)) {
+        const item = items[index];
+        if (item && !item.disabled) return { done: true, value: item.value };
+      }
+      return { done: false };
+    },
+  };
+}
+
+/**
+ * Fuzzy picker: type to filter, arrows to move, Enter to choose.
+ * @param {{title?:string, prompt?:string, items:Array<object>, max?:number, width?:number}} spec
+ */
+export function fuzzyDialog(spec) {
+  const title = spec.title || "Pick";
+  const prompt = spec.prompt || "search";
+  const items = spec.items || [];
+  const width = spec.width || DEFAULT_WIDTH;
+  let query = "";
+  let index = 0;
+  const reduced = () => filterFuzzy(items, query);
+  return {
+    type: "fuzzy",
+    title,
+    get query() {
+      return query;
+    },
+    render() {
+      const list = reduced();
+      if (index >= list.length) index = Math.max(0, list.length - 1);
+      const field = drawInput(prompt, query, query.length);
+      const body = drawSelectList(list, index, { max: spec.max || 10, width: width - 4 });
+      return drawBox(title, `${field}\n${body}`, { width, borderColor: "gray" });
+    },
+    handleKey(str, key) {
+      if (isCancel(str, key)) return { done: true, value: null };
+      if (key.name === "up") {
+        index = step(reduced(), index, -1);
+        return { done: false };
+      }
+      if (key.name === "down") {
+        index = step(reduced(), index, 1);
+        return { done: false };
+      }
+      if (key.name === "backspace") {
+        query = query.slice(0, -1);
+        index = 0;
+        return { done: false };
+      }
+      if (isCommit(key)) {
+        const item = reduced()[index];
+        if (item && !item.disabled) return { done: true, value: item.value };
+        return { done: false };
+      }
+      if (str && str.length === 1 && str >= " ") {
+        query += str;
+        index = 0;
+        return { done: false };
+      }
+      return { done: false };
+    },
+  };
+}
+
+/**
  * Owns the dialog stack and renders the active dialog over a dimmed backdrop.
  */
 export class DialogManager {
@@ -210,4 +327,13 @@ export class DialogManager {
   }
 }
 
-export default { DialogManager, alertDialog, infoDialog, confirmDialog, promptDialog, DEFAULT_WIDTH };
+export default {
+  DialogManager,
+  alertDialog,
+  infoDialog,
+  confirmDialog,
+  promptDialog,
+  selectDialog,
+  fuzzyDialog,
+  DEFAULT_WIDTH,
+};
