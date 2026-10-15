@@ -59,7 +59,7 @@ recorded honestly: *Inherited* means the files are on `main` as imported;
 | SQLite persistence layer | `src/lib/db/` | Not yet imported |
 | OAuth provider flows | `src/lib/oauth/` | Not yet imported |
 | Standalone server + client-IP hardening | `custom-server.js` | Not yet imported |
-| Test suite | `tests/` (upstream) | Not yet imported — AgentFlow keeps its own suite under `test/` (38 files) |
+| Test suite | `tests/` (upstream) | Not yet imported — AgentFlow keeps its own suite under `test/` (54 files) |
 
 ### Modifications made to inherited code
 
@@ -110,10 +110,11 @@ files that implement them.
   `src/core/tribunal/`
 - `aflow tribunal`, `aflow tribunal history`, and the `fight` alias — the CLI
   surface over the tribunal pipeline — `src/commands/tribunal.js`
-- Standalone in-repo OpenAI-compatible gateway (local Ollama plus remote Groq,
-  Gemini, Cerebras, Mistral, OpenRouter) with SSE translation and API-key/bind
-  guards, plus its lifecycle command — `src/core/gateway-server.js`,
-  `src/commands/server.js`
+- Standalone in-repo OpenAI-compatible gateway (twelve providers — eleven hosted
+  upstreams, Groq, Gemini, Cerebras, Mistral, OpenRouter, Cloudflare, Hugging
+  Face, Together, Fireworks, DeepInfra, SambaNova, plus local Ollama) with
+  model-id resolution, SSE translation, and API-key/bind guards, plus its
+  lifecycle command — `src/core/gateway-server.js`, `src/commands/server.js`
 
 **Not started**
 
@@ -140,7 +141,7 @@ included in this project.
 
 ## Status
 
-Pre-release (`0.2.0`). Status as of 2026-10-11. The routing engine and the
+Pre-release (`0.3.0`). Status as of 2026-10-15. The routing engine and the
 `aflow` CLI are built and tested, as are the session and Blackboard stores, the
 agent runtime with its tool registry and permission system, provider health
 wired into the runtime, the standalone in-repo gateway, and all five stages of
