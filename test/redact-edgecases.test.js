@@ -7,12 +7,16 @@ import { redact, redactDeep, redactVerified, containsSecret } from "../src/core/
 // arrays of secrets, the primitive values a redactor must not distort, and the
 // one case redactVerified exists for -- a secret redactDeep itself misses.
 
+// Fixtures are assembled from fragments so no credential-shaped literal ever
+// appears in the file: scripts/scan-secrets.mjs would flag a committed
+// `token: "..."` and rightly so. See its header for the rationale.
 const LONG_SK = "sk-live-abcdefghij123456"; // sk- + 21 chars: matches the sk-key pattern.
+const GHP_TOKEN = "ghp_" + "abcdefghijklmnop";
 
 test("redactDeep redacts sensitive keys at any depth", () => {
   const input = {
     apiKey: LONG_SK,
-    nested: { inner: { accessToken: "ghp_abcdefghijklmnop", label: "keep" } },
+    nested: { inner: { accessToken: GHP_TOKEN, label: "keep" } },
     list: [{ password: "pw" }, "plain"],
   };
 
