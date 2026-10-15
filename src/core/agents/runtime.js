@@ -486,7 +486,7 @@ export class AgentRuntime {
       iterations: 0,
       toolCalls: 0,
       depth,
-      maxDepth: agent ? agent.bounds.maxDepth : null,
+      maxDepth: null, // set after agent is resolved
       model: null,
       plan: null,
       output: null,
@@ -522,6 +522,7 @@ export class AgentRuntime {
       // "That agent does not exist" is an ordinary outcome of a CLI invocation, and
       // a caller forced to catch it separately will forget.
       agent = this.resolve(id);
+      result.maxDepth = agent.bounds.maxDepth;
       const bounds = agent.bounds;
 
       // Recursion depth, checked before any work happens rather than at the end.
