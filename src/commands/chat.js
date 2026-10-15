@@ -46,6 +46,7 @@ import { bold, dim, red, green, yellow, cyan } from "../cli/ui.js";
 import { fuzzyPick } from "../tui/interact.js";
 import { buildModelItems, configuredProviders } from "../tui/model-picker.js";
 import { pickFile } from "../tui/file-picker.js";
+import { createApprover } from "../tui/approval.js";
 
 const USAGE_ERROR = 2;
 const FAILURE = 1;
@@ -200,18 +201,16 @@ async function conversationLoop(session, io, workspace) {
   // call that may have run before a provider failed) and a gated tool both become
   // questions on the same line queue the loop already reads, so the prompt cannot
   // fight the reader. EOF yields null and the answer is no: fail closed.
-  session.setApprover(async (call) => {
-    if (call?.continuation) {
-      io.output.write("\nA tool call may not have completed before the provider failed.\n");
-      io.output.write(`The tool was: ${call.tool || "a tool"}\n`);
-      io.output.write("Should I retry it on the new provider? [y/N] ");
-    } else {
-      io.output.write(`  allow ${call.tool}? [y/N] `);
-    }
-    const line = await nextLine();
-    if (line === null) return false;
-    return /^y(es)?$/i.test(String(line).trim());
-  });
+  session.setApprover(
+    createApprover({
+      interactive: Boolean(io.interactive),
+      input: io.input,
+      output: io.output,
+      readLine: nextLine,
+      width: undefined,
+      keyOf: (call) => call?.scope || call?.tool || "?",
+    })
+  );
 
   // Terminal Ctrl+C. First press aborts an in-flight response; a press at the
   // idle prompt closes the loop. rl owns SIGINT when terminal is true, so this
