@@ -138,3 +138,28 @@ type /help for commands, /quit to exit. Ctrl+C cancels a response.
 
 >
 ```
+
+---
+
+## What you get
+
+```
+╔═══════════════════════════════╗   ╔═══════════════════════════════╗
+║ THE TRIBUNAL                  ║   ║ NEVER LOSES WORK              ║
+║                               ║   ║                               ║
+║ Five adversarial stages       ║   ║ A dead model fails over       ║
+║ review a proposal across      ║   ║ mid-conversation. Context     ║
+║ models, then a confidence     ║   ║ is preserved and the switch   ║
+║ gate decides if it ships.     ║   ║ is recorded. No retyping.     ║
+╚═══════════════════════════════╝   ╚═══════════════════════════════╝
+╔═══════════════════════════════╗   ╔═══════════════════════════════╗
+║ TWELVE FREE PROVIDERS         ║   ║ ZERO DEPENDENCIES             ║
+║                               ║   ║                               ║
+║ Groq · Cerebras · Mistral     ║   ║ Pure Node builtins. 1177+     ║
+║ Gemini · OpenRouter ·         ║   ║ tests. Lint and typecheck     ║
+║ Cloudflare · HuggingFace ·    ║   ║ block every change.           ║
+║ Together · Fireworks ·        ║   ║                               ║
+║ DeepInfra · SambaNova ·       ║   ╚═══════════════════════════════╝
+║ Ollama (local).               ║                                    
+╚═══════════════════════════════╝                                    
+```
