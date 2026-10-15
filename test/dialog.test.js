@@ -19,7 +19,6 @@ const {
 
 const R = { name: "return" };
 const ESC = { name: "escape" };
-const UP = { name: "up" };
 const DOWN = { name: "down" };
 const BS = { name: "backspace" };
 const LEFT = { name: "left" };
@@ -63,14 +62,14 @@ test("dialogs stack one at a time and Esc unwinds the top only", () => {
 test("alert finishes on any key", () => {
   const d = alertDialog({ title: "Note", message: "done" });
   assert.equal(d.type, "alert");
-  assert.deepEqual(d.handleKey("x", { name: "x" }), { done: true, value: true });
+  assert.deepEqual(d.handleKey(), { done: true, value: true });
   assert.match(d.render(), /done/);
 });
 
 test("info is tagged distinctly but behaves like alert", () => {
   const d = infoDialog({ message: "fyi" });
   assert.equal(d.type, "info");
-  assert.equal(d.handleKey(null, R).done, true);
+  assert.equal(d.handleKey().done, true);
 });
 
 test("confirm resolves y/n, Enter default, and Esc fail-closed", () => {
