@@ -23,7 +23,7 @@ instance by default) or the bundled one, started with `aflow server`.
 bin/            aflow entry point (bin/aflow.js)
 src/
   cli/          argv parsing, command registry, output + ANSI colour
-  commands/     one module per top-level command (13 commands)
+  commands/     one module per top-level command (15 commands)
   config/       layered configuration resolution
   core/         domain logic (routing, gateway, sessions, blackboard, …)
     agents/     agent runtime, registry, tools, permissions, bounds
@@ -31,7 +31,7 @@ src/
     gateway-server.js  standalone in-repo OpenAI-compatible gateway
   tui/          hand-rolled ANSI dashboard (no TUI framework)
 open-sse/       imported 9Router routing/translation engine (402 files)
-test/           Node built-in test runner suite (38 files)
+test/           Node built-in test runner suite (54 files)
 scripts/        test runner, secret scan, exposure check
 config/         exposure.json (known public-exposure tracker)
 AUDIT/          upstream audits and study documents
@@ -47,7 +47,7 @@ engine; the `src/` tree is AgentFlow's own code.
 |---|---|
 | `routing.js` | Fallback cascade: failure classification, candidate ordering, `Router`, provider health-aware ordering |
 | `provider-health.js` | Circuit-breaker/health tracking for providers (consumed by the router; `AgentRuntime` constructs one with its own clock and injects it) |
-| `gateway.js` | HTTP client for the OpenAI-compatible gateway: `getVersion`, `listModels`, `probeModel`, `ping`, `complete` |
+| `gateway.js` | HTTP client for the OpenAI-compatible gateway: `getVersion`, `listModels`, `probeModel`, `ping`, `complete`, `streamComplete` (SSE, with distinct timeout/cancel/error reporting) |
 | `gateway-server.js` | Standalone in-repo OpenAI-compatible gateway: routing, SSE translation, API-key/bind guards, lifecycle |
 | `sessions.js` | Durable per-project session store (atomic writes, append lock, typed entries) |
 | `blackboard.js` | Durable per-project workflow state (goal, tasks, decisions, blockers, bugs, findings, tests, timeline) |
@@ -156,9 +156,17 @@ Every value written to any of the above passes through `src/core/redact.js` firs
 
 **Implemented and tested**
 
-- CLI command router and the 13 commands (`doctor`, `models`, `status`, `config`,
-  `init`, `sessions`, `blackboard`, `agent`, `route`, `tribunal`, `server`,
-  `logs`, `dashboard`) plus the `fight` alias
+- CLI command router and the 15 commands (`doctor`, `models`, `status`, `config`,
+  `init`, `setup`, `sessions`, `blackboard`, `agent`, `chat`, `route`,
+  `tribunal`, `server`, `logs`, `dashboard`) plus the `fight` alias
+- Interactive chat (`aflow chat`) over the same routing/fallback engine, with
+  session recording, `/agent` mid-session switching, live provider failover, and
+  an approval prompt for continuation after a provider cascade
+- Guided provider setup wizard (`aflow setup`): tests a pasted key against the
+  provider before writing it, with `--check`, `--export`, and `--reset` modes
+- A provider registry of twelve upstreams (groq, cerebras, mistral, gemini,
+  openrouter, cloudflare, huggingface, together, fireworks, deepinfra,
+  sambanova, and local ollama), each usable once its credential is present
 - Configuration hierarchy with documented precedence and walk-up discovery
 - Routing engine + fallback cascade + provider health (`routing.js`,
   `provider-health.js`)
