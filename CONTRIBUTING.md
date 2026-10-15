@@ -42,9 +42,10 @@ node bin/aflow.js --help
 
 3. **Verify before pushing:**
    ```bash
-   npm test          # all tests must pass
-   npm run lint      # no lint errors
-   npm run typecheck # no type errors
+   npm test              # all tests must pass
+   npm run lint          # no lint errors
+   npm run typecheck     # no type errors
+   npm run scan-secrets  # no credential-shaped strings in the tree
    ```
 
 4. **Open a pull request** against `main` with a clear description of the
@@ -76,6 +77,21 @@ entry states the rule it violates, why it is deferred, and what would make it
 worth paying down. The active codebase — everything outside the inherited
 `open-sse/` routing engine — must stay lint-clean and typecheck-clean; debt is
 logged in the ledger rather than silently carried.
+
+## Documentation
+
+| Document | Covers |
+|---|---|
+| [`README.md`](README.md) | install, commands, and the tribunal walkthrough |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | module layout, data flow, state locations |
+| [`docs/PROVIDERS.md`](docs/PROVIDERS.md) | the twelve upstreams, model-id resolution, credential rules |
+| [`docs/TRIBUNAL.md`](docs/TRIBUNAL.md) | tribunal stages, verdicts, and the confidence model |
+| [`PROJECT_ORIGIN.md`](PROJECT_ORIGIN.md) | provenance and upstream derivation |
+| [`SECURITY.md`](SECURITY.md) | the security model |
+| [`docs/DEBT_LEDGER.md`](docs/DEBT_LEDGER.md) | known, deferred technical debt |
+
+A change that alters observable behaviour should update the doc that describes
+it, or add one if none does.
 
 ## Project Structure
 
