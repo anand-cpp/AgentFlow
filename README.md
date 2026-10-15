@@ -211,3 +211,50 @@ trial 0.30, validation 0.10 — and returns a verdict against a 0.95 gate.
 
 A run that cannot finish is not a pass. A skipped stage yields **ABORTED**, not
 a quiet success. The tribunal fails closed.
+
+---
+
+## Chat that survives a dead provider
+
+When a model fails or returns an empty body, the next candidate answers. The
+conversation continues, the context is intact, and the switch is on the record.
+You never retype a thing.
+
+```
+$ aflow chat
+
+aflow chat · coder · groq/llama-3.3-70b-versatile · session ses_20261015T172503281Z_93qr3p (new)
+workspace C:\Users\anand\9router (git)
+type /help for commands, /quit to exit. Ctrl+C cancels a response.
+
+> why is an empty 200 worse than a 500?
+
+A 500 tells you the truth. An empty 200 tells you the request succeeded, hands
+you nothing, and lets every layer above it assume there was simply no output —
+so the failure surfaces later, as a wrong answer, far from its cause. Here an
+empty completion is a failure: it is retried across candidates, not returned.
+
+> summarize src/core/continuity.js in three lines
+
+It classifies an error into a failure class — empty, rate-limited, timeout,
+auth, and so on — decides whether switching providers could change the outcome,
+and asks for consent before a switch that might duplicate a tool call.
+
+(answered by cerebras/llama3.1-70b)
+
+> /status
+
+model:    cerebras/llama3.1-70b (fallback)
+provider: cerebras
+status:   healthy
+circuit:  closed
+session:  ses_20261015T172503281Z_93qr3p  (4 message(s), ~1.9k tokens)
+
+> /quit
+
+session ses_20261015T172503281Z_93qr3p · 4 message(s) · ~1.9k tokens
+resume: aflow chat --resume ses_20261015T172503281Z_93qr3p
+```
+
+Failover is not a retry of your message — it is the same turn, finished by
+someone else, with the switch recorded so a later reader can tell what happened.
