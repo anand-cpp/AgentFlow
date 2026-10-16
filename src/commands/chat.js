@@ -53,6 +53,7 @@ import { runDiffViewer } from "../tui/diff-viewer-dialog.js";
 import { parseGitDiff, renderUnifiedDiff } from "../tui/diff.js";
 import { runTimeline } from "../tui/timeline-dialog.js";
 import { buildTimeline, renderTimeline } from "../tui/timeline.js";
+import { buildSwarmGraph, renderSwarmGraph } from "../tui/swarm.js";
 
 const USAGE_ERROR = 2;
 const FAILURE = 1;
@@ -128,6 +129,19 @@ function readSessionEntries(session) {
   } catch {
     return [];
   }
+}
+
+/**
+ * Read the agent-run records out of the session's entry stream for the swarm
+ * viewer. Each AGENT entry is a persisted run outcome (agentId, model, state,
+ * iterations, toolCalls, durationMs, optional parent). Non-agent entries are
+ * skipped; a missing store yields an empty list.
+ *
+ * @param {object} session
+ * @returns {Array<object>}
+ */
+function readAgentRuns(session) {
+  return readSessionEntries(session).filter((entry) => entry && entry.kind === "agent");
 }
 
 async function usage(out, message) {
@@ -414,6 +428,14 @@ async function conversationLoop(session, io, workspace) {
         }
         continue;
       }
+      // `/swarm` draws the agent handoff DAG from this session's agent runs.
+      // It is read-only and needs no terminal, so it renders the same way
+      // whether the input is interactive or piped.
+      if (parsed.name === "swarm") {
+        const runs = readAgentRuns(session);
+        io.output.write(`${renderSwarmGraph(buildSwarmGraph(runs), { width: io.output.columns || 80 })}\n`);
+        continue;
+      }
       const result = await session.command(parsed);
       if (result.exit) break;
       if (result.text) io.output.write(`${result.text}\n`);
@@ -600,6 +622,7 @@ export const chatCommand = defineCommand("chat", {
     /context             show what is in the prompt's context
     /diff [file]         open the diff viewer over workspace changes
     /timeline            browse this session's entry stream
+    /swarm               draw this session's agent handoff graph
 
   Responses stream token by token. Ctrl+C cancels the current response;
   Ctrl+C again, or Ctrl+D (EOF), exits. Every exchange is saved to the

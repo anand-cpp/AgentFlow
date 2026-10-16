@@ -114,6 +114,7 @@ export const SLASH_HELP = [
   "  /context             show what is in the current context",
   "  /diff [file]         open the interactive diff viewer over workspace changes",
   "  /timeline            browse this session's entry stream",
+  "  /swarm               draw this session's agent handoff graph",
   "",
   "Anything without a leading / is sent to the model.",
 ].join("\n");
@@ -783,6 +784,14 @@ export class ChatSession {
         return {
           kind: "timeline",
           text: "/timeline opens an interactive viewer in a terminal; session entries remain in the store.",
+        };
+
+      // Like /timeline, /swarm renders from the session's own entries in the
+      // CLI; this case keeps a direct caller from getting "unknown command".
+      case "swarm":
+        return {
+          kind: "swarm",
+          text: "/swarm draws the session's agent handoff graph from its persisted agent runs.",
         };
 
       default:
