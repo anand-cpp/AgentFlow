@@ -3,7 +3,9 @@ node_modules/
 .next/
 out/
 build/
-dist/
+# Rooted so it ignores the build output at the repo root only, not the
+# test/dist/ directory that holds distribution-integrity tests.
+/dist/
 
 # Secrets — never commit
 .env
