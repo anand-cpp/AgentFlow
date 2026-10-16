@@ -22,11 +22,18 @@ import {
   dim,
   red,
   green,
+  yellow,
+  gray,
   cyan,
+  bgRed,
+  bgGreen,
+  bgYellow,
   pad,
   truncate,
   width as uiWidth,
 } from "../cli/ui.js";
+import { CRUCIBLE_SEVERITY } from "../core/tribunal/crucible-schema.js";
+import { ORACLE_VERDICT, CONFIDENCE_THRESHOLD } from "../core/tribunal/oracle-schema.js";
 
 /** The five rounds, in pipeline order. Shared by the board and the header. */
 export const TRIBUNAL_ROUNDS = Object.freeze([
@@ -157,6 +164,7 @@ export function applyStageEvent(state, event = {}) {
           : round.percent;
 
   if (status === "done" && event.result) {
+    round.findings = findingsOf(round.stage, round.result);
     const oracle = event.stage === "ORACLE" ? (event.result.oracleResult ?? null) : null;
     if (isObject(oracle)) {
       board.oracle = oracle;
@@ -250,6 +258,125 @@ function activeRound(rounds) {
   return rounds[0] ?? null;
 }
 
+// Severity and verdict share one palette with the fight card, so a finding reads
+// the same colour wherever it appears.
+const SEVERITY_PAINT = {
+  [CRUCIBLE_SEVERITY.P0_CRITICAL]: (t) => red(bold(t)),
+  [CRUCIBLE_SEVERITY.P1_MAJOR]: (t) => yellow(t),
+  [CRUCIBLE_SEVERITY.P2_MINOR]: (t) => dim(t),
+  [CRUCIBLE_SEVERITY.P3_INFORMATIONAL]: (t) => gray(t),
+};
+
+const VERDICT_PAINT = {
+  [ORACLE_VERDICT.VERIFIED]: (t) => bold(bgGreen(t)),
+  [ORACLE_VERDICT.INSUFFICIENT_CONFIDENCE]: (t) => bold(bgYellow(t)),
+  [ORACLE_VERDICT.REJECTED]: (t) => bold(bgRed(t)),
+  [ORACLE_VERDICT.ABORTED]: (t) => bold(gray(t)),
+};
+
+/**
+ * Pull the findings a stage produced, in the shape each stage stores them. The
+ * Crucible scatters them per proposal; the Trial files them under its report.
+ * Anything else has none -- this is a view, not a re-derivation.
+ *
+ * @param {string} stage
+ * @param {object|null} result
+ * @returns {Array<object>}
+ */
+function findingsOf(stage, result) {
+  if (!isObject(result)) return [];
+  if (stage === "CRUCIBLE") {
+    const out = [];
+    for (const report of Array.isArray(result.results) ? result.results : []) {
+      for (const finding of Array.isArray(report?.aggregatedFindings) ? report.aggregatedFindings : []) {
+        if (isObject(finding)) out.push(finding);
+      }
+    }
+    return out;
+  }
+  if (stage === "TRIAL") {
+    const report = result?.trialResult?.report ?? result?.finalTrial?.report ?? null;
+    return Array.isArray(report?.findings) ? report.findings.filter(isObject) : [];
+  }
+  return [];
+}
+
+/**
+ * Findings, one line each: severity, vector, title. Empty is a real answer.
+ *
+ * @param {Array<object>} findings
+ * @returns {string}
+ */
+export function renderFindings(findings) {
+  const list = Array.isArray(findings) ? findings : [];
+  if (list.length === 0) return `  ${dim("no findings")}`;
+  return list
+    .map((finding) => {
+      const severity = String(finding?.severity ?? "?");
+      const paint = SEVERITY_PAINT[severity] ?? ((t) => dim(t));
+      const vector = dim(pad(truncate(String(finding?.vector ?? "-"), 10), 10));
+      const title = truncate(String(finding?.title ?? "(untitled)"), 36);
+      return `    ${paint(pad(severity, 18))} ${vector} ${title}`;
+    })
+    .join("\n");
+}
+
+/**
+ * The Oracle's verdict and confidence, with the gate made explicit: the number
+ * alone does not say whether it cleared, and that is the one thing a reader
+ * wants to know.
+ *
+ * @param {object|null} oracleResult
+ * @returns {string}
+ */
+export function renderOracleVerdict(oracleResult) {
+  const oracle = isObject(oracleResult) ? oracleResult : null;
+  if (!oracle) return `  ${dim("no oracle report")}`;
+  const verdict = String(oracle.verdict ?? "UNKNOWN");
+  const paint = VERDICT_PAINT[verdict] ?? ((t) => bold(t));
+  const confidence = typeof oracle.confidence === "number" && Number.isFinite(oracle.confidence) ? oracle.confidence : null;
+  const number = confidence === null ? "-" : confidence.toFixed(2);
+  let gate = "";
+  if (confidence !== null) {
+    const clears = confidence >= CONFIDENCE_THRESHOLD;
+    const mark = clears ? green("\u2713") : red("\u2717");
+    gate = `  ${mark} ${dim(clears ? "clears" : "below")} ${dim(CONFIDENCE_THRESHOLD.toFixed(2))}`;
+  }
+  return `  ${paint(` ${verdict} `)}  ${dim("confidence")} ${bold(number)}${gate}`;
+}
+
+/**
+ * The battle report as a short narration: the title, one line per round, the
+ * finding tallies, and the winner. Never throws on a partial report.
+ *
+ * @param {object|null} battleReport
+ * @returns {string}
+ */
+export function renderBattleReport(battleReport) {
+  const report = isObject(battleReport) ? battleReport : null;
+  if (!report) return `  ${dim("no battle report")}`;
+  const lines = [];
+  if (report.title) lines.push(`  ${bold(String(report.title))}`);
+  if (report.summary) lines.push(`  ${dim(truncate(String(report.summary), 60))}`);
+
+  const rounds = Array.isArray(report.rounds) ? report.rounds : [];
+  for (const round of rounds.slice(0, TOTAL_ROUNDS)) {
+    const events = Array.isArray(round?.events) ? round.events : [];
+    lines.push(`    ${dim(`round ${round?.round_number ?? "?"}`)} ${bold(String(round?.stage ?? "?"))} ${dim(`\u00b7 ${events.length} event(s)`)}`);
+    for (const event of events.slice(0, 3)) lines.push(`      ${dim(truncate(String(event), 54))}`);
+  }
+
+  const totals = report.total_findings;
+  if (isObject(totals)) {
+    lines.push(
+      `    ${dim(`P0 ${totals.p0 ?? 0} \u00b7 P1 ${totals.p1 ?? 0} \u00b7 P2 ${totals.p2 ?? 0} \u00b7 P3 ${totals.p3 ?? 0} \u00b7 unresolved critical ${report.unresolved_critical ?? 0}`)}`,
+    );
+  }
+  if (report.winner) lines.push(`    ${green("winner")} ${truncate(String(report.winner), 40)}`);
+
+  return lines.length ? lines.join("\n") : `  ${dim("no battle report")}`;
+}
+
 /**
  * The live board: a title line, the banner for the round in flight, one row per
  * round, and -- once the Oracle has reported -- the verdict. Never throws.
@@ -281,8 +408,14 @@ export function renderTribunalProgress(tribunalState = {}, options = {}) {
     );
   }
 
-  if (state.complete && state.oracle) {
-    lines.push("", `  ${bold(String(state.oracle.verdict ?? "UNKNOWN"))}`);
+  const findings = rounds.flatMap((round) => (statusWord(round.status) === "done" ? round.findings : []));
+  if (findings.length) {
+    lines.push("", `  ${bold(`findings (${findings.length})`)}`, renderFindings(findings.slice(0, 8)));
+  }
+
+  if (state.complete) {
+    if (state.oracle) lines.push("", renderOracleVerdict(state.oracle));
+    if (state.battleReport) lines.push("", renderBattleReport(state.battleReport));
   }
 
   return lines.join("\n");
@@ -295,5 +428,8 @@ export default {
   applyStageEvent,
   renderRoundHeader,
   renderModelProgress,
+  renderFindings,
+  renderOracleVerdict,
+  renderBattleReport,
   renderTribunalProgress,
 };
