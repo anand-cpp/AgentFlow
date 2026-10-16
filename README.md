@@ -134,6 +134,49 @@ type /help for commands, /quit to exit. Ctrl+C cancels a response.
 >
 ```
 
+## Installation
+
+Three ways in, from least to most involved.
+
+**npm** (recommended). Installs the `agentflow` command, with `aflow` kept as an
+alias:
+
+```sh
+npm install -g agentflow-cli
+aflow doctor       # proves the install before you configure anything
+```
+
+**Single-file binary.** No Node required. Download the executable for your
+platform from the [latest release](https://github.com/anand-cpp/AgentFlow/releases/latest),
+check it against `checksums.txt`, then put it on your `PATH`:
+
+```sh
+# Linux / macOS
+chmod +x agentflow-<version>-<os>-<arch>
+mv agentflow-<version>-<os>-<arch> /usr/local/bin/agentflow
+```
+
+```powershell
+# Windows
+Move-Item .\agentflow-<version>-windows-x64.exe $env:LOCALAPPDATA\Microsoft\WindowsApps\agentflow.exe
+```
+
+**From source.**
+
+```sh
+git clone https://github.com/anand-cpp/AgentFlow.git
+cd AgentFlow
+npm install
+npm link           # makes `agentflow` and `aflow` available globally
+```
+
+### Requirements
+
+- **Node.js >= 20** — for the npm and source installs. The binary carries its own.
+- **Git >= 2.30** — used for workspace detection and the Git-integration commands.
+- **Provider credentials** — at least one hosted provider key, or a local Ollama.
+  Nothing routes until one is configured; add it with `aflow setup`.
+
 ## What you get
 
 ```
