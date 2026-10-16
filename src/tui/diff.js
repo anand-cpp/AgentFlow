@@ -311,13 +311,16 @@ export function renderUnifiedDiff(filePath, diff, options = {}) {
   /** @type {string[]} */
   const out = [];
   if (options.showHeader !== false && filePath) out.push(paint(filePath, "bold"));
+  if (hunks.length === 0) {
+    out.push(paint("(no changes)", "dim"));
+    return out.join("\n");
+  }
   for (const h of hunks) {
     out.push(paint(h.header, "cyan"));
     for (const e of h.lines) {
       out.push(renderUnifiedLine(e, { gutter, width: widthOpt, showLineNumbers }));
     }
   }
-  if (out.length === 0) out.push(paint("(no changes)", "dim"));
   return out.join("\n");
 }
 
