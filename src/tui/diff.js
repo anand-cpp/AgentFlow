@@ -11,7 +11,7 @@
 // ui.js's `truncate` drops escapes entirely -- truncating an already-coloured
 // line would silently strip its colour, so we never do it.
 
-import { paint, width, truncate, pad } from "../cli/ui.js";
+import { isColorEnabled, paint, width, truncate, pad } from "../cli/ui.js";
 
 /** Context lines shown around each change in a unified diff. */
 export const DEFAULT_CONTEXT = 3;
@@ -398,6 +398,219 @@ export function parseGitDiff(gitOutput) {
   return files.map((f) => ({ path: f.path, diff: f.diff, ...diffStats(f.diff) }));
 }
 
+/** Clamp `n` into [lo, hi]. */
+function clamp(n, lo, hi) {
+  return Math.max(lo, Math.min(hi, n));
+}
+
+/** Reverse-video a segment, or leave it plain when colour is off. */
+function highlight(text) {
+  return isColorEnabled() ? `\u001b[7m${text}\u001b[0m` : text;
+}
+
+/**
+ * Pair a hunk's lines into left/right rows for split rendering: a run of
+ * removals lines up against the run of additions that replaced it, and context
+ * lines occupy both sides.
+ * @param {Array<object>} lines
+ * @returns {Array<{left:object|null, right:object|null}>}
+ */
+function splitHunkRows(lines) {
+  const rows = [];
+  let i = 0;
+  while (i < lines.length) {
+    const e = lines[i];
+    if (e.type === "context") {
+      rows.push({ left: e, right: e });
+      i += 1;
+      continue;
+    }
+    /** @type {Array<object>} */
+    const removes = [];
+    while (i < lines.length && lines[i].type === "remove") {
+      removes.push(lines[i]);
+      i += 1;
+    }
+    /** @type {Array<object>} */
+    const adds = [];
+    while (i < lines.length && lines[i].type === "add") {
+      adds.push(lines[i]);
+      i += 1;
+    }
+    const n = Math.max(removes.length, adds.length);
+    for (let k = 0; k < n; k += 1) {
+      rows.push({ left: removes[k] || null, right: adds[k] || null });
+    }
+  }
+  return rows;
+}
+
+/**
+ * Render one side of a split-diff row, padded to exactly `colW` visible cells.
+ * @param {object|null} e
+ * @param {{gutter:number, colW:number, showLineNumbers:boolean, side:"old"|"new"}} opts
+ * @returns {string}
+ */
+function renderSplitCell(e, opts) {
+  const { gutter, colW, showLineNumbers, side } = opts;
+  if (!e) return " ".repeat(colW);
+  const lineNo = side === "old" ? e.oldLine : e.newLine;
+  const sign = e.type === "add" ? "+" : e.type === "remove" ? "-" : " ";
+  const prefix = showLineNumbers
+    ? `${pad(lineNo !== null && lineNo !== undefined ? String(lineNo) : "", gutter, "right")} ${sign} `
+    : `${sign} `;
+  const avail = Math.max(0, colW - width(prefix));
+  const content = truncate(e.content, avail);
+  const plain = pad(prefix + content, colW);
+  if (e.type === "add") return paint(plain, "green");
+  if (e.type === "remove") return paint(plain, "red");
+  return paint(plain, "dim");
+}
+
+/**
+ * Render a two-column split diff for one file.
+ *
+ * @param {string} filePath
+ * @param {Array<object>} diff
+ * @param {object} [options]
+ * @param {number} [options.width]           Total width; columns split the rest.
+ * @param {number} [options.contextLines]
+ * @param {boolean} [options.showLineNumbers]
+ * @param {boolean} [options.showHeader]
+ * @returns {string}
+ */
+export function renderSplitDiff(filePath, diff, options = {}) {
+  const total = options.width && options.width > 0 ? options.width : 100;
+  const showLineNumbers = options.showLineNumbers !== false;
+  const contextLines = options.contextLines ?? DEFAULT_CONTEXT;
+  const entries = Array.isArray(diff) ? diff : [];
+  const hunks = groupHunks(entries, contextLines);
+  const gutter = gutterWidth(entries);
+
+  const sep = paint(" \u2502 ", "gray");
+  const sepW = width(sep);
+  const colW = Math.max(8, Math.floor((total - sepW) / 2));
+
+  /** @type {string[]} */
+  const out = [];
+  if (options.showHeader !== false && filePath) out.push(paint(filePath, "bold"));
+  if (hunks.length === 0) out.push(paint("(no changes)", "dim"));
+  for (const h of hunks) {
+    out.push(paint(h.header, "cyan"));
+    for (const row of splitHunkRows(h.lines)) {
+      const left = renderSplitCell(row.left, { gutter, colW, showLineNumbers, side: "old" });
+      const right = renderSplitCell(row.right, { gutter, colW, showLineNumbers, side: "new" });
+      out.push(`${left}${sep}${right}`);
+    }
+  }
+  return out.join("\n");
+}
+
+/** Normalise viewer input into `{ path, diff }` records. */
+function normaliseFileDiffs(input) {
+  const arr = Array.isArray(input) ? input : input ? [input] : [];
+  return arr.map((f) => {
+    const path = f.path || f.file || "(unknown)";
+    const diff = Array.isArray(f.diff) ? f.diff : computeDiff(f.oldText, f.newText);
+    return { path, diff };
+  });
+}
+
+/** Take `size` lines starting at `start`, padding past the end with blanks. */
+function windowOf(lines, start, size) {
+  const out = [];
+  for (let i = 0; i < size; i += 1) {
+    const idx = start + i;
+    out.push(idx >= 0 && idx < lines.length ? lines[idx] : "");
+  }
+  return out;
+}
+
+/** Scroll offset that keeps `index` centred in a window of `size`. */
+function windowStart(index, total, size) {
+  if (total <= size) return 0;
+  return Math.min(Math.max(0, index - Math.floor(size / 2)), total - size);
+}
+
+/** File list for the viewer's sidebar, selection highlighted. */
+function buildSidebar(files, stats, selectedIndex, w) {
+  return files.map((f, i) => {
+    const marker = i === selectedIndex ? (isColorEnabled() ? "\u276f " : "> ") : "  ";
+    const plain = truncate(`${f.path}  +${stats[i].additions} -${stats[i].deletions}`, Math.max(0, w - 2));
+    const padded = pad(marker + plain, w);
+    if (i === selectedIndex) return highlight(padded);
+    return paint(padded, "gray");
+  });
+}
+
+/**
+ * Compose a full diff viewer frame: a header line, an optional file-tree
+ * sidebar, and the windowed body of the selected file. Pure and terminal-free,
+ * so the interactive dialog can drive it with nothing but a state object.
+ *
+ * @param {Array<object>|object} fileDiffs
+ * @param {object} [options]
+ * @param {"unified"|"split"|"auto"} [options.mode]
+ * @param {number} [options.width]
+ * @param {number} [options.height]
+ * @param {number} [options.fileIndex]
+ * @param {number} [options.scroll]
+ * @param {boolean} [options.showTree]
+ * @param {number} [options.contextLines]
+ * @param {boolean} [options.showLineNumbers]
+ * @returns {string}
+ */
+export function renderDiffViewer(fileDiffs, options = {}) {
+  const widthOpt = options.width && options.width > 0 ? options.width : 80;
+  const height = options.height && options.height > 0 ? options.height : 24;
+  const contextLines = options.contextLines ?? DEFAULT_CONTEXT;
+  const showLineNumbers = options.showLineNumbers !== false;
+  const files = normaliseFileDiffs(fileDiffs);
+
+  if (files.length === 0) return paint("(no file changes)", "dim");
+
+  const idx = clamp(options.fileIndex ?? 0, 0, files.length - 1);
+  let mode = options.mode || "unified";
+  if (mode === "auto") mode = widthOpt >= 100 ? "split" : "unified";
+  const scroll = Math.max(0, options.scroll ?? 0);
+  const showTree = options.showTree !== false && files.length > 1;
+
+  const stats = files.map((f) => diffStats(f.diff));
+  const file = files[idx];
+  const headerText = `${mode}  ${file.path}  (${idx + 1}/${files.length})  +${stats[idx].additions} -${stats[idx].deletions}`;
+  const header = paint(pad(truncate(headerText, widthOpt), widthOpt), "bold");
+  const bodyHeight = Math.max(1, height - 1);
+
+  const renderOpts = { contextLines, showLineNumbers, showHeader: false };
+  const renderBody = (w) =>
+    (mode === "split"
+      ? renderSplitDiff(file.path, file.diff, { ...renderOpts, width: w })
+      : renderUnifiedDiff(file.path, file.diff, { ...renderOpts, width: w })
+    ).split("\n");
+
+  if (showTree) {
+    const sidebarW = Math.min(40, Math.max(12, Math.floor(widthOpt * 0.28)));
+    const mainW = widthOpt - sidebarW - 3;
+    if (mainW >= 20) {
+      const mainView = windowOf(renderBody(mainW), scroll, bodyHeight);
+      const sidebarLines = buildSidebar(files, stats, idx, sidebarW);
+      const sidebarView = windowOf(
+        sidebarLines,
+        windowStart(idx, sidebarLines.length, bodyHeight),
+        bodyHeight,
+      );
+      const sep = paint("\u2502", "gray");
+      const rows = [];
+      for (let r = 0; r < bodyHeight; r += 1) {
+        rows.push(`${pad(sidebarView[r] || "", sidebarW)} ${sep} ${mainView[r] || ""}`);
+      }
+      return [header, ...rows].join("\n");
+    }
+  }
+
+  return [header, ...windowOf(renderBody(widthOpt), scroll, bodyHeight)].join("\n");
+}
+
 export default {
   DEFAULT_CONTEXT,
   computeDiff,
@@ -405,4 +618,6 @@ export default {
   groupHunks,
   renderUnifiedDiff,
   parseGitDiff,
+  renderSplitDiff,
+  renderDiffViewer,
 };
