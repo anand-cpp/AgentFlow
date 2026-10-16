@@ -113,6 +113,7 @@ export const SLASH_HELP = [
   "  /drop <file>         remove a file from the context",
   "  /context             show what is in the current context",
   "  /diff [file]         open the interactive diff viewer over workspace changes",
+  "  /timeline            browse this session's entry stream",
   "",
   "Anything without a leading / is sent to the model.",
 ].join("\n");
@@ -773,6 +774,15 @@ export class ChatSession {
         return {
           kind: "diff",
           text: "/diff opens an interactive viewer in a terminal; run `git diff` for a plain view.",
+        };
+
+      // Like /diff, the timeline viewer needs a terminal; the CLI answers it
+      // interactively. This case exists so a caller that reaches it here gets a
+      // reason rather than "unknown command".
+      case "timeline":
+        return {
+          kind: "timeline",
+          text: "/timeline opens an interactive viewer in a terminal; session entries remain in the store.",
         };
 
       default:

@@ -51,6 +51,8 @@ import { pickFile } from "../tui/file-picker.js";
 import { createApprover } from "../tui/approval.js";
 import { runDiffViewer } from "../tui/diff-viewer-dialog.js";
 import { parseGitDiff, renderUnifiedDiff } from "../tui/diff.js";
+import { runTimeline } from "../tui/timeline-dialog.js";
+import { buildTimeline, renderTimeline } from "../tui/timeline.js";
 
 const USAGE_ERROR = 2;
 const FAILURE = 1;
@@ -100,6 +102,29 @@ async function workspaceDiffs(root) {
     });
     if (!stdout || !stdout.trim()) return [];
     return parseGitDiff(stdout);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Read the current session's persisted entries for the timeline viewer. The
+ * engine keeps the session record (and its entry stream) in the store, so the
+ * timeline reads it back rather than reconstructing from in-memory messages --
+ * the entries carry tool calls, routing decisions and tribunal runs the message
+ * array does not. A missing store or an unreadable record yields an empty list.
+ *
+ * @param {object} session
+ * @returns {Array<object>}
+ */
+function readSessionEntries(session) {
+  try {
+    const id = session?.getInfo?.().sessionId;
+    if (!id) return [];
+    const store = session?.sessions;
+    if (!store || typeof store.read !== "function") return [];
+    const record = store.read(id);
+    return Array.isArray(record?.entries) ? record.entries : [];
   } catch {
     return [];
   }
@@ -366,6 +391,29 @@ async function conversationLoop(session, io, workspace) {
         io.output.write(`${parts.join("\n\n")}\n`);
         continue;
       }
+      // `/timeline` renders the session's append-only entry stream as a
+      // navigable list. Like `/diff` it is answered here: the viewer needs raw
+      // keypresses on a TTY, and non-interactive input gets the same list as
+      // plain text so scripts are not a dead end.
+      if (parsed.name === "timeline") {
+        const entries = readSessionEntries(session);
+        if (entries.length === 0) {
+          io.output.write(`${dim("(no timeline entries)")}\n`);
+          continue;
+        }
+        if (io.interactive) {
+          io.output.write("\n");
+          await runTimeline(entries, {
+            input: io.input,
+            output: io.output,
+            width: Math.max(40, Math.min(120, (io.output.columns || 80) - 1)),
+            height: Math.max(12, Math.min(40, (io.output.rows || 24) - 6)),
+          });
+        } else {
+          io.output.write(`${renderTimeline(buildTimeline(entries), { width: io.output.columns || 80 })}\n`);
+        }
+        continue;
+      }
       const result = await session.command(parsed);
       if (result.exit) break;
       if (result.text) io.output.write(`${result.text}\n`);
@@ -551,6 +599,7 @@ export const chatCommand = defineCommand("chat", {
     /drop <file>         remove a file from the context
     /context             show what is in the prompt's context
     /diff [file]         open the diff viewer over workspace changes
+    /timeline            browse this session's entry stream
 
   Responses stream token by token. Ctrl+C cancels the current response;
   Ctrl+C again, or Ctrl+D (EOF), exits. Every exchange is saved to the
