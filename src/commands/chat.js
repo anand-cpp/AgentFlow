@@ -30,6 +30,8 @@
 
 import process from "node:process";
 import readline from "node:readline";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 import { defineCommand } from "../cli/registry.js";
 import { ChatSession, parseSlash } from "../core/chat.js";
@@ -47,9 +49,12 @@ import { fuzzyPick } from "../tui/interact.js";
 import { buildModelItems, configuredProviders } from "../tui/model-picker.js";
 import { pickFile } from "../tui/file-picker.js";
 import { createApprover } from "../tui/approval.js";
+import { runDiffViewer } from "../tui/diff-viewer-dialog.js";
+import { parseGitDiff, renderUnifiedDiff } from "../tui/diff.js";
 
 const USAGE_ERROR = 2;
 const FAILURE = 1;
+const execFileAsync = promisify(execFile);
 
 /**
  * Resolve the streams the loop reads and writes.
@@ -71,6 +76,33 @@ async function readAll(stream) {
   let data = "";
   for await (const chunk of stream) data += chunk.toString();
   return data;
+}
+
+/**
+ * Collect the workspace's uncommitted changes as viewer-ready file diffs.
+ *
+ * `git diff HEAD` covers staged and unstaged edits to tracked files. A file that
+ * exists only on disk has no HEAD version and so does not appear -- noted as a
+ * limitation rather than worked around with `git add -N`, which would mutate the
+ * index from a read command. A missing `git`, a non-repository, or a failed
+ * command all resolve to an empty list so the viewer opens on "(no file
+ * changes)" instead of the chat loop throwing.
+ *
+ * @param {string} root
+ * @returns {Promise<Array<{path:string, diff:Array<object>, additions:number, deletions:number}>>}
+ */
+async function workspaceDiffs(root) {
+  try {
+    const { stdout } = await execFileAsync("git", ["diff", "HEAD"], {
+      cwd: root,
+      maxBuffer: 16 * 1024 * 1024,
+      windowsHide: true,
+    });
+    if (!stdout || !stdout.trim()) return [];
+    return parseGitDiff(stdout);
+  } catch {
+    return [];
+  }
 }
 
 async function usage(out, message) {
@@ -307,6 +339,33 @@ async function conversationLoop(session, io, workspace) {
           continue;
         }
       }
+      // `/diff` is answered here rather than in the engine: it needs a terminal
+      // (for the viewer's raw keypresses) or a shell (for git), neither of which
+      // belongs in ChatSession. On a TTY it opens the interactive viewer over the
+      // workspace's uncommitted changes; piped input gets the same diff as plain
+      // text so `aflow chat` in a script is not a dead end.
+      if (parsed.name === "diff") {
+        const files = await workspaceDiffs(workspace.root);
+        if (files.length === 0) {
+          io.output.write(`${dim("(no changes to show)")}\n`);
+          continue;
+        }
+        if (io.interactive) {
+          const idx = parsed.arg ? files.findIndex((f) => f.path === parsed.arg) : 0;
+          io.output.write("\n");
+          await runDiffViewer(files, {
+            input: io.input,
+            output: io.output,
+            width: Math.max(40, Math.min(110, (io.output.columns || 80) - 1)),
+            height: Math.max(12, Math.min(40, (io.output.rows || 24) - 6)),
+            fileIndex: idx >= 0 ? idx : 0,
+          });
+          continue;
+        }
+        const parts = files.map((f) => renderUnifiedDiff(f.path, f.diff, { width: io.output.columns || 80 }));
+        io.output.write(`${parts.join("\n\n")}\n`);
+        continue;
+      }
       const result = await session.command(parsed);
       if (result.exit) break;
       if (result.text) io.output.write(`${result.text}\n`);
@@ -491,6 +550,7 @@ export const chatCommand = defineCommand("chat", {
     /add <file>          add a file to the context
     /drop <file>         remove a file from the context
     /context             show what is in the prompt's context
+    /diff [file]         open the diff viewer over workspace changes
 
   Responses stream token by token. Ctrl+C cancels the current response;
   Ctrl+C again, or Ctrl+D (EOF), exits. Every exchange is saved to the

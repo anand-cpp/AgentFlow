@@ -365,4 +365,42 @@ export function fuzzyPick(items, options = {}) {
   });
 }
 
-export default { selectFromList, textInput, confirm, fuzzyPick, fuzzyMatch, filterFuzzy };
+/**
+ * Drive a `{ render, handleKey }` dialog to completion.
+ *
+ * This is the runtime half of the dialog contract in dialog.js: the dialog owns
+ * the state machine, this owns the keypress stream, the redraw, and restoring
+ * raw mode. Any dialog built for dialog.js (diff viewer, timeline, swarm graph)
+ * can be opened with it, and a test can still bypass it entirely by calling the
+ * dialog's `handleKey` directly.
+ *
+ * @param {{render:(o?:object)=>string, handleKey:(s?:string,k?:object)=>{done:boolean,value?:any}}} dialog
+ * @param {object} [options]
+ * @param {object} [options.input]
+ * @param {object} [options.output]
+ * @param {number} [options.width]
+ * @param {number} [options.height]
+ * @returns {Promise<any|null>} The dialog's value when it finishes.
+ */
+export function driveDialog(dialog, options = {}) {
+  const input = options.input || process.stdin;
+  const output = options.output || process.stdout;
+  return new Promise((resolve) => {
+    const renderer = makeRenderer(output);
+    const render = () => renderer.draw(dialog.render({ width: options.width, height: options.height }));
+    const finish = (value) => {
+      cleanup();
+      renderer.clear();
+      resolve(value);
+    };
+    const onKey = (str, key) => {
+      const result = dialog.handleKey(str, key) || { done: false };
+      if (result.done) return finish(result.value);
+      return render();
+    };
+    const cleanup = attachKeypress(input, onKey);
+    render();
+  });
+}
+
+export default { selectFromList, textInput, confirm, fuzzyPick, fuzzyMatch, filterFuzzy, driveDialog };

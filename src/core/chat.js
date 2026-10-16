@@ -112,6 +112,7 @@ export const SLASH_HELP = [
   "  @                    open the file picker to add a file to context",
   "  /drop <file>         remove a file from the context",
   "  /context             show what is in the current context",
+  "  /diff [file]         open the interactive diff viewer over workspace changes",
   "",
   "Anything without a leading / is sent to the model.",
 ].join("\n");
@@ -764,6 +765,15 @@ export class ChatSession {
 
       case "context":
         return { kind: "context", text: this.#contextText(), data: { files: this.getInfo().contextFiles } };
+
+      // Answered by the CLI, which has both a terminal and a shell. The engine
+      // keeps this case so a caller that reaches it here gets a reason rather
+      // than "unknown command".
+      case "diff":
+        return {
+          kind: "diff",
+          text: "/diff opens an interactive viewer in a terminal; run `git diff` for a plain view.",
+        };
 
       default:
         return { kind: "unknown", text: `unknown command: /${parsed?.name}. Type /help for the list.` };

@@ -19,6 +19,7 @@
 // Zero runtime dependencies.
 
 import { renderDiffViewer, renderUnifiedDiff, renderSplitDiff, DEFAULT_CONTEXT } from "./diff.js";
+import { driveDialog } from "./interact.js";
 import { paint } from "../cli/ui.js";
 
 /** Remove SGR colour sequences so structural tests on line text work. */
@@ -216,4 +217,19 @@ export function diffViewerDialog(fileDiffs, options = {}) {
   };
 }
 
-export default { diffViewerDialog };
+/**
+ * Open the diff viewer and drive it until it closes.
+ *
+ * The state machine above stays pure; this is the thin runtime that owns the
+ * keypress stream, the redraw, and restoring raw mode. The chat loop calls it;
+ * tests drive `diffViewerDialog(...).handleKey(...)` directly instead.
+ *
+ * @param {Array<object>|object} fileDiffs
+ * @param {object} [options]  `{input, output, width, height, mode, showTree, ...}`
+ * @returns {Promise<any|null>}
+ */
+export function runDiffViewer(fileDiffs, options = {}) {
+  return driveDialog(diffViewerDialog(fileDiffs, options), options);
+}
+
+export default { diffViewerDialog, runDiffViewer };
