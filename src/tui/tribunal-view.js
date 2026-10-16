@@ -169,8 +169,90 @@ export function applyStageEvent(state, event = {}) {
 }
 
 /**
- * The live board: a title line, one row per round, and -- once the Oracle has
- * reported -- the verdict. Never throws.
+ * The banner for whichever round is currently under the microscope. The blurb
+ * is looked up from the round table rather than passed in, so the header can
+ * never disagree with the pipeline's own stage list.
+ *
+ * @param {string} stage
+ * @param {number} roundNumber
+ * @param {number} [totalRounds]
+ * @returns {string}
+ */
+export function renderRoundHeader(stage, roundNumber, totalRounds) {
+  const name = String(stage ?? "?").toUpperCase();
+  const entry = TRIBUNAL_ROUNDS.find((r) => r.stage === name) ?? { blurb: "" };
+  const total = Number.isFinite(totalRounds) && totalRounds > 0 ? totalRounds : TOTAL_ROUNDS;
+  const number = Number.isFinite(roundNumber) ? roundNumber : "?";
+  const head = `${bold(`ROUND ${number}`)} ${dim("\u00b7")} ${bold(name)} ${dim(`(${number}/${total})`)}`;
+  return entry.blurb ? `  ${head}  ${dim(entry.blurb)}` : `  ${head}`;
+}
+
+const BAR_CELLS = 10;
+
+/**
+ * The bar: how far along the run thinks the stage is. A stage the pipeline has
+ * not reported a number for is drawn as "unknown" rather than as zero -- a
+ * running round is not a stalled round, and the two must not look alike.
+ *
+ * @param {LiveStatus} status
+ * @param {number|null} percent
+ */
+function progressBar(status, percent) {
+  const known = typeof percent === "number" && Number.isFinite(percent);
+  let body;
+  if (status === "pending") {
+    body = " ".repeat(BAR_CELLS);
+  } else if (status === "error") {
+    body = "\u2591".repeat(BAR_CELLS); // ░
+  } else if (status === "done") {
+    body = "\u2588".repeat(BAR_CELLS); // █
+  } else {
+    const filled = known ? Math.max(0, Math.min(BAR_CELLS, Math.round((percent / 100) * BAR_CELLS))) : 0;
+    body = "\u25c6".repeat(filled) + "\u00b7".repeat(BAR_CELLS - filled); // ◆ … ·
+  }
+  const paint = status === "done" ? green : status === "error" ? red : status === "running" ? cyan : dim;
+  return paint(`[${body}]`);
+}
+
+function percentText(status, percent) {
+  if (status === "pending" || status === "error") return "  -";
+  if (typeof percent !== "number" || !Number.isFinite(percent)) return "  \u2026"; // …
+  return `${pad(String(Math.round(percent)), 3, "right")}%`;
+}
+
+/**
+ * One model's line: who is fighting, how they are doing, and how far along.
+ *
+ * @param {string|null} modelId
+ * @param {string} status
+ * @param {number|null} percent
+ * @param {object} [options]
+ * @param {number} [options.labelWidth]
+ * @returns {string}
+ */
+export function renderModelProgress(modelId, status, percent, options = {}) {
+  const word = statusWord(status);
+  const known = typeof percent === "number" && Number.isFinite(percent);
+  // A finished round is finished whatever the caller managed to record.
+  const shown = word === "done" && !known ? 100 : percent;
+  const labelWidth = Number.isInteger(options.labelWidth) && options.labelWidth > 4 ? options.labelWidth : 20;
+  const label = pad(truncate(modelId ? String(modelId) : "(default)", labelWidth), labelWidth);
+  return `${label}  ${pad(word, 8)}  ${progressBar(word, shown)}  ${percentText(word, shown)}`;
+}
+
+/** The round that deserves the banner: the running one, else the last started. */
+function activeRound(rounds) {
+  const running = rounds.find((r) => statusWord(r.status) === "running");
+  if (running) return running;
+  for (let i = rounds.length - 1; i >= 0; i -= 1) {
+    if (statusWord(rounds[i].status) !== "pending") return rounds[i];
+  }
+  return rounds[0] ?? null;
+}
+
+/**
+ * The live board: a title line, the banner for the round in flight, one row per
+ * round, and -- once the Oracle has reported -- the verdict. Never throws.
  *
  * @param {TribunalState|object} [tribunalState]
  * @param {object} [options]
@@ -188,10 +270,14 @@ export function renderTribunalProgress(tribunalState = {}, options = {}) {
   if (rounds.length === 0) return [title, dim("  no rounds recorded")].join("\n");
 
   const lines = [title, ""];
+  const active = activeRound(rounds);
+  if (active) lines.push(renderRoundHeader(active.stage, active.round, rounds.length || TOTAL_ROUNDS), "");
+
+  const labelWidth = width > 0 ? Math.max(6, Math.min(20, width - 47)) : 20;
   for (const round of rounds) {
     const status = statusWord(round.status);
     lines.push(
-      `  ${statusMark(status)} ${pad(String(round.round ?? "?"), 2)} ${pad(truncate(String(round.stage ?? "?"), 9), 9)} ${dim(status)}`,
+      `  ${statusMark(status)} ${pad(String(round.round ?? "?"), 2)} ${pad(truncate(String(round.stage ?? "?"), 9), 9)} ${renderModelProgress(round.modelId, status, round.percent, { labelWidth })}`,
     );
   }
 
@@ -207,5 +293,7 @@ export default {
   TOTAL_ROUNDS,
   createTribunalState,
   applyStageEvent,
+  renderRoundHeader,
+  renderModelProgress,
   renderTribunalProgress,
 };
