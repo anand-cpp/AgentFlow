@@ -30,6 +30,7 @@ import { BlackboardStore } from "../core/blackboard.js";
 import { redactDeep } from "../core/redact.js";
 import { runFullTribunal } from "../core/tribunal/stage-oracle.js";
 import { renderFightCard, renderHistoryRow } from "../core/tribunal/formatter.js";
+import { createTribunalState, applyStageEvent, renderTribunalProgress } from "../tui/tribunal-view.js";
 import { bold, dim, heading } from "../cli/ui.js";
 
 const USAGE_ERROR = 2;
@@ -203,6 +204,43 @@ function recordDecision({ result, flags, sessionId, out }) {
   }
 }
 
+/**
+ * A live progress board bound to the command's output stream. It is inert when
+ * there is nowhere to draw -- under --json, under --quiet, or when the output
+ * object has no frame() (as in tests) -- so the pipeline's hook stays a no-op
+ * and the final fight card is unchanged.
+ *
+ * @param {object} out
+ * @param {object} [input]
+ * @param {Array<string|null>} [input.models]
+ * @param {string} [input.domain]
+ */
+function newLiveBoard(out, { models = [], domain = "code" } = {}) {
+  const enabled = !out.json && !out.quiet && typeof out.frame === "function";
+  const model = models.find((m) => typeof m === "string" && m.length > 0) ?? null;
+  const state = createTribunalState({ domain, modelId: model });
+  const draw = () => {
+    if (enabled) out.frame(renderTribunalProgress(state));
+  };
+  return {
+    onStage(event) {
+      if (!enabled) return;
+      applyStageEvent(state, event);
+      draw();
+    },
+    finish(result) {
+      if (!enabled) return;
+      // The pipeline's own result is authoritative for the tail of the board:
+      // take the id, oracle, and battle report straight from it so a missed
+      // event cannot leave the last frame wrong.
+      if (result?.tribunal_id) state.tribunalId = String(result.tribunal_id);
+      if (result?.oracle) state.oracle = result.oracle;
+      if (result?.battle_report) state.battleReport = result.battle_report;
+      draw();
+    },
+  };
+}
+
 async function runSub({ rest, flags, config, out, deps }) {
   const prompt = (rest.join(" ").trim() || (typeof flags.prompt === "string" ? flags.prompt.trim() : ""));
   if (!prompt) {
@@ -216,14 +254,16 @@ async function runSub({ rest, flags, config, out, deps }) {
   const models = await resolveModels({ flags, config, listModels });
   out.status(dim(`convening the tribunal: ${models.map((m) => m ?? "(default)").join(", ")} · domain ${domain}`));
 
+  const live = newLiveBoard(out, { models, domain });
   const { proposals, result } = await executeTribunal({
     prompt,
     models,
     domain,
     completeFn,
     config,
-    options: { maxRetries: parseCount(flags.retries, undefined) },
+    options: { maxRetries: parseCount(flags.retries, undefined), onStage: live.onStage },
   });
+  live.finish(result);
 
   const sessionId = persistRun({ result, proposals, prompt, models, flags, out });
   const decisionId = recordDecision({ result, flags, sessionId, out });

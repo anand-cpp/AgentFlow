@@ -28,6 +28,10 @@ export const ORACLE_STAGE_STATUS = {
   ERROR: "ERROR",
 };
 
+// The five rounds, in order, as the progress hook names them. Kept here so a
+// caller rendering live progress and the pipeline itself cannot drift.
+export const PIPELINE_ROUNDS = Object.freeze(["FORGE", "CRUCIBLE", "MERGE", "TRIAL", "ORACLE"]);
+
 function newTribunalId() {
   try {
     return randomUUID();
@@ -101,7 +105,25 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
   let stage4 = null;
   let stage5 = null;
 
+  // Progress is optional and one-way: the pipeline reports what it is doing and
+  // never reads anything back. A throwing listener is swallowed, because a run
+  // must not fail for the sake of a progress bar.
+  const onStage = typeof options.onStage === "function" ? options.onStage : null;
+  let liveStage = null;
+  let liveRound = 0;
+  const notify = (status, result) => {
+    if (!onStage || !liveStage) return;
+    try {
+      onStage({ roundNumber: liveRound, stage: liveStage, totalRounds: PIPELINE_ROUNDS.length, status, modelId, result });
+    } catch {
+      // ignored on purpose
+    }
+  };
+
   try {
+    liveStage = "FORGE";
+    liveRound = 1;
+    notify("running");
     stage1 = await runSelfAdversarialStage({
       candidates: stage1Candidates,
       complete: completeFn,
@@ -109,13 +131,21 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
       maxRevisions: options.maxRevisions ?? 1,
       opts,
     });
+    notify("done", stage1);
 
+    liveStage = "CRUCIBLE";
+    liveRound = 2;
+    notify("running");
     stage2 = await runCrucibleStage({
       proposals: list,
       completeFn,
       options: { domain, modelId, config, opts, vectors: options.vectors, completedAt: options.completedAt },
     });
+    notify("done", stage2);
 
+    liveStage = "MERGE";
+    liveRound = 3;
+    notify("running");
     stage3 = await runMergeStage({
       proposals: list,
       crucibleStageResult: stage2,
@@ -123,7 +153,11 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
       modelId,
       options: { domain, modelId, config, opts, minSurvivalScore: options.minSurvivalScore, completedAt: options.completedAt },
     });
+    notify("done", stage3);
 
+    liveStage = "TRIAL";
+    liveRound = 4;
+    notify("running");
     stage4 = await runTrialStage({
       mergeStageResult: stage3,
       crucibleStageResult: stage2,
@@ -132,13 +166,19 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
       modelId,
       options: { domain, modelId, config, opts, maxRetries: options.maxRetries, completedAt: options.completedAt },
     });
+    notify("done", stage4);
 
+    liveStage = "ORACLE";
+    liveRound = 5;
+    notify("running");
     stage5 = await runOracleStage({
       allStageResults: { stage1, stage2, stage3, stage4 },
       domain,
       options: { crucibleFindings: stage3?.criticalFindings, completedAt: options.completedAt },
     });
+    notify("done", stage5);
   } catch (err) {
+    notify("error");
     // One complete ABORTED record beats a partial throw: whatever ran is kept,
     // and the Oracle result explains the failure.
     const oracleResult = runOracle({ domain });
@@ -158,4 +198,4 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
   };
 }
 
-export default { ORACLE_STAGE, ORACLE_STAGE_STATUS, runOracleStage, runFullTribunal };
+export default { ORACLE_STAGE, ORACLE_STAGE_STATUS, PIPELINE_ROUNDS, runOracleStage, runFullTribunal };
