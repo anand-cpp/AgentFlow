@@ -54,6 +54,7 @@
     "doctor": "node bin/agentflow.js doctor",
     "scan-secrets": "node scripts/scan-secrets.mjs",
     "check-version": "node scripts/check-version.mjs",
+    "changelog": "node scripts/changelog.mjs",
     "prepublishOnly": "npm run check-version && npm test && npm run lint && npm run typecheck",
     "build:sea": "node scripts/build-sea.mjs",
     "release": "node scripts/release.mjs",
