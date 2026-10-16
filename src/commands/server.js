@@ -17,7 +17,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { defineCommand } from "../cli/registry.js";
 import {
@@ -237,8 +236,27 @@ async function startSub({ flags, config, out }) {
   });
 }
 
+/**
+ * Whether this process is a Node single executable application (SEA).
+ *
+ * Only the daemon path cares. node:sea landed in Node 20.12, so the import is
+ * dynamic and guarded; on anything older the honest answer is "no".
+ */
+let seaChecked = false;
+let runningAsSea = false;
+async function isSea() {
+  if (seaChecked) return runningAsSea;
+  seaChecked = true;
+  try {
+    const sea = await import("node:sea");
+    runningAsSea = typeof sea.isSea === "function" && sea.isSea();
+  } catch {
+    runningAsSea = false;
+  }
+  return runningAsSea;
+}
+
 async function spawnDaemon(flags, opts, out) {
-  const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "bin", "aflow.js");
   const args = ["server", "start", "--port", String(opts.port), "--host", opts.host, "--ollama-url", opts.ollamaUrl];
   args.push("--models-cache-ms", String(opts.modelsCacheMs));
   if (flags["state-dir"]) args.push("--state-dir", String(flags["state-dir"]));
@@ -248,11 +266,20 @@ async function spawnDaemon(flags, opts, out) {
 
   // Detached + unref so the child outlives this invocation, which is the whole
   // point of --daemon. stdio ignored because there is no terminal to write to.
-  const child = spawn(process.execPath, [bin, ...args], {
+  //
+  // The child command differs by how this process was started. From source we
+  // re-run the CLI entry that was invoked (process.argv[1]). As a SEA binary we
+  // spawn the binary itself: the embedded main routes argv, and there is no
+  // bin/aflow.js on disk to point at.
+  const spawnOpts = /** @type {import("node:child_process").SpawnOptions} */ ({
     detached: true,
     stdio: "ignore",
     windowsHide: true,
   });
+  const useSea = await isSea();
+  const child = useSea
+    ? spawn(process.execPath, args, spawnOpts)
+    : spawn(process.execPath, [process.argv[1], ...args], spawnOpts);
   child.unref();
 
   // Confirm the child actually bound before claiming success. Without this,
