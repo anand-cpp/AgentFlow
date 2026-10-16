@@ -53,6 +53,7 @@
     "aflow": "node bin/agentflow.js",
     "doctor": "node bin/agentflow.js doctor",
     "scan-secrets": "node scripts/scan-secrets.mjs",
+    "check-version": "node scripts/check-version.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit"
