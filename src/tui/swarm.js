@@ -13,6 +13,10 @@
 // (each run is the child of the one before it). A record that carries the field
 // as null starts a new tree rather than dangling.
 //
+// Layout is longest-path layering: a node sits one level below its deepest
+// parent, so a diamond (A -> B, A -> C, B -> D, C -> D) puts D below both --
+// the only layering that reads correctly top-down.
+//
 // Every renderer is a pure function of the graph. Colour comes from cli/ui.js,
 // so NO_COLOR and non-TTY output degrade to plain text.
 
@@ -134,35 +138,36 @@ export function buildSwarmGraph(agentEvents) {
 
   const roots = nodes.filter((n) => n.parent === null).map((n) => n.index);
   const graph = { nodes, edges, roots, layers: [] };
-  assignLayers(graph);
+  layoutDAG(graph);
   return graph;
 }
 
 /**
- * Assign each node a layer one below its parent (a walk up the chain), then
- * group nodes by layer. Cycles are tolerated: a node reached only through a
+ * Assign each node a layer one below its deepest parent (longest-path layering),
+ * then group nodes by layer. Cycles are tolerated: a node reached only through a
  * cycle is treated as a root so the graph always renders.
  *
  * @param {SwarmGraph} graph
  * @returns {SwarmGraph} the same graph, mutated
  */
-export function assignLayers(graph) {
+export function layoutDAG(graph) {
   const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
   const layer = new Array(nodes.length).fill(0);
   const visiting = new Array(nodes.length).fill(false);
   const done = new Array(nodes.length).fill(false);
 
-  const walk = (index) => {
-    if (done[index] || visiting[index]) return layer[index];
+  const assign = (index) => {
+    if (done[index]) return layer[index];
+    if (visiting[index]) return layer[index]; // cycle guard
     visiting[index] = true;
     const node = nodes[index];
-    layer[index] = node.parent !== null && node.parent !== index ? walk(node.parent) + 1 : 0;
+    layer[index] = node.parent !== null && node.parent !== index ? assign(node.parent) + 1 : 0;
     visiting[index] = false;
     done[index] = true;
     return layer[index];
   };
 
-  for (const node of nodes) walk(node.index);
+  for (const node of nodes) assign(node.index);
   for (const node of nodes) node.layer = layer[node.index];
 
   const maxLayer = nodes.length ? Math.max(...nodes.map((n) => n.layer)) : -1;
@@ -222,6 +227,33 @@ function indentFor(depth, isLastStack) {
 }
 
 /**
+ * The connector glyph for one edge. `last` picks the elbow so the final child of
+ * a parent is drawn with a corner rather than a tee. Shared by the tree renderer
+ * and the standalone edge hint so the two can never drift apart.
+ *
+ * @param {boolean} last
+ * @returns {string}
+ */
+function edgeGlyph(last) {
+  return last ? "\u2514\u2500\u25b6" : "\u251c\u2500\u25b6"; // └─▶ / ├─▶
+}
+
+/**
+ * The connector for one edge, labelled with the direction it flows.
+ *
+ * @param {number|string} from
+ * @param {number|string} to
+ * @param {object} [options]
+ * @param {boolean} [options.last]
+ * @param {string} [options.indent]
+ * @returns {string}
+ */
+export function renderSwarmEdge(from, to, options = {}) {
+  const indent = typeof options.indent === "string" ? options.indent : "";
+  return `${indent}${edgeGlyph(Boolean(options.last))} ${dim(`${from} \u2192 ${to}`)}`;
+}
+
+/**
  * Render the graph as a top-down tree. Roots sit at the top; each child is drawn
  * beneath its parent with a connector. A node with several parents is drawn once,
  * under its first parent, with the extra parents noted.
@@ -254,7 +286,7 @@ export function renderSwarmGraph(graph, options = {}) {
     const node = nodes[index];
     if (!node) return;
     const indent = indentFor(depth, isLastStack);
-    const prefix = depth === 0 ? "  " : `${indent}${isLast ? "\u2514\u2500 " : "\u251c\u2500 "}`; // └─ / ├─
+    const prefix = depth === 0 ? "  " : `${indent}${edgeGlyph(isLast)} `;
     const extra = drawn.has(index) ? dim(" (also reached from another parent)") : "";
     lines.push(`${prefix}${renderSwarmNode(node)}${extra}`);
     if (drawn.has(index)) return;
@@ -289,7 +321,8 @@ export function renderSwarmGraph(graph, options = {}) {
 
 export default {
   buildSwarmGraph,
-  assignLayers,
+  layoutDAG,
   renderSwarmNode,
+  renderSwarmEdge,
   renderSwarmGraph,
 };
