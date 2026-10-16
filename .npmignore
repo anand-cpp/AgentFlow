@@ -1,0 +1,47 @@
+# .npmignore
+#
+# The published surface is defined by the "files" whitelist in package.json;
+# this file is the belt to that suspenders. If the whitelist is ever loosened,
+# these paths must still never ship.
+#
+# The rule that matters most is the secrets block. A working tree here contains
+# a keys.env and possibly a local .env; a publish that scooped those up would
+# leak provider credentials to the entire registry. They are excluded by name,
+# not by pattern, so the exclusion is obvious on inspection.
+
+# Development-only trees
+.github/
+test/
+docs/
+AUDIT/
+scripts/
+node_modules/
+coverage/
+.nyc_output/
+dist/
+
+# Build artifacts from the SEA pipeline
+sea-prep.blob
+
+# Secrets and local state — never publish
+.env
+.env.*
+*.env
+!*.env.example
+keys.env
+*.key
+
+# Tests and tooling
+*.test.js
+*.test.mjs
+*.spec.js
+eslint.config.js
+tsconfig.json
+.editorconfig
+
+# Repo housekeeping
+DEBT_LEDGER.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+.gitignore
+.gitattributes
