@@ -32,15 +32,40 @@ function readPackageJson(cwd) {
 }
 
 /**
+ * Are we running from a Single Executable Application?
+ *
+ * node:sea landed in Node 20.12, so the import is dynamic and guarded; on older
+ * runtimes the honest answer is "no". Cached because publish only asks once.
+ */
+let seaChecked = false;
+let runningAsSea = false;
+async function isSea() {
+  if (seaChecked) return runningAsSea;
+  seaChecked = true;
+  try {
+    const sea = await import("node:sea");
+    runningAsSea = typeof sea.isSea === "function" && sea.isSea();
+  } catch {
+    runningAsSea = false;
+  }
+  return runningAsSea;
+}
+
+/**
  * Run the committed-credential scanner over the working tree.
  *
  * A false positive here blocks a publish, which is the correct failure, but it
  * is also the check most likely to be unavailable in an installed copy (scripts/
  * is not shipped). Absent means "skipped", never "clean".
+ *
+ * Under SEA the scanner cannot run at all: process.execPath is the packaged
+ * binary, so spawning it with a script path re-invokes the CLI instead of node.
+ * Reporting a credential hit there would be a lie, so it is skipped instead.
  */
-function scanForSecrets(cwd) {
+function scanForSecrets(cwd, canScan) {
+  if (!canScan) return { skipped: true, reason: "binary" };
   const script = path.join(cwd, "scripts", "scan-secrets.mjs");
-  if (!fs.existsSync(script)) return { skipped: true };
+  if (!fs.existsSync(script)) return { skipped: true, reason: "source" };
   try {
     execFileSync(process.execPath, [script], { cwd, encoding: "utf8" });
     return { skipped: false, clean: true };
@@ -64,7 +89,7 @@ function checkNpmAuth() {
  * status is the same vocabulary the other checks use: ok, error, unconfigured,
  * or a skipped pseudo-status for checks that could not run.
  */
-function collectChecks(pkg, cwd, flags) {
+function collectChecks(pkg, cwd, flags, canScan) {
   /** @type {{ name: string, status: string, detail: string }[]} */
   const checks = [];
   const add = (name, status, detail) => checks.push({ name, status, detail });
@@ -137,11 +162,18 @@ function collectChecks(pkg, cwd, flags) {
     "secrets and dev trees excluded"
   );
 
-  const secrets = scanForSecrets(cwd);
+  const secrets = scanForSecrets(cwd, canScan);
+  const secretDetail = secrets.skipped
+    ? secrets.reason === "binary"
+      ? "binary cannot run the source scanner — check from a checkout"
+      : "scripts/ not present — run npm run scan-secrets"
+    : secrets.clean
+      ? "working tree clean"
+      : "potential credential(s) found";
   add(
     "secrets",
     secrets.skipped ? "unconfigured" : secrets.clean ? "ok" : "error",
-    secrets.skipped ? "scripts/ not present — run npm run scan-secrets" : secrets.clean ? "working tree clean" : "potential credential(s) found"
+    secretDetail
   );
 
   // Auth needs a network call and a token, so it is opt-in: `aflow publish
@@ -156,7 +188,8 @@ function collectChecks(pkg, cwd, flags) {
 
 async function runPublish({ cwd, out, flags }) {
   const { pkg } = readPackageJson(cwd);
-  const checks = collectChecks(pkg, cwd, flags);
+  const canScan = !(await isSea());
+  const checks = collectChecks(pkg, cwd, flags, canScan);
 
   await out.init({ checks, version: VERSION }, (r) => {
     const lines = [];
@@ -180,7 +213,7 @@ async function runPublish({ cwd, out, flags }) {
     if (errors) {
       lines.push(red(`${symbol("fail")} ${errors} check(s) would fail the publish`));
     } else if (skipped) {
-      lines.push(yellow(`${symbol("warn")} ${skipped} check(s) skipped — rerun with --auth for npm login`));
+      lines.push(yellow(`${symbol("warn")} ${skipped} check(s) skipped — run from a source checkout to scan for credentials`));
     } else {
       lines.push(green(`${symbol("ok")} ready to publish (cut a tag and let CI do it)`));
     }
