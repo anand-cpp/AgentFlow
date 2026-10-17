@@ -116,6 +116,7 @@ export const SLASH_HELP = [
   "  /timeline            browse this session's entry stream",
   "  /swarm               draw this session's agent handoff graph",
   "  /git [sub]           repository status, log, diff, branch, stage, commit, stash",
+  "  /lsp [sub]           language-server status, diagnostics, hover, definition",
   "",
   "Anything without a leading / is sent to the model.",
 ].join("\n");
