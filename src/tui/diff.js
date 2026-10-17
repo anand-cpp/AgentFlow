@@ -325,6 +325,50 @@ export function renderUnifiedDiff(filePath, diff, options = {}) {
 }
 
 /**
+ * Render a proposed file write as a compact, header-labelled unified diff, for
+ * the approval prompt.
+ *
+ * The "before" text is the file's current working-tree content (the caller
+ * supplies it, typically read from disk), so the human approves the change that
+ * `git diff <path>` would show -- not a summary of it. The record's optional
+ * `isNew` and `tracked` fields only affect the label; the body is the diff.
+ *
+ * @param {{path?:string, oldText?:string, newText?:string, isNew?:boolean, tracked?:boolean|null}} record
+ * @param {object} [options]
+ * @param {number} [options.width]
+ * @param {number} [options.max]            Body lines before the cap marker.
+ * @param {number} [options.contextLines]
+ * @returns {{header:string, body:string, additions:number, deletions:number, label:string}}
+ */
+export function renderWritePreview(record = {}, options = {}) {
+  const width = options.width && options.width > 0 ? options.width : 0;
+  const max = options.max ?? 40;
+  const entries = computeDiff(record.oldText ?? "", record.newText ?? "");
+  const { additions, deletions } = diffStats(entries);
+  const label =
+    record.isNew === true
+      ? "new file"
+      : record.tracked === true
+        ? "tracked file"
+        : record.tracked === false
+          ? "untracked file"
+          : "working tree";
+  const header = `${record.path || "(no path)"}  ${label}  +${additions} -${deletions}`;
+  const rendered = renderUnifiedDiff(record.path || "", entries, {
+    width,
+    showLineNumbers: false,
+    showHeader: false,
+    contextLines: options.contextLines ?? DEFAULT_CONTEXT,
+  });
+  const lines = rendered.split("\n");
+  const body =
+    lines.length > max
+      ? [...lines.slice(0, max), paint(`  \u2026 ${lines.length - max} more line(s)`, "dim")].join("\n")
+      : rendered;
+  return { header, body, additions, deletions, label };
+}
+
+/**
  * Parse the output of `git diff` (or `git show`) into per-file diffs.
  *
  * The parser is stateful about "are we inside a hunk yet": before the first
@@ -620,6 +664,7 @@ export default {
   diffStats,
   groupHunks,
   renderUnifiedDiff,
+  renderWritePreview,
   parseGitDiff,
   renderSplitDiff,
   renderDiffViewer,

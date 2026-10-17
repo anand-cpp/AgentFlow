@@ -19,8 +19,11 @@
 // Zero runtime dependencies.
 
 import readline from "node:readline";
+import fs from "node:fs";
 
 import { drawBox } from "./components.js";
+import { renderWritePreview } from "./diff.js";
+import { resolveInWorkspace } from "../core/agents/tool-paths.js";
 import { bold, dim, green, red, yellow } from "../cli/ui.js";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -47,6 +50,84 @@ export function commandOf(request = {}) {
 export function pathOf(request = {}) {
   const args = request.args || {};
   return args.path || args.file || args.filename || "";
+}
+
+/**
+ * A workspace-scoped reader for the approval preview.
+ *
+ * Given the workspace root, it returns a `readFile(path)` that reads the file's
+ * current content, or `null` when the file does not exist yet (a genuine new
+ * file), or `undefined` when the path cannot be used (an escape, a directory, an
+ * unreadable file). The caller treats `undefined` as "no preview" rather than as
+ * an empty file, so a rejected path never renders as a confident blank diff.
+ *
+ * @param {string} root
+ * @returns {(relPath:string)=>string|null|undefined}
+ */
+export function workspaceReader(root) {
+  return (relPath) => {
+    try {
+      const resolved = resolveInWorkspace(root, relPath, { label: "path" }).resolved;
+      const st = fs.statSync(resolved);
+      if (!st.isFile()) return undefined;
+      return fs.readFileSync(resolved, "utf8");
+    } catch (err) {
+      if (/** @type {any} */ (err)?.code === "ENOENT") return null;
+      return undefined;
+    }
+  };
+}
+
+/**
+ * Describe the change a write call would make, so the prompt can show the diff
+ * the human is approving.
+ *
+ * The "before" is the current working-tree content -- supplied as `oldText` on
+ * the call, or read from disk through `options.readFile`. When neither is
+ * available the write is undiffable and this returns `null` rather than inventing
+ * an all-additions preview against an empty file.
+ *
+ * @param {{scope?:string, args?:object}} request
+ * @param {{readFile?:(p:string)=>string|null|undefined, isTracked?:(p:string)=>boolean}} [options]
+ * @returns {{path:string, oldText:string, newText:string, isNew:boolean, tracked:boolean|null}|null}
+ */
+export function proposedWrite(request = {}, options = {}) {
+  if (classifyApproval(request) !== "write") return null;
+  const args = request.args || {};
+  const path = pathOf(request);
+  const newText =
+    typeof args.newText === "string" ? args.newText : typeof args.content === "string" ? args.content : null;
+  if (newText === null) return null;
+
+  let oldText;
+  let existed;
+  if (typeof args.oldText === "string") {
+    oldText = args.oldText;
+    existed = true;
+  } else if (path && typeof options.readFile === "function") {
+    let read;
+    try {
+      read = options.readFile(path);
+    } catch {
+      return null;
+    }
+    if (read === undefined) return null;
+    existed = typeof read === "string";
+    oldText = existed ? read : "";
+  } else {
+    return null;
+  }
+
+  let tracked = null;
+  if (path && typeof options.isTracked === "function") {
+    try {
+      const t = options.isTracked(path);
+      tracked = t === true ? true : t === false ? false : null;
+    } catch {
+      tracked = null;
+    }
+  }
+  return { path, oldText, newText, isNew: !existed, tracked };
 }
 
 /**
@@ -120,7 +201,7 @@ export function renderDiff(diff, { max = 40 } = {}) {
  * Render the approval prompt box.
  *
  * @param {{tool?:string, scope?:string, args?:object}} request
- * @param {{width?:number, diff?:Array<object>|null, continuation?:boolean}} [options]
+ * @param {{width?:number, diff?:Array<object>|null, preview?:{header:string,body:string}|null, continuation?:boolean}} [options]
  * @returns {string}
  */
 export function renderApproval(request, options = {}) {
@@ -139,6 +220,11 @@ export function renderApproval(request, options = {}) {
     const cmd = commandOf(request);
     body.push("");
     body.push(bold("$ ") + (cmd || dim("(no command given)")));
+  } else if (kind === "write" && options.preview) {
+    body.push("");
+    body.push(`${bold("write")} ${options.preview.header}`);
+    body.push("");
+    body.push(options.preview.body);
   } else if (options.diff) {
     body.push("");
     body.push(renderDiff(options.diff));
@@ -189,6 +275,12 @@ function diffable(request) {
  * @param {Function} [options.readLine]
  * @param {Set<string>} [options.always]
  * @param {(request:object)=>string} [options.keyOf]
+ * @param {string} [options.workspaceRoot]  Enables the write preview by reading
+ *   the current file from inside this root.
+ * @param {(p:string)=>string|null|undefined} [options.readFile]  Overrides the
+ *   workspace reader (e.g. for tests or a non-filesystem source).
+ * @param {(p:string)=>boolean} [options.isTracked]  Labels the preview tracked
+ *   or untracked; optional, and only affects the label.
  */
 export function decideApproval(request, options = {}) {
   const input = options.input || process.stdin;
@@ -204,10 +296,17 @@ export function decideApproval(request, options = {}) {
     return Promise.resolve({ approved: false, remember: false, reason: "non-interactive" });
   }
 
+  const readFile = options.readFile || (options.workspaceRoot ? workspaceReader(options.workspaceRoot) : null);
   let showDiff = false;
   const draw = () => {
-    const diff = showDiff && diffable(request) ? computeDiff(request.args?.oldText, request.args?.newText) : null;
-    output.write(`\n${renderApproval(request, { width: options.width, diff, continuation: request.continuation })}\n`);
+    let diff = null;
+    let preview = null;
+    if (showDiff) {
+      const rec = proposedWrite(request, { readFile, isTracked: options.isTracked });
+      if (rec) preview = renderWritePreview(rec, { width: options.width });
+      else if (diffable(request)) diff = computeDiff(request.args?.oldText, request.args?.newText);
+    }
+    output.write(`\n${renderApproval(request, { width: options.width, diff, preview, continuation: request.continuation })}\n`);
   };
 
   const deadline = Date.now() + timeoutMs;
@@ -300,6 +399,9 @@ export function decideApproval(request, options = {}) {
  * @param {number} [options.timeoutMs]
  * @param {number} [options.width]
  * @param {Function} [options.readLine]
+ * @param {string} [options.workspaceRoot]
+ * @param {(p:string)=>string|null|undefined} [options.readFile]
+ * @param {(p:string)=>boolean} [options.isTracked]
  * @returns {(call:object, tool?:object)=>Promise<boolean>}
  */
 export function createApprover(options = {}) {
@@ -318,6 +420,8 @@ export default {
   classifyApproval,
   commandOf,
   pathOf,
+  workspaceReader,
+  proposedWrite,
   computeDiff,
   renderDiff,
   renderApproval,

@@ -281,6 +281,7 @@ async function conversationLoop(session, io, workspace) {
       readLine: nextLine,
       width: undefined,
       keyOf: (call) => call?.scope || call?.tool || "?",
+      workspaceRoot: workspace.root,
     })
   );
 
