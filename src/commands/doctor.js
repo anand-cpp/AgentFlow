@@ -14,6 +14,7 @@ import { oauthClientConfigured } from "../../open-sse/providers/shared.js";
 import { EventLog, EVENTS, defaultLogPath } from "../core/events.js";
 import { defaultKeysFile, readKeysFile, mergeEnv, configuredProviderNames } from "../core/keys.js";
 import { PROVIDERS } from "../core/gateway-server.js";
+import { findGitRoot, validateGitAvailable } from "../core/git/discover.js";
 
 /**
  * Candidate models worth probing when the user hasn't named one.
@@ -44,6 +45,28 @@ function checkConfig() {
     name: "config",
     status: "ok",
     detail: sources.join(" + "),
+  };
+}
+
+/**
+ * Report whether git is usable. The git integration is optional, so a missing
+ * binary is a warning (git tools are disabled), not a failing check: doctor
+ * should not exit non-zero for a machine that simply has no git.
+ */
+async function checkGit() {
+  const avail = await validateGitAvailable();
+  if (!avail.ok) {
+    return {
+      name: "git",
+      status: "warn",
+      detail: `git not found on PATH — git tools disabled (${avail.error})`,
+    };
+  }
+  const repo = findGitRoot(process.cwd());
+  return {
+    name: "git",
+    status: "ok",
+    detail: `git ${avail.version}${repo.ok ? ` — repository at ${repo.root}` : " — current directory is not a repository"}`,
   };
 }
 
@@ -96,6 +119,7 @@ async function runDoctor({ config, out, flags }) {
 
   checks.push(checkNodeVersion());
   checks.push(checkConfig());
+  checks.push(await checkGit());
   checks.push(checkProviderKeys());
   checks.push(...checkOAuthClients());
 
