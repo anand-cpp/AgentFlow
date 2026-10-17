@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="markTitle markDesc">
+  <title id="markTitle">AgentFlow mark</title>
+  <desc id="markDesc">A hexagonal outline containing three input nodes converging through a central router node to a single output node, representing many models routed through one agent runtime.</desc>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M128 34 L209.6 81 L209.6 175 L128 222 L46.4 175 L46.4 81 Z"
+          fill="#0d1117" stroke="#22d3ee" stroke-width="7" opacity="0.95"/>
+    <g stroke="#22d3ee" stroke-width="6">
+      <path d="M92 99 L119 121"/>
+      <path d="M92 128 L119 128"/>
+      <path d="M92 157 L119 135"/>
+      <path d="M137 128 L166 128"/>
+    </g>
+    <circle cx="88" cy="98" r="8.5" fill="#22d3ee" stroke="none"/>
+    <circle cx="88" cy="128" r="8.5" fill="#22d3ee" stroke="none"/>
+    <circle cx="88" cy="158" r="8.5" fill="#22d3ee" stroke="none"/>
+    <circle cx="128" cy="128" r="11" fill="#22d3ee" stroke="#0d1117" stroke-width="4"/>
+    <circle cx="170" cy="128" r="8.5" fill="#fbbf24" stroke="none"/>
+  </g>
+</svg>

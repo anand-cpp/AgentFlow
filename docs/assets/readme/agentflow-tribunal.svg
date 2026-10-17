@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 566" width="1120" height="566" role="img" aria-labelledby="tribTitle tribDesc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title id="tribTitle">The AgentFlow Tribunal pipeline</title>
+  <desc id="tribDesc">Five stages left to right: Forge (self-review), Crucible (cross-examination), Merge (hybrid synthesis), Trial (prosecution), Oracle (confidence gate). The Trial can send the hybrid back to Merge. The Oracle weighs five scores against a 0.95 gate and returns one of four verdicts.</desc>
+  <defs>
+    <marker id="tribArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#22d3ee"/>
+    </marker>
+    <marker id="retryArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#fbbf24"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="46" font-size="23" font-weight="700" fill="#e6edf3">The Tribunal — five adversarial stages</text>
+  <text x="40" y="72" font-size="13" fill="#8b949e">One proposal in. A verdict, the findings behind it, and the exact weights that produced the score — or an honest ABORTED.</text>
+
+  <!-- Connectors -->
+  <g stroke="#22d3ee" stroke-width="2.4">
+    <line x1="226" y1="218" x2="250" y2="218" marker-end="url(#tribArrow)"/>
+    <line x1="440" y1="218" x2="464" y2="218" marker-end="url(#tribArrow)"/>
+    <line x1="654" y1="218" x2="678" y2="218" marker-end="url(#tribArrow)"/>
+    <line x1="868" y1="218" x2="892" y2="218" marker-end="url(#tribArrow)"/>
+  </g>
+
+  <!-- Retry loop: Trial -> Merge -->
+  <path d="M774 316 V360 H568 V320" fill="none" stroke="#fbbf24" stroke-width="2.2" stroke-dasharray="6 5" marker-end="url(#retryArrow)"/>
+  <rect x="392" y="342" width="360" height="15" rx="4" fill="#0d1117"/>
+  <text x="572" y="353" text-anchor="middle" font-size="10.5" fill="#fbbf24">CONVICTED_RETRY — send the hybrid back to Merge</text>
+
+  <!-- Stage cards (x: 40, 254, 468, 682, 896 ; w 184 ; y 120 h 196) -->
+  <!-- 01 FORGE -->
+  <rect x="40" y="120" width="184" height="196" rx="13" fill="#161b22" stroke="#30363d"/>
+  <circle cx="70" cy="152" r="16" fill="#22d3ee"/>
+  <text x="70" y="157" text-anchor="middle" font-size="14" font-weight="700" fill="#0d1117">1</text>
+  <text x="96" y="158" font-size="15.5" font-weight="700" fill="#22d3ee" letter-spacing="0.5">FORGE</text>
+  <text x="58" y="190" font-size="11" fill="#8b949e" font-style="italic">self-adversarial review</text>
+  <text x="58" y="214" font-size="11.5" fill="#c9d1d9">The proposal reviews</text>
+  <text x="58" y="233" font-size="11.5" fill="#c9d1d9">itself as a hostile but</text>
+  <text x="58" y="252" font-size="11.5" fill="#c9d1d9">fair reader.</text>
+
+  <!-- 02 CRUCIBLE -->
+  <rect x="254" y="120" width="184" height="196" rx="13" fill="#161b22" stroke="#30363d"/>
+  <circle cx="284" cy="152" r="16" fill="#22d3ee"/>
+  <text x="284" y="157" text-anchor="middle" font-size="14" font-weight="700" fill="#0d1117">2</text>
+  <text x="310" y="158" font-size="15.5" font-weight="700" fill="#22d3ee" letter-spacing="0.5">CRUCIBLE</text>
+  <text x="272" y="190" font-size="11" fill="#8b949e" font-style="italic">cross-examination</text>
+  <text x="272" y="214" font-size="11.5" fill="#c9d1d9">Four attack vectors.</text>
+  <text x="272" y="233" font-size="11.5" fill="#c9d1d9">Each finding must</text>
+  <text x="272" y="252" font-size="11.5" fill="#c9d1d9">carry a falsifiable proof.</text>
+
+  <!-- 03 MERGE -->
+  <rect x="468" y="120" width="184" height="196" rx="13" fill="#161b22" stroke="#30363d"/>
+  <circle cx="498" cy="152" r="16" fill="#22d3ee"/>
+  <text x="498" y="157" text-anchor="middle" font-size="14" font-weight="700" fill="#0d1117">3</text>
+  <text x="524" y="158" font-size="15.5" font-weight="700" fill="#22d3ee" letter-spacing="0.5">MERGE</text>
+  <text x="486" y="190" font-size="11" fill="#8b949e" font-style="italic">hybrid synthesis</text>
+  <text x="486" y="214" font-size="11.5" fill="#c9d1d9">Survivors combined.</text>
+  <text x="486" y="233" font-size="11.5" fill="#c9d1d9">Provenance and each</text>
+  <text x="486" y="252" font-size="11.5" fill="#c9d1d9">finding tracked.</text>
+
+  <!-- 04 TRIAL -->
+  <rect x="682" y="120" width="184" height="196" rx="13" fill="#161b22" stroke="#3a3320"/>
+  <circle cx="712" cy="152" r="16" fill="#fbbf24"/>
+  <text x="712" y="157" text-anchor="middle" font-size="14" font-weight="700" fill="#0d1117">4</text>
+  <text x="738" y="158" font-size="15.5" font-weight="700" fill="#fbbf24" letter-spacing="0.5">TRIAL</text>
+  <text x="700" y="190" font-size="11" fill="#8b949e" font-style="italic">prosecution</text>
+  <text x="700" y="214" font-size="11.5" fill="#c9d1d9">The hybrid is</text>
+  <text x="700" y="233" font-size="11.5" fill="#c9d1d9">prosecuted for</text>
+  <text x="700" y="252" font-size="11.5" fill="#c9d1d9">merge-specific faults.</text>
+
+  <!-- 05 ORACLE -->
+  <rect x="896" y="120" width="184" height="196" rx="13" fill="#161b22" stroke="#20402f"/>
+  <circle cx="926" cy="152" r="16" fill="#3fb950"/>
+  <text x="926" y="157" text-anchor="middle" font-size="14" font-weight="700" fill="#0d1117">5</text>
+  <text x="952" y="158" font-size="15.5" font-weight="700" fill="#3fb950" letter-spacing="0.5">ORACLE</text>
+  <text x="914" y="190" font-size="11" fill="#8b949e" font-style="italic">the gate</text>
+  <text x="914" y="214" font-size="11.5" fill="#c9d1d9">Weighs all five</text>
+  <text x="914" y="233" font-size="11.5" fill="#c9d1d9">scores, decides</text>
+  <text x="914" y="252" font-size="11.5" fill="#c9d1d9">against a 0.95 gate.</text>
+
+  <!-- Weights band -->
+  <rect x="40" y="392" width="1040" height="92" rx="12" fill="#11161d" stroke="#2d333b"/>
+  <text x="64" y="424" font-size="12" fill="#8b949e" font-weight="700" letter-spacing="0.4">ORACLE WEIGHTS</text>
+  <g font-size="12.5" fill="#c9d1d9">
+    <text x="216" y="424">self <tspan fill="#22d3ee" font-weight="700">0.15</tspan></text>
+    <text x="316" y="424">survival <tspan fill="#22d3ee" font-weight="700">0.25</tspan></text>
+    <text x="436" y="424">merge <tspan fill="#22d3ee" font-weight="700">0.20</tspan></text>
+    <text x="536" y="424">trial <tspan fill="#fbbf24" font-weight="700">0.30</tspan></text>
+    <text x="636" y="424">validation <tspan fill="#22d3ee" font-weight="700">0.10</tspan></text>
+  </g>
+  <text x="820" y="424" font-size="12.5" fill="#8b949e">gate</text>
+  <text x="864" y="424" font-size="13" font-weight="700" fill="#3fb950">≥ 0.95</text>
+
+  <line x1="64" y1="442" x2="1056" y2="442" stroke="#21262d"/>
+
+  <g font-size="12.5">
+    <circle cx="70" cy="466" r="5" fill="#3fb950"/>
+    <text x="84" y="470" fill="#e6edf3" font-weight="700">VERIFIED</text>
+    <circle cx="196" cy="466" r="5" fill="#fbbf24"/>
+    <text x="210" y="470" fill="#e6edf3">INSUFFICIENT_CONFIDENCE</text>
+    <circle cx="430" cy="466" r="5" fill="#f85149"/>
+    <text x="444" y="470" fill="#e6edf3">REJECTED</text>
+    <circle cx="540" cy="466" r="5" fill="#6e7681"/>
+    <text x="554" y="470" fill="#e6edf3">ABORTED</text>
+  </g>
+
+  <text x="40" y="524" font-size="10.5" fill="#6e7681" font-style="italic">Every stage is fail-closed: an unreadable model output becomes a named result, never a crash and never a silent pass.</text>
+  <text x="40" y="544" font-size="10.5" fill="#6e7681" font-style="italic">Stages may run on the same model. That is self-critique, not independent review — the fight card shows what actually ran.</text>
+</svg>

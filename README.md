@@ -1,84 +1,26 @@
 <div align="center">
 
-```
-▄▀█ █▀▀ █▀▀ █▄█ ▀█▀ █▀▀ █   █▀█ █ █
-█▀█ █▄█ ██▄ █ █  █  █▀  █▄▄ █▄█ ▀▄▀
-```
+<img src="docs/assets/readme/agentflow-hero.svg" alt="AgentFlow: a task flows through the Agent Runtime, the Router, and twelve model providers to a verification step, with durable state held in sessions, the blackboard, and an append-only event log." width="100%">
 
-**A terminal-first CLI that routes work across many models — and tells you which of them actually answer.**
+**A terminal-first CLI that routes a coding task across twelve model providers, keeps the thread alive when one of them dies, and puts the answer on trial in a five-stage adversarial review.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node: >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
 [![Runtime dependencies: 0](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen.svg)](THIRD_PARTY_NOTICES.md)
+[![Tests: 1336](https://img.shields.io/badge/tests-1336-blue.svg)](test)
+
+[Quick start](#quick-start) · [Why AgentFlow](#why-agentflow) · [Architecture](#architecture) · [The Tribunal](#the-tribunal) · [Providers](#providers-and-local-models) · [Security](#trust-safety-and-verification)
 
 </div>
 
 ---
 
-### The tribunal puts a proposal on trial before you commit to it.
-
-Five stages. Five models. One verdict, with a confidence score you can argue with.
-
-```
-$ aflow tribunal run "Should we use microservices for a team of 3?"
-
-╔══════════════════════════════════════════════════════════════════╗
-║  TRIBUNAL FIGHT CARD                                             ║
-║                                                                  ║
-║  id       ea1b9d40-2c7f-4c1e-9c2b-7a5f0d3e8b41                   ║
-║  domain   architecture                                           ║
-║  started  2026-10-15 17:25                                       ║
-║  finished 2026-10-15 17:26                                       ║
-╠══════════════════════════════════════════════════════════════════╣
-║  ROUND 1 · FORGE  self-adversarial review                        ║
-║  proposal-1           -                reviewed  conf 0.62 → 0.91║
-║                                                                  ║
-║  1 candidate(s) · 1 reviewed · 0 unreadable · 0 revised          ║
-╠══════════════════════════════════════════════════════════════════╣
-║  ROUND 2 · CRUCIBLE  cross-examination                           ║
-║  proposal-1  survival 0.90  2 finding(s)                         ║
-║    P2 · scope  Hybrid omits the rollback path                    ║
-║    P3 · evidence  No benchmark cited for the claim               ║
-║                                                                  ║
-║  2 finding(s) across 1 report(s) · avg survival 0.90             ║
-╠══════════════════════════════════════════════════════════════════╣
-║  ROUND 3 · MERGE  hybrid synthesis                               ║
-║  status   COMPLETED                                              ║
-║  gate     Two proposals — synthesizing a hybrid                  ║
-║  decision SYNTHESIZED                                            ║
-║  elements 3                                                      ║
-║    e1 from proposal-1, proposal-2                                ║
-║    e2 from proposal-1                                            ║
-║    e3 from proposal-2                                            ║
-║  findings                                                        ║
-║    f1 ADDRESSED                                                  ║
-║    f2 DISPUTED                                                   ║
-╠══════════════════════════════════════════════════════════════════╣
-║  ROUND 4 · TRIAL  prosecution                                    ║
-║  status   COMPLETED                                              ║
-║  verdict  ACQUITTED                                              ║
-║  no findings raised by the prosecutor                            ║
-╠══════════════════════════════════════════════════════════════════╣
-║  ROUND 5 · ORACLE  the gate                                      ║
-║   VERIFIED   confidence 96.5%                                    ║
-║  Five stage scores weighed; every validation check passed.       ║
-║  findings P0 0 · P1 0 · P2 2 · P3 1 · unresolved critical 0      ║
-║                                                                  ║
-║  weights self 0.15 · survival 0.25 · merge 0.20 · trial 0.30 · v…║
-║  scores  self 0.93 · survival 0.90 · merge 1.00 · trial 1.00 · v…║
-║                                                                  ║
-║  validation checks                                               ║
-║    ✓ schema     report conforms to the oracle schema             ║
-║    ✓ threshold  confidence 0.965 ≥ gate 0.95                     ║
-║                                                                  ║
-║  caveats                                                         ║
-║    ! Confidence is a weighted blend, not a calibrated probabilit…║
-╚══════════════════════════════════════════════════════════════════╝
-```
-
-One command. A verdict, the findings behind it, and the exact weights that
-produced the score — so you can see *why* the tribunal trusts the answer, not
-just that it does.
+**AgentFlow is an open-source coding agent for the terminal.** It fronts an
+OpenAI-compatible model gateway with a routing engine that measures which models
+actually answer, a durable session and project-state layer that survives a
+provider switch, and a self-adversarial tribunal that reviews a proposal before
+you act on it. It ships with **zero runtime dependencies** — the Node standard
+library and nothing else — and runs straight from source on Node ≥ 20.
 
 ## The problem
 
@@ -93,298 +35,325 @@ with an empty body rather than an error you can catch. Your tool reports success
 them into one. AgentFlow measures the gap — in `aflow doctor` (probes specific
 models), in `aflow route` (walks a fallback order and records why each step
 failed), and in the router itself, which orders candidates by observed health
-rather than by the order a provider happened to list them.
+rather than by the order a provider happened to list them. The same discipline
+runs through the review layer: a proposal is a claim, and the tribunal exists to
+test it rather than agree with it.
 
-## Quick start
+## See it working
 
-No build step. No `npm install`. Zero runtime dependencies — it runs on the Node
-standard library alone. Clone it and go:
+No build step, no `npm install`. Clone it and run a diagnostic:
 
 ```sh
 git clone https://github.com/anand-cpp/AgentFlow.git
 cd AgentFlow
-node bin/aflow.js setup --check
+node bin/aflow.js doctor
 ```
 
-```
-$ node bin/aflow.js setup --check
+<img src="docs/assets/readme/agentflow-terminal.svg" alt="Real terminal output of node bin/aflow.js doctor: node and config are ok, provider keys and OAuth clients are unconfigured, and the gateway is unreachable; one problem is reported." width="100%">
 
-keys file: C:\Users\anand\AppData\Local\agentflow\keys.env
-  · ollama                 fetch failed
+<sub>Actual output, captured from this checkout on Node v24.19.0 (Windows). Long detail cells trimmed to fit the panel.</sub>
 
-No hosted providers are configured yet — run `aflow setup`.
-```
+**What this proves:** the CLI runs with no install step, and `doctor` reports the
+truth — environment, missing keys, and an unreachable gateway — instead of
+failing silently or inventing success. The redaction chokepoint is visible too:
+`aflow config` shows `apiKey ***` for a value that is set.
 
-`setup` writes keys to a single `keys.env` under your state directory — never to
-the repo, never to your shell history. Run the wizard once, add any of the free
-providers, and you are routing.
+**What it does not prove:** that model-backed coding works. That requires a
+provider credential and a running gateway — the next section gets you there. A
+clean `doctor` is a statement about your setup, not about model quality.
+
+## Why AgentFlow
+
+These are the capabilities that are actually built today. Each is implemented in
+`src/` and covered by the test suite; where something is partial or planned, the
+[roadmap](#roadmap) says so.
+
+| Capability | What it means for you |
+|---|---|
+| **Continuity across a dead provider** | When a model fails or returns an empty body, the next candidate answers. The conversation continues, context is intact, and the switch is recorded — you never retype a thing. Failover is a *decision*, not a blind retry: a write or shell command whose outcome is unknown pauses for approval instead of running twice (`src/core/continuity.js`). |
+| **Health-aware routing** | The router orders candidates by observed health, not catalogue order, so a model that just failed cools down instead of being tried first. Failures are classified (empty, rate-limited, timeout, auth, …) before a switch is even considered. |
+| **Self-contained gateway** | `aflow server` runs an OpenAI-compatible `/v1` endpoint inside the repo, with SSE translation and API-key/bind guards. Anything that speaks `/v1` can sit in front of it — including a `9Router` instance or Ollama. |
+| **An adversarial tribunal** | Five bounded stages — Forge, Crucible, Merge, Trial, Oracle — review a proposal across models and return a verdict against a confidence gate. It fails *closed*: a run that cannot finish is `ABORTED`, never a quiet success. |
+| **Durable, resumable state** | Sessions, a per-project Blackboard, and a structured JSONL event log live outside the repo. Resume with `aflow chat --resume <id>`. |
+| **Safe tool execution** | The model is untrusted input. Permissions are enforced by allowlist, filesystem tools are confined to a resolved workspace root, and approvals fail closed (no TTY → deny). |
+| **Zero runtime dependencies** | Nothing to audit, nothing to install for the tests to run, no transitive supply chain. |
+
+## Quick start
+
+**Requirements:** Node.js **≥ 20** ([CI](.github/workflows/test.yml) runs 20, 22,
+and 24). No `npm install` is required to run the CLI or the test suite.
 
 ```sh
-node bin/aflow.js setup      # wizard: pick a provider, paste a key, it is tested before it is saved
-node bin/aflow.js chat       # start a session
+git clone https://github.com/anand-cpp/AgentFlow.git
+cd AgentFlow
+
+node bin/aflow.js --version      # aflow 0.3.0
+node bin/aflow.js doctor         # environment + reachability check
 ```
 
-```
-$ node bin/aflow.js chat
+### Configure a provider
 
-aflow chat · coder · no model · session ses_20261015T172503281Z_93qr3p (new)
-workspace C:\Users\anand\9router (git)
-type /help for commands, /quit to exit. Ctrl+C cancels a response.
+The fastest path is the wizard. It tests a key against the provider **before**
+writing it, and stores keys in a single owner-only `keys.env` under your state
+directory — never in the repo, never in your shell history.
 
->
-```
-
-## What you get
-
-```
-╔═══════════════════════════════╗   ╔═══════════════════════════════╗
-║ THE TRIBUNAL                  ║   ║ NEVER LOSES WORK              ║
-║                               ║   ║                               ║
-║ Five adversarial stages       ║   ║ A dead model fails over       ║
-║ review a proposal across      ║   ║ mid-conversation. Context     ║
-║ models, then a confidence     ║   ║ is preserved and the switch   ║
-║ gate decides if it ships.     ║   ║ is recorded. No retyping.     ║
-╚═══════════════════════════════╝   ╚═══════════════════════════════╝
-╔═══════════════════════════════╗   ╔═══════════════════════════════╗
-║ TWELVE FREE PROVIDERS         ║   ║ ZERO DEPENDENCIES             ║
-║                               ║   ║                               ║
-║ Groq · Cerebras · Mistral     ║   ║ Pure Node builtins. 1177+     ║
-║ Gemini · OpenRouter ·         ║   ║ tests. Lint and typecheck     ║
-║ Cloudflare · HuggingFace ·    ║   ║ block every change.           ║
-║ Together · Fireworks ·        ║   ║                               ║
-║ DeepInfra · SambaNova ·       ║   ╚═══════════════════════════════╝
-║ Ollama (local).               ║                                    
-╚═══════════════════════════════╝                                    
+```sh
+node bin/aflow.js setup          # pick a provider, paste a key, it is verified, then saved
+node bin/aflow.js setup --check  # probe every configured provider and report reachability
 ```
 
-## The tribunal
+Eleven hosted providers are free to start and need no credit card (Groq,
+Cerebras, Mistral, Gemini, OpenRouter, Cloudflare, Hugging Face, Together,
+Fireworks, DeepInfra, SambaNova). Prefer to stay fully local? Install
+[Ollama](https://ollama.com), pull a model, and AgentFlow will use it with no key
+at all:
 
-Every proposal runs the same five stages, in order. Each stage narrows the field
-and leaves behind a record the next one reads.
-
-```
-        proposal
-           │
-           ▼
-      ╔════════╗
-      ║ FORGE  ║   self-adversarial review
-      ╚════╤═══╝
-           │
-           ▼
-      ╔════════╗
-      ║CRUCIBLE║   cross-examination
-      ╚════╤═══╝
-           │
-           ▼
-      ╔════════╗
-      ║ MERGE  ║   hybrid synthesis
-      ╚════╤═══╝
-           │
-           ▼
-      ╔════════╗
-      ║ TRIAL  ║   prosecution
-      ╚════╤═══╝
-           │
-           ▼
-      ╔════════╗
-      ║ ORACLE ║   confidence gate
-      ╚════╤═══╝
-           │
-           ▼
-   VERIFIED · INSUFFICIENT_CONFIDENCE · REJECTED · ABORTED
+```sh
+ollama pull llama3.1
+node bin/aflow.js setup --check    # ollama should now report reachable
 ```
 
-Forge reviews a proposal against itself. Crucible cross-examines it from
-adversarial vectors and scores its survival. Merge synthesizes the survivors
-into a hybrid. Trial prosecutes the hybrid and can send it back for another
-merge. Oracle weighs all five scores — self 0.15, survival 0.25, merge 0.20,
-trial 0.30, validation 0.10 — and returns a verdict against a 0.95 gate.
+### Run something useful
 
-A run that cannot finish is not a pass. A skipped stage yields **ABORTED**, not
-a quiet success. The tribunal fails closed.
-
-## Chat that survives a dead provider
-
-When a model fails or returns an empty body, the next candidate answers. The
-conversation continues, the context is intact, and the switch is on the record.
-You never retype a thing.
-
-```
-$ aflow chat
-
-aflow chat · coder · groq/llama-3.3-70b-versatile · session ses_20261015T172503281Z_93qr3p (new)
-workspace C:\Users\anand\9router (git)
-type /help for commands, /quit to exit. Ctrl+C cancels a response.
-
-> why is an empty 200 worse than a 500?
-
-A 500 tells you the truth. An empty 200 says the request succeeded and hands you
-nothing, so every layer above assumes there was no output — the failure surfaces
-later, as a wrong answer, far from its cause. Here it is retried, not returned.
-
-> summarize src/core/continuity.js in three lines
-
-It classifies an error into a failure class — empty, rate-limited, timeout,
-auth, and so on — decides whether switching providers could change the outcome,
-and asks for consent before a switch that might duplicate a tool call.
-
-(answered by cerebras/llama3.1-70b)
-
-> /status
-
-model:    cerebras/llama3.1-70b (fallback)
-provider: cerebras
-status:   healthy
-circuit:  closed
-session:  ses_20261015T172503281Z_93qr3p  (4 message(s), ~1.9k tokens)
-
-> /quit
-
-session ses_20261015T172503281Z_93qr3p · 4 message(s) · ~1.9k tokens
-resume: aflow chat --resume ses_20261015T172503281Z_93qr3p
+```sh
+node bin/aflow.js chat                                   # interactive session
+node bin/aflow.js chat --resume <session-id>             # pick the thread back up
+node bin/aflow.js route "explain this stack trace"       # one completion through the fallback cascade
+node bin/aflow.js agent run coder "add a --dry-run flag" # a bounded agent task
+node bin/aflow.js tribunal run "Should we use microservices for a team of 3?"
+node bin/aflow.js dashboard                              # live status board (full-screen, read-only)
 ```
 
-Failover is not a retry of your message — it is the same turn, finished by
-someone else, with the switch recorded so a later reader can tell what happened.
+Inside a session you never leave the terminal to look around. `/diff` opens a
+keyboard-driven reviewer over uncommitted workspace changes; `/timeline` browses
+the session's entry stream; `/swarm` draws the agent-handoff graph; `/context`,
+`/add`, `/drop`, and `/compact` manage what is in the prompt. `/tribunal` and
+`/agent` run the tribunal or a bounded agent task inline.
+
+Full command surface: `aflow --help`. Configuration precedence, low → high:
+`defaults < global file < project file < AGENTFLOW_* env < flags`.
 
 ## Architecture
 
+<img src="docs/assets/readme/agentflow-architecture.svg" alt="AgentFlow architecture: the aflow CLI above a control plane of Configuration, Agent Runtime, and Tribunal, beside durable state; below them the Router and ProviderHealth feed an OpenAI-compatible gateway that reaches eleven hosted providers plus local Ollama." width="100%">
+
+A single request flows **CLI → runtime → router → gateway → provider**. The
+runtime drives the model↔tool loop for an agent; the router walks quality tiers
+and reorders them by observed health; the gateway speaks the OpenAI `/v1` wire
+either in-repo (`aflow server`) or against an external gateway. Tribunal runs
+hang off the runtime, and every write to a session, the Blackboard, or the event
+log passes through one redaction chokepoint first.
+
+`src/` is AgentFlow's own code. The model-facing routing/translation engine under
+`open-sse/` is inherited from 9Router (MIT) and adapted — see
+[Project origin](#project-origin-and-license). A module-by-module map lives in
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+## Capabilities
+
+**Runtime** — eight built-in agents (`planner`, `coder`, `reviewer`, `debugger`,
+`tester`, `researcher`, `security`, `release`), each a *declaration* with a
+narrow tool scope rather than a prompt with a name. The `reviewer` and `security`
+agents are read-only by design: an agent that can edit is not an independent
+check. Bounded iterations, tool calls, and wall-clock limits; enforced output
+contracts.
+
+**Routing** — a fallback cascade with failure classification, candidate
+ordering, and a `ProviderHealth` circuit breaker that the runtime constructs and
+feeds. Continuation is deliberate about what it will *not* replay.
+
+**Task state** — persistent sessions (atomic writes, corruption-safe), a
+per-project Blackboard (goal, tasks, decisions, blockers, bugs, findings, tests,
+timeline), and an append-only JSONL event log. All stored outside the repo and
+redacted before they are written.
+
+**Security** — allowlist permissions resolving
+`deny → scope approval → allow → ask → deny`, workspace path containment,
+fail-closed approvals, and redaction by field name *and* by value shape. See
+[Trust, safety, and verification](#trust-safety-and-verification).
+
+**Verification** — the five-stage tribunal below, plus `doctor`/`models` live
+reachability probing.
+
+## The Tribunal
+
+A model asked to check its own work tends to agree with itself. The tribunal is
+the answer to that: a proposal is treated as a defendant and run through five
+adversarial stages, each able to kill it.
+
+<img src="docs/assets/readme/agentflow-tribunal.svg" alt="The five tribunal stages left to right: Forge self-review, Crucible cross-examination, Merge hybrid synthesis, Trial prosecution, and the Oracle confidence gate. The Trial can send the hybrid back to Merge on CONVICTED_RETRY." width="100%">
+
+Forge reviews a proposal against itself. Crucible cross-examines it from four
+adversarial vectors and scores its survival; every finding must carry a
+falsifiable proof. Merge synthesizes the survivors into a hybrid with provenance
+tracked per element. Trial prosecutes the hybrid for merge-specific faults and
+can send it back for another merge. Oracle weighs all five scores — self `0.15`,
+survival `0.25`, merge `0.20`, trial `0.30`, validation `0.10` — against a
+`0.95` gate and returns `VERIFIED`, `INSUFFICIENT_CONFIDENCE`, `REJECTED`, or
+`ABORTED`.
+
+The real command surface:
+
+```console
+$ node bin/aflow.js tribunal run "<proposal>" [--domain DOMAIN] [--model ID[,ID]]
+$ node bin/aflow.js tribunal history [--limit N]
+$ node bin/aflow.js fight "<proposal>"        # alias for: tribunal run
+$ node bin/aflow.js --tribunal "<proposal>"   # alias for: tribunal run
 ```
-               ┌───────────────┬──────────────┐
-               │          aflow CLI           │
-               │ 16 commands · --json · flags │
-               └───────────────┬──────────────┘
-                               │
-      ┬────────────────────────┼────────────────────────┬
-      │                        │                        │
-┌─────┬──────┐        ┌────────┬───────┐        ┌────────┬───────────┐
-│  TRIBUNAL  │        │ Agent Runtime  │        │     Sessions +     │
-│  5 stages  │        │ agents · tools │        │     Blackboard     │
-└────────────┘        │                │        │ resume · decisions │
-                      └────────┬───────┘        └────────────────────┘
-                               │
-                  ┌────────────┬─────────────┐
-                  │          Router          │
-                  │tiers · health · failover │
-                  └────────────┬─────────────┘
-                               │
-                  ┌────────────┬─────────────┐
-                  │      Gateway Server      │
-                  │  OpenAI-compatible /v1   │
-                  └────────────┬─────────────┘
-                               │
- ┌─────────────────────────────┬──────────────────────────────┐
- │           groq · cerebras · gemini · openrouter            │
- │           cloudflare · hf · together · fireworks           │
- │           deepinfra · sambanova · ollama (local)           │
- └─────────────────────────────┬──────────────────────────────┘
-```
 
-A single request flows CLI → runtime → router → gateway → provider. The router
-walks quality tiers and reorders them by observed health, so a model that just
-failed is not tried first. The gateway is OpenAI-compatible, so anything that
-speaks `/v1` can sit in front of it. Tribunal and the session/blackboard stores
-hang off the runtime — one reviews a proposal, the other remembers every decision.
+**Read the confidence number correctly.** It is a weighted blend of the stages'
+own scores — consistent and reproducible for a given run, but **not a calibrated
+probability**. The fight card prints the weights and the findings behind the
+score precisely so you can argue with them, and it carries this caveat itself.
+Two invariants keep the number honest: the verdict and the confidence cannot
+disagree (a `VERIFIED` report below `0.95` is rejected by the validator), and
+**a failing executed test overrides any confidence value** — the outcome becomes
+`TESTS_FAILED`, not a number.
 
-## Twelve providers, one endpoint
+Two further limits matter. First, **the stages may run on the same model**, so
+"self-review" is genuine self-critique, not an independent second opinion; the
+diagram does not pretend otherwise. Second, **it fails closed** — an unreadable
+model output becomes a named `INVALID_*` finding or an `ABORTED` run, never a
+crash and never a silent pass. The full confidence model, verdict vocabulary,
+and invariants are in [`docs/TRIBUNAL.md`](docs/TRIBUNAL.md).
 
-Every provider below is OpenAI-compatible and free to start. `aflow setup` writes
-the key to a single owner-only `keys.env`; the exact env-var names and model
-prefixes live in [docs/PROVIDERS.md](docs/PROVIDERS.md).
+## Providers and local models
 
-| Provider | Models | Free tier | Rate limit | Credit card |
-|---|---|---|---|---|
-| **Groq** | llama-3.3-70b-versatile, llama-3.1-8b-instant, mixtral-8x7b-32768, gemma2-9b-it | yes | 30 req/min | no |
-| **Cerebras** | llama3.1-8b, llama3.1-70b, qwen-3-32b | yes | 30 req/min | no |
-| **Mistral** | mistral-small-latest, mistral-large-latest, open-mistral-nemo, codestral-latest | yes (rate-limited) | provider-set | no |
-| **Google Gemini** | gemini-2.0-flash, gemini-2.5-flash, gemini-1.5-flash, gemini-1.5-pro | yes | 15 req/min | no |
-| **OpenRouter** | auto, meta-llama/llama-3.3-70b-instruct:free, mistralai/mistral-7b-instruct:free | free models | provider-set | no |
-| **Cloudflare Workers AI** | @cf/meta/llama-3.1-8b-instruct, @cf/deepseek-ai/deepseek-r1-distill-qwen-32b | 10,000 neurons/day | daily quota | no |
-| **HuggingFace** | meta-llama/Llama-3.1-8B-Instruct, Qwen/Qwen2.5-72B-Instruct, mistralai/Mistral-7B-Instruct-v0.3 | shared | shared | no |
-| **Together AI** | meta-llama/Llama-3.3-70B-Instruct-Turbo, Qwen/Qwen2.5-72B-Instruct-Turbo | $5 signup credit | provider-set | no |
-| **Fireworks AI** | accounts/fireworks/models/llama-v3p3-70b-instruct, accounts/fireworks/models/qwen2p5-72b-instruct | $1 signup credit | provider-set | no |
-| **DeepInfra** | meta-llama/Llama-3.3-70B-Instruct, Qwen/Qwen2.5-72B-Instruct | free tier | provider-set | no |
-| **SambaNova** | Meta-Llama-3.3-70B-Instruct, Qwen2.5-72B-Instruct | free tier | provider-set | no |
-| **Ollama** (local) | any model you pull | unlimited | none | no |
+Every provider below is OpenAI-compatible. `aflow setup` writes the key to a
+single owner-only `keys.env`; the exact env-var names and model-id resolution
+rules live in [`docs/PROVIDERS.md`](docs/PROVIDERS.md).
 
-`process.env` always overrides the keys file, so a key you export in your shell
-wins over one saved on disk. Address a model by prefix
-(`groq/llama-3.3-70b-versatile`), or leave the prefix off and let AgentFlow
-infer the provider from the model id's shape when only one can serve it.
+| Provider | Model id prefix | Free to start |
+|---|---|---|
+| Groq | `groq/` | free tier, no credit card |
+| Cerebras | `cerebras/` | free tier, no credit card |
+| Mistral | `mistral/` | free tier (rate-limited) |
+| Google Gemini | `gemini/` | free tier, no credit card |
+| OpenRouter | `openrouter/` | free models available |
+| Cloudflare Workers AI | `cloudflare/` | 10,000 neurons/day |
+| Hugging Face Inference | `hf/` | shared rate limit |
+| Together AI | `together/` | $5 signup credit |
+| Fireworks AI | `fireworks/` | $1 signup credit |
+| DeepInfra | `deepinfra/` | free tier available |
+| SambaNova | `sambanova/` | free tier available |
+| **Ollama** (local) | `ollama/` | unlimited, no key |
 
-## Command reference
+Address a model by prefix (`groq/llama-3.3-70b-versatile`), or leave it off and
+let AgentFlow infer the provider from the model id's shape when only one
+provider can serve it. `process.env` always overrides the keys file. A missing
+remote credential fails loudly — the error names the exact variable — and
+`/v1/models` only advertises a provider once its credential is present.
+
+> **Local-only operation.** Point AgentFlow at a local Ollama and no hosted key
+> is configured; requests resolve to `ollama/`. This is a configuration property,
+> not a verified network egress guarantee — review the provider resolution in
+> `src/core/gateway-server.js` if strict local-only behaviour is a requirement
+> for you.
+
+## Configuration and examples
+
+Configuration resolves in five layers (`aflow config` shows the effective value
+and its origin):
 
 ```sh
-aflow <command> [options]
+node bin/aflow.js config                 # effective config, with origin per key
+node bin/aflow.js config --json          # machine-readable; apiKey renders as ***
+node bin/aflow.js models                 # list models by provider (needs a gateway)
+node bin/aflow.js models --probe         # additionally probe reachability
 ```
 
-| Command | Purpose |
-|---|---|
-| `agent` | run and inspect the built-in agents |
-| `blackboard` | record and recover durable project workflow state |
-| `chat` | interactive chat with streaming, sessions, and provider failover |
-| `config` | show effective configuration and where each value came from |
-| `dashboard` | open the interactive terminal dashboard |
-| `doctor` | check environment, gateway, and live provider reachability |
-| `fight` | alias for `aflow tribunal run` |
-| `init` | create a starter project config |
-| `logs` | read the structured event log |
-| `models` | list models by provider, optionally probing reachability |
-| `route` | run a completion through the fallback cascade |
-| `server` | run and control the standalone in-repo gateway |
-| `sessions` | start, resume, and inspect persistent sessions |
-| `setup` | configure free provider API keys with a guided wizard |
-| `status` | show gateway health and version |
-| `tribunal` | run the five-stage self-adversarial tribunal on a proposal |
+```sh
+node bin/aflow.js init                   # write a starter .agentflow.json
+node bin/aflow.js sessions               # list persistent sessions
+node bin/aflow.js blackboard             # durable project workflow state
+node bin/aflow.js logs --limit 20        # read the structured event log
+```
 
-Global flags: `--json`, `--quiet`, `--verbose`, `--no-color`, `--port`,
-`--model`, `--base-url`. Configuration resolves low → high:
-`defaults < global file < project file < AGENTFLOW_* env < flags`.
+`keys.env` lives under the platform state directory
+(`%LOCALAPPDATA%\agentflow` on Windows, `~/Library/Application Support/agentflow`
+on macOS, `$XDG_STATE_HOME/agentflow` elsewhere), overridable with
+`AGENTFLOW_STATE_DIR`. Reference documentation is kept in the repo rather than
+duplicated here: [`ARCHITECTURE.md`](ARCHITECTURE.md),
+[`docs/PROVIDERS.md`](docs/PROVIDERS.md), [`docs/TRIBUNAL.md`](docs/TRIBUNAL.md).
 
-## Philosophy
+## Trust, safety, and verification
 
-- **Advertised ≠ working.** A model in a catalogue is a claim; a model that
-  returns content is a fact. The tool is built around the gap between them.
-- **Continuity over provider loyalty.** The conversation matters more than which
-  model serves it. Failover is automatic and recorded, never silent.
-- **Truth over impressive claims.** If the tribunal cannot reach a verdict it
-  reports `ABORTED`. If a key is missing the error names the variable. There is
-  no lenient fallback to a plausible-looking success.
-- **Safety by default.** Destructive tools ask first. A switch that might repeat
-  a tool call asks first. EOF means no.
-- **Honest provenance.** Every verdict is your own model's output, with the
-  weights and the findings shown. Nothing is presented as more certain than it
-  is.
+Security controls exist; they are not a promise that nothing can go wrong.
+
+- **Redaction at one chokepoint.** `src/core/redact.js` masks by field name *and*
+  by value shape (bearer tokens, `sk-…`, `GOCSPX-…`, JWTs, `ghp_…`). A
+  credential-shaped value that survives redaction is refused rather than stored.
+- **Untrusted by default.** Model output, tool results, and fetched files are
+  treated as data, not instructions. Permissions are enforced by allowlist, not
+  by prompt text, and approvals **fail closed** when there is no TTY.
+- **Workspace containment.** Filesystem tools are confined to a workspace root
+  resolved to a physical path before a run, and it cannot be widened from inside.
+- **Secret scanning in CI.** `npm run scan-secrets` scans the working tree;
+  `--history` scans every reachable blob. Both run in
+  [CI](.github/workflows/test.yml). Passing a shape-and-context scanner is scoped
+  evidence, not proof that no credential exists.
+- **Honest about upstream risk.** The upstream credential exposure at
+  `decolua/9router` (advisory **GHSA-35rj-mq32-7gcj**) is that project's to
+  rotate; AgentFlow replaced the hardcoded values during import and tracks the
+  remaining public exposure with `scripts/check-exposure.mjs`, whose CI job is
+  **intentionally red** until rotation is confirmed. A fresh clone being clean is
+  not the same as the credentials being revoked. Full account, including what was
+  purged and what is still outstanding, in [`SECURITY.md`](SECURITY.md).
+
+Not claimed: "secure", "zero vulnerabilities", or "safe". Read
+[`SECURITY.md`](SECURITY.md) before pointing AgentFlow at an untrusted gateway.
 
 ## Quality
 
-- **1177+ tests** (`npm test`) across the router, the tribunal stages, the
-  gateway, continuity, and every command.
-- **Zero runtime dependencies** — the Node standard library and nothing else.
-- **Blocking CI**: `npm run lint` and `npm run typecheck` must both pass before a
-  change lands. Neither is advisory.
+- **1,336 tests** (`npm test`) across routing, continuity, the five tribunal
+  stages, the gateway and its SSE translation, the session/Blackboard stores, the
+  agent runtime and tools, redaction, and every command — **1,334 passing, 2
+  skipped, 0 failing** on Node v24.19.0 at the time of writing. Run `npm test`
+  for the current count; [CI](.github/workflows/test.yml) runs the suite on Node
+  20, 22, and 24.
+- **Zero runtime dependencies** — Node builtins only. Dev tooling (ESLint,
+  TypeScript) is pinned via the lockfile.
+- **Blocking gates**: `npm run lint` and `npm run typecheck` must both pass
+  before a change lands. Neither is advisory.
 
-## Security
+## Development and contribution
 
-- **Credentials are redacted at one chokepoint** (`src/core/redact.js`) before
-  any output, log, or session file — by field name *and* by value shape, so a
-  leak under either is masked.
-- **`npm run scan-secrets`** scans the working tree, and `--history` scans every
-  reachable blob. Both run in CI.
-- **Honest about upstream risk.** AgentFlow is dependency-free, so it carries no
-  transitive supply chain. The upstream credential exposure at `decolua/9router`
-  (advisory **GHSA-35rj-mq32-7gcj**) is that project's to fix; AgentFlow's
-  exposure-check job stays intentionally red until the rotation is confirmed.
-  Details in [SECURITY.md](SECURITY.md).
+```sh
+npm test              # node:test suite; no install required
+npm install           # dev tooling: eslint, typescript, @types/node
+npm run lint          # eslint
+npm run typecheck     # tsc --noEmit (JSDoc-checked)
+npm run scan-secrets  # credential scan of the working tree
+```
 
-## Project origin
+The project is ESM-only, Node ≥ 20, and dependency-free in production. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the branch and commit conventions, and
+[`docs/DEBT_LEDGER.md`](docs/DEBT_LEDGER.md) for known, deferred debt.
+
+## Roadmap
+
+Pre-release (**0.3.0**). Planned, not yet built — listed so the line between today
+and later is explicit:
+
+- A unified full-screen TUI workspace (the read-only `dashboard` status board
+  exists; an interactive workspace does not)
+- Repository map / code-graph view and in-session git workflows
+- Plugin loader for third-party agents and tools
+- Agent orchestration (running several agents together)
+- SQLite persistence and OAuth provider flows (upstream components not imported)
+
+## Project origin and license
 
 AgentFlow is derived from **9Router** (`decolua/9router`, commit `a99cf572`, tag
-`v0.5.95`, MIT). The provider engine and the gateway were inherited; the routing,
-tribunal, session, and continuity layers are this project's own. Provenance is
-carried by documentation rather than by history — the repository begins from an
-independent initial commit, because copying upstream history would republish
-credentials upstream must still rotate. Full account: [PROJECT_ORIGIN.md](PROJECT_ORIGIN.md).
+`v0.5.95`, MIT). The provider/routing engine and gateway were inherited; the
+routing policy, tribunal, session, and continuity layers are this project's own.
+Provenance is carried by documentation rather than history — the repository
+begins from an independent initial commit, because copying upstream history would
+republish credentials upstream must still rotate. Full account in
+[`PROJECT_ORIGIN.md`](PROJECT_ORIGIN.md); inherited notices in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+Licensed under the [MIT License](LICENSE).
 
 <div align="center">
 
@@ -392,7 +361,7 @@ credentials upstream must still rotate. Full account: [PROJECT_ORIGIN.md](PROJEC
 
 <br>
 
-**If this saves you one dead-provider mystery, star the repo.**
+If AgentFlow saves you one dead-provider mystery, a star helps other developers find it.
 
 [github.com/anand-cpp/AgentFlow](https://github.com/anand-cpp/AgentFlow)
 

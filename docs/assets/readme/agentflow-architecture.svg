@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 700" width="1080" height="700" role="img" aria-labelledby="archTitle archDesc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title id="archTitle">AgentFlow architecture as built on main</title>
+  <desc id="archDesc">Top-down diagram. The aflow CLI sits above a control plane of Configuration, Agent Runtime, and Tribunal, alongside durable state. Below them the Router and ProviderHealth feed a gateway, which reaches eleven hosted providers and local Ollama. A legend distinguishes control flow, model inference, state read/write, and the untrusted boundary.</desc>
+  <defs>
+    <marker id="aCyan" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#22d3ee"/>
+    </marker>
+    <marker id="aAmber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#fbbf24"/>
+    </marker>
+    <marker id="aGreen" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#3fb950"/>
+    </marker>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="1079" height="699" rx="16" fill="#0d1117" stroke="#2d333b"/>
+  <text x="40" y="50" font-size="23" font-weight="700" fill="#e6edf3">Architecture — as built on <tspan font-family="ui-monospace, Menlo, Consolas, monospace" font-size="19" fill="#22d3ee">main</tspan></text>
+  <text x="40" y="76" font-size="12.5" fill="#8b949e">One request: CLI → runtime → router → gateway → provider. State is written outside the repo, redacted first.</text>
+
+  <!-- CLI -->
+  <rect x="32" y="104" width="736" height="58" rx="11" fill="#161b22" stroke="#2a5560"/>
+  <text x="52" y="132" font-size="16" font-weight="700" fill="#e6edf3">aflow CLI</text>
+  <text x="52" y="152" font-size="11.5" fill="#8b949e" font-family="ui-monospace, Menlo, Consolas, monospace">bin/aflow.js · 15 commands (+ fight alias) · --json · layered flags</text>
+
+  <!-- Bus from CLI -->
+  <g stroke="#22d3ee" stroke-width="2.2" fill="none">
+    <line x1="400" y1="162" x2="400" y2="176"/>
+    <line x1="112" y1="176" x2="627" y2="176"/>
+    <line x1="112" y1="176" x2="112" y2="186" marker-end="url(#aCyan)"/>
+    <line x1="339" y1="176" x2="339" y2="186" marker-end="url(#aCyan)"/>
+    <line x1="627" y1="176" x2="627" y2="186" marker-end="url(#aCyan)"/>
+  </g>
+
+  <!-- Config -->
+  <rect x="32" y="186" width="160" height="114" rx="11" fill="#161b22" stroke="#30363d"/>
+  <text x="48" y="212" font-size="14" font-weight="700" fill="#e6edf3">Configuration</text>
+  <text x="48" y="236" font-size="11" fill="#8b949e">5 layers, low → high:</text>
+  <text x="48" y="254" font-size="11" fill="#c9d1d9">defaults</text>
+  <text x="48" y="271" font-size="11" fill="#c9d1d9">global → project</text>
+  <text x="48" y="288" font-size="11" fill="#c9d1d9">env → flags</text>
+
+  <!-- Agent Runtime (with untrusted boundary) -->
+  <rect x="204" y="186" width="270" height="114" rx="11" fill="#161b22" stroke="#30363d"/>
+  <text x="220" y="212" font-size="14" font-weight="700" fill="#e6edf3">Agent Runtime</text>
+  <text x="220" y="234" font-size="11" fill="#8b949e">8 built-in agents · tool registry</text>
+  <text x="220" y="252" font-size="11" fill="#8b949e">permissions &amp; approvals · bounds</text>
+  <text x="220" y="270" font-size="11" fill="#8b949e">output contracts · fail-closed</text>
+  <rect x="216" y="281" width="120" height="14" rx="7" fill="none" stroke="#f85149" stroke-width="1.4" stroke-dasharray="4 3"/>
+  <text x="276" y="292" text-anchor="middle" font-size="9.5" fill="#f85149" font-weight="700">workspace-contained</text>
+
+  <!-- Tribunal -->
+  <rect x="486" y="186" width="282" height="114" rx="11" fill="#161b22" stroke="#3a3320"/>
+  <text x="502" y="212" font-size="14" font-weight="700" fill="#e6edf3">Tribunal</text>
+  <text x="502" y="234" font-size="11" fill="#8b949e">Forge → Crucible → Merge</text>
+  <text x="502" y="252" font-size="11" fill="#8b949e">→ Trial → Oracle</text>
+  <text x="502" y="272" font-size="11" fill="#fbbf24">confidence gate ≥ 0.95</text>
+
+  <!-- Durable state panel -->
+  <rect x="800" y="104" width="248" height="196" rx="11" fill="#11161d" stroke="#2d333b"/>
+  <text x="816" y="130" font-size="13.5" font-weight="700" fill="#e6edf3">Durable state</text>
+  <text x="816" y="148" font-size="10.5" fill="#8b949e">outside the repo, redacted first</text>
+  <text x="816" y="176" font-size="11" fill="#c9d1d9" font-family="ui-monospace, Menlo, Consolas, monospace">sessions/</text>
+  <text x="888" y="176" font-size="11" fill="#8b949e">one file per session</text>
+  <text x="816" y="198" font-size="11" fill="#c9d1d9" font-family="ui-monospace, Menlo, Consolas, monospace">blackboard/</text>
+  <text x="816" y="218" font-size="11" fill="#8b949e">goal · tasks · decisions · bugs</text>
+  <text x="816" y="244" font-size="11" fill="#c9d1d9" font-family="ui-monospace, Menlo, Consolas, monospace">agentflow.jsonl</text>
+  <text x="816" y="264" font-size="11" fill="#8b949e">append-only structured events</text>
+  <text x="816" y="288" font-size="11" fill="#3fb950" font-family="ui-monospace, Menlo, Consolas, monospace">redact.js → every write</text>
+
+  <!-- State arrow from runtime/tribunal -->
+  <line x1="768" y1="240" x2="796" y2="240" stroke="#3fb950" stroke-width="2.2" marker-end="url(#aGreen)"/>
+
+  <!-- Router -->
+  <rect x="32" y="326" width="736" height="56" rx="11" fill="#161b22" stroke="#2a5560"/>
+  <text x="52" y="350" font-size="14.5" font-weight="700" fill="#e6edf3">Router + ProviderHealth</text>
+  <text x="52" y="370" font-size="11" fill="#8b949e">fallback cascade · failure classification · circuit breaker · cross-provider continuity</text>
+  <line x1="339" y1="300" x2="339" y2="322" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#aCyan)"/>
+  <line x1="627" y1="300" x2="627" y2="322" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#aCyan)"/>
+
+  <!-- Gateway -->
+  <rect x="32" y="408" width="736" height="56" rx="11" fill="#161b22" stroke="#30363d"/>
+  <text x="52" y="432" font-size="14.5" font-weight="700" fill="#e6edf3">Gateway — OpenAI-compatible <tspan font-family="ui-monospace, Menlo, Consolas, monospace" fill="#22d3ee">/v1</tspan></text>
+  <text x="52" y="452" font-size="11" fill="#8b949e">in-repo (`aflow server`) or an external 9Router instance · SSE translation · API-key &amp; bind guards</text>
+  <line x1="400" y1="382" x2="400" y2="404" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#aCyan)"/>
+
+  <!-- Providers -->
+  <rect x="32" y="490" width="736" height="64" rx="11" fill="#161b22" stroke="#3a3320"/>
+  <text x="52" y="514" font-size="14.5" font-weight="700" fill="#e6edf3">Upstream providers</text>
+  <text x="52" y="533" font-size="11" fill="#8b949e" font-family="ui-monospace, Menlo, Consolas, monospace">groq · cerebras · mistral · gemini · openrouter · cloudflare · hf · together ·</text>
+  <text x="52" y="549" font-size="11" fill="#8b949e" font-family="ui-monospace, Menlo, Consolas, monospace">fireworks · deepinfra · sambanova   +   <tspan fill="#3fb950">ollama</tspan> (local, no key)</text>
+  <line x1="400" y1="464" x2="400" y2="486" stroke="#fbbf24" stroke-width="2.2" marker-end="url(#aAmber)"/>
+  <text x="412" y="480" font-size="10" fill="#fbbf24">model inference — untrusted</text>
+
+  <!-- Trust boundaries panel -->
+  <rect x="800" y="326" width="248" height="150" rx="11" fill="#11161d" stroke="#2d333b"/>
+  <text x="816" y="352" font-size="13.5" font-weight="700" fill="#e6edf3">Trust boundaries</text>
+  <text x="816" y="376" font-size="11" fill="#c9d1d9">· model output is untrusted data</text>
+  <text x="816" y="398" font-size="11" fill="#c9d1d9">· approvals fail closed (no TTY → deny)</text>
+  <text x="816" y="420" font-size="11" fill="#c9d1d9">· credential-shaped values refused</text>
+  <text x="816" y="442" font-size="11" fill="#c9d1d9">· the gateway is not trusted</text>
+  <text x="816" y="464" font-size="11" fill="#c9d1d9">· filesystem confined to a workspace</text>
+
+  <!-- Legend -->
+  <rect x="800" y="492" width="248" height="192" rx="11" fill="#11161d" stroke="#2d333b"/>
+  <text x="816" y="518" font-size="13.5" font-weight="700" fill="#e6edf3">Legend</text>
+  <line x1="816" y1="544" x2="856" y2="544" stroke="#22d3ee" stroke-width="2.4" marker-end="url(#aCyan)"/>
+  <text x="866" y="548" font-size="11.5" fill="#c9d1d9">control flow</text>
+  <line x1="816" y1="574" x2="856" y2="574" stroke="#fbbf24" stroke-width="2.4" marker-end="url(#aAmber)"/>
+  <text x="866" y="578" font-size="11.5" fill="#c9d1d9">model inference</text>
+  <line x1="816" y1="604" x2="856" y2="604" stroke="#3fb950" stroke-width="2.4" marker-end="url(#aGreen)"/>
+  <text x="866" y="608" font-size="11.5" fill="#c9d1d9">state read / write</text>
+  <line x1="816" y1="634" x2="856" y2="634" stroke="#f85149" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="866" y="638" font-size="11.5" fill="#c9d1d9">untrusted boundary</text>
+  <text x="816" y="664" font-size="10" fill="#6e7681">open-sse/ (inherited engine) excluded</text>
+
+  <!-- Caption -->
+  <text x="40" y="686" font-size="10.5" fill="#6e7681" font-style="italic">Diagram reflects `src/` on main. Not shown: the inherited `open-sse/` routing/translation engine that the gateway adapts.</text>
+</svg>

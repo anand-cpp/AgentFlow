@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 430" width="1080" height="430" role="img" aria-labelledby="termTitle termDesc" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace">
+  <title id="termTitle">aflow doctor — captured terminal output</title>
+  <desc id="termDesc">A terminal window showing the real output of node bin/aflow.js doctor on this checkout: node and config are ok, provider keys and OAuth clients are unconfigured, and the gateway is unreachable. One problem is reported.</desc>
+  <defs>
+    <radialGradient id="termGlow" cx="50%" cy="0%" r="70%">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.10"/>
+      <stop offset="70%" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="1079" height="429" rx="14" fill="#161b22" stroke="#30363d"/>
+  <rect x="1" y="1" width="1078" height="36" rx="13" fill="#1c2230"/>
+  <path d="M1 37 H1079" stroke="#30363d"/>
+  <circle cx="26" cy="19" r="6" fill="#f85149"/>
+  <circle cx="46" cy="19" r="6" fill="#fbbf24"/>
+  <circle cx="66" cy="19" r="6" fill="#3fb950"/>
+  <text x="90" y="24" font-size="12.5" fill="#8b949e">aflow doctor — captured from this checkout, long detail trimmed to fit</text>
+
+  <rect x="1" y="37" width="1078" height="392" fill="#0d1117"/>
+  <rect x="1" y="37" width="1078" height="392" fill="url(#termGlow)"/>
+
+  <g font-size="13">
+    <!-- prompt -->
+    <text x="30" y="78" fill="#3fb950">$</text>
+    <text x="48" y="78" fill="#e6edf3">node bin/aflow.js --no-color doctor</text>
+
+    <text x="30" y="106" fill="#8b949e">aflow doctor</text>
+
+    <!-- header -->
+    <text x="30" y="134" fill="#8b949e" font-weight="700">CHECK</text>
+    <text x="178" y="134" fill="#8b949e" font-weight="700">STATUS</text>
+    <text x="287" y="134" fill="#8b949e" font-weight="700">DETAIL</text>
+    <text x="30" y="150" fill="#30363d">─────────────────  ────────────  ───────────────────────────────────────</text>
+
+    <text x="30" y="174" fill="#e6edf3">node</text>
+    <text x="178" y="174" fill="#3fb950">ok</text>
+    <text x="287" y="174" fill="#8b949e">24.19.0</text>
+
+    <text x="30" y="196" fill="#e6edf3">config</text>
+    <text x="178" y="196" fill="#3fb950">ok</text>
+    <text x="287" y="196" fill="#8b949e">defaults</text>
+
+    <text x="30" y="218" fill="#e6edf3">provider-keys</text>
+    <text x="178" y="218" fill="#fbbf24">unconfigured</text>
+    <text x="287" y="218" fill="#8b949e">no provider keys configured — run `aflow setup`</text>
+
+    <text x="30" y="240" fill="#e6edf3">google-oauth</text>
+    <text x="178" y="240" fill="#fbbf24">unconfigured</text>
+    <text x="287" y="240" fill="#8b949e">set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET to enable</text>
+
+    <text x="30" y="262" fill="#e6edf3">antigravity-oauth</text>
+    <text x="178" y="262" fill="#fbbf24">unconfigured</text>
+    <text x="287" y="262" fill="#8b949e">set ANTIGRAVITY_OAUTH_CLIENT_ID and ANTIGRAVITY_OAUTH_CLIENT_SECRET…</text>
+
+    <text x="30" y="284" fill="#e6edf3">gateway</text>
+    <text x="178" y="284" fill="#f85149">error</text>
+    <text x="287" y="284" fill="#8b949e">http://localhost:20127 — cannot reach gateway</text>
+
+    <text x="30" y="330" fill="#f85149" font-weight="700">x</text>
+    <text x="48" y="330" fill="#e6edf3">1 problem(s) found</text>
+  </g>
+</svg>
