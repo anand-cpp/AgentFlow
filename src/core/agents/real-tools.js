@@ -13,9 +13,10 @@
 
 import { filesystemTools } from "./tool-filesystem.js";
 import { shellTools } from "./tool-shell.js";
+import { gitTools } from "../git/tools.js";
 
 /** Every real tool, in the order they should be offered to a model. */
-export const REAL_TOOLS = [...filesystemTools, ...shellTools];
+export const REAL_TOOLS = [...filesystemTools, ...shellTools, ...gitTools];
 
 export const REAL_TOOL_NAMES = REAL_TOOLS.map((t) => t.name);
 
