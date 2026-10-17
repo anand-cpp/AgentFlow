@@ -46,6 +46,45 @@ export class LspAgentBridge {
     return this.#client?.process?.running === true;
   }
 
+  /** The client this bridge drives. */
+  get client() {
+    return this.#client;
+  }
+
+  /** The diagnostics manager this bridge reads from. */
+  get diagnostics() {
+    return this.#diagnostics;
+  }
+
+  /** The workspace root diagnostics are reported relative to. */
+  get root() {
+    return this.#root;
+  }
+
+  /**
+   * Open or refresh a document from disk without waiting for diagnostics.
+   * Returns false when there is no server or the file can't be read.
+   * @param {string} filePath
+   */
+  openDocument(filePath) {
+    if (!this.active) return false;
+    const abs = path.resolve(String(filePath));
+    let text;
+    try {
+      text = fs.readFileSync(abs, "utf8");
+    } catch {
+      return false;
+    }
+    try {
+      if (this.#client.isOpen(abs)) this.#client.didChange(abs, text);
+      else this.#client.didOpen(abs, text);
+    } catch (err) {
+      this.#log?.warn?.(`lsp: could not open ${abs}: ${err?.message ?? err}`);
+      return false;
+    }
+    return true;
+  }
+
   /**
    * Open or refresh a document from disk and wait briefly for diagnostics.
    * Returns the diagnostics for the file (possibly the previous batch on timeout).
@@ -56,22 +95,9 @@ export class LspAgentBridge {
   async refresh(filePath, { waitMs = this.#waitMs } = {}) {
     if (!this.active) return [];
     const abs = path.resolve(String(filePath));
-    let text;
-    try {
-      text = fs.readFileSync(abs, "utf8");
-    } catch {
-      return []; // deleted or binary; nothing to analyse
-    }
-    const uri = pathToUri(abs);
-    const before = this.#diagnostics.revisionOf(uri);
-    try {
-      if (this.#client.isOpen(abs)) this.#client.didChange(abs, text);
-      else this.#client.didOpen(abs, text);
-    } catch (err) {
-      this.#log?.warn?.(`lsp: could not open ${abs}: ${err?.message ?? err}`);
-      return [];
-    }
-    return this.#diagnostics.waitFor(uri, { sinceRevision: before, timeoutMs: waitMs });
+    const before = this.#diagnostics.revisionOf(pathToUri(abs));
+    if (!this.openDocument(abs)) return [];
+    return this.#diagnostics.waitFor(pathToUri(abs), { sinceRevision: before, timeoutMs: waitMs });
   }
 
   /** Called after a write tool succeeds; refreshes diagnostics for the file. */
