@@ -290,12 +290,49 @@ resume: aflow chat --resume ses_20261015T172503281Z_93qr3p
 Failover is not a retry of your message — it is the same turn, finished by
 someone else, with the switch recorded so a later reader can tell what happened.
 
+## Git, from the terminal or a chat
+
+The same dispatcher backs `aflow git` and the in-chat `/git` command. It reads
+and drives the working tree — status, log, diff, branches, staging, commits,
+stashes, and merge-conflict resolution — while leaving the destructive verbs out
+entirely.
+
+```
+$ aflow git status
+
+git status · main
+
+staged (1)
+  M src/core/git/stash.js
+unstaged (1)
+  M src/core/git/tools.js
+untracked (1)
+  ? test/git/stash.test.js
+
+$ aflow git diff --stat
+1   0   src/core/git/stash.js
+3   1   src/core/git/tools.js
+
+$ aflow git commit --message 'fix(git): correct stash no-op detection'
+committed 8f2c1a9 fix(git): correct stash no-op detection
+```
+
+It shells out to your `git` with an argument vector — never a shell string — and
+validates every path and branch name before it reaches argv. Ignored files are
+never staged implicitly, bare and missing repositories are reported rather than
+crashed on, and nothing here pushes or rewrites history. Inside a chat, a model
+reaches the same operations through ten `git.*` tools, and a model granted only
+`read` can inspect a repository but cannot change it.
+
+The full reference — subcommands, agent tools, and what it refuses to do — is in
+[docs/GIT_INTEGRATION.md](docs/GIT_INTEGRATION.md).
+
 ## Architecture
 
 ```
                ┌───────────────┬──────────────┐
                │          aflow CLI           │
-               │ 16 commands · --json · flags │
+               │ 17 commands · --json · flags │
                └───────────────┬──────────────┘
                                │
       ┬────────────────────────┼────────────────────────┬
@@ -370,6 +407,7 @@ aflow <command> [options]
 | `dashboard` | open the interactive terminal dashboard |
 | `doctor` | check environment, gateway, and live provider reachability |
 | `fight` | alias for `aflow tribunal run` |
+| `git` | inspect and drive the repository: status, log, diff, branch, stage, commit, stash, conflicts |
 | `init` | create a starter project config |
 | `logs` | read the structured event log |
 | `models` | list models by provider, optionally probing reachability |
