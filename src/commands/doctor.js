@@ -70,6 +70,28 @@ async function checkGit() {
   };
 }
 
+/**
+ * Turn a gateway ping outcome into a check status.
+ *
+ * An offline local daemon is not a failure. AgentFlow talks to any
+ * OpenAI-compatible gateway, and the in-repo one is optional: a machine that
+ * simply has not started `aflow server` should not be told it has a problem.
+ * A connect refusal or timeout therefore reads as `offline` (informational),
+ * while a server that is up but broken -- an HTTP 5xx -- stays a hard error.
+ */
+function classifyGateway(pinged) {
+  if (pinged.ok) {
+    return { status: "ok", detail: `reachable in ${pinged.elapsedMs}ms` };
+  }
+  if (pinged.code === "unreachable" || pinged.code === "timeout") {
+    return { status: "offline", detail: "offline (optional daemon; start with `aflow server`)" };
+  }
+  if (typeof pinged.status === "number" && pinged.status >= 500) {
+    return { status: "error", detail: pinged.error };
+  }
+  return { status: "warn", detail: pinged.error };
+}
+
 function checkOAuthClients() {
   const rows = [];
   for (const [name, envName] of [["GOOGLE", "GOOGLE"], ["ANTIGRAVITY", "ANTIGRAVITY"]]) {
@@ -106,7 +128,10 @@ function checkProviderKeys() {
   };
 }
 
-async function runDoctor({ config, out, flags }) {
+/**
+ * @param {{ config: object, out: object, flags: Record<string, unknown>, deps?: Record<string, Function> }} args
+ */
+async function runDoctor({ config, out, flags, deps = {} }) {
   const checks = [];
 
   // Every probe outcome becomes an event, so `aflow logs --type gateway.probe`
@@ -123,19 +148,20 @@ async function runDoctor({ config, out, flags }) {
   checks.push(checkProviderKeys());
   checks.push(...checkOAuthClients());
 
-  const pinged = await ping(config);
+  const probeGateway = deps.ping ?? ping;
+  const pinged = await probeGateway(config);
+  const gateway = classifyGateway(pinged);
   checks.push({
     name: "gateway",
-    status: pinged.ok ? "ok" : "error",
-    detail: pinged.ok
-      ? `${config.baseUrl} reachable in ${pinged.elapsedMs}ms`
-      : `${config.baseUrl} — ${pinged.error}`,
+    status: gateway.status,
+    detail: `${config.baseUrl} — ${gateway.detail}`,
   });
 
+  const gatewayFailed = gateway.status === "error";
   log.emit(
-    pinged.ok ? EVENTS.GATEWAY_PROBE : EVENTS.GATEWAY_ERROR,
-    { baseUrl: config.baseUrl, elapsedMs: pinged.elapsedMs, error: pinged.error },
-    pinged.ok ? "info" : "error"
+    gatewayFailed ? EVENTS.GATEWAY_ERROR : EVENTS.GATEWAY_PROBE,
+    { baseUrl: config.baseUrl, elapsedMs: pinged.elapsedMs, error: pinged.error, code: pinged.code ?? null },
+    gatewayFailed ? "error" : "info"
   );
 
   let version = null;
@@ -143,8 +169,10 @@ async function runDoctor({ config, out, flags }) {
   const probes = [];
 
   if (pinged.ok) {
+    const getVersionFn = deps.getVersion ?? getVersion;
+    const probeModelFn = deps.probeModel ?? probeModel;
     try {
-      version = await getVersion(config);
+      version = await getVersionFn(config);
     } catch {
       /* version is informational only */
     }
@@ -155,7 +183,7 @@ async function runDoctor({ config, out, flags }) {
 
     out.status(dim(`probing ${candidates.length} model(s)…`));
     for (const model of candidates) {
-      const result = await probeModel(config, model);
+      const result = await probeModelFn(config, model);
       probes.push(result);
       checks.push({
         name: model,
@@ -170,8 +198,8 @@ async function runDoctor({ config, out, flags }) {
 
     // Count the advertised catalogue for contrast with what actually works.
     try {
-      const { listModels } = await import("../core/gateway.js");
-      catalogueCount = (await listModels(config)).length;
+      const listModelsFn = deps.listModels ?? (await import("../core/gateway.js")).listModels;
+      catalogueCount = (await listModelsFn(config)).length;
     } catch {
       /* optional */
     }
@@ -182,6 +210,7 @@ async function runDoctor({ config, out, flags }) {
     node: process.versions.node,
     baseUrl: config.baseUrl,
     gatewayUp: pinged.ok,
+    gatewayStatus: gateway.status,
     gatewayVersion: version?.currentVersion ?? null,
     catalogueCount,
     probed: probes.length,
@@ -250,8 +279,10 @@ export const doctorCommand = defineCommand("doctor", {
 Runs environment checks, probes the gateway, and tests whether advertised
 models actually return content.
 
-Exit code is non-zero if any check fails.`,
-  run: ({ config, out, flags }) => runDoctor({ config, out, flags }),
+  Exit code is non-zero if any check fails. An offline gateway daemon is
+  reported as "offline" rather than a failure, and does not affect the exit
+  code.`,
+  run: ({ config, out, flags, deps = {} }) => runDoctor({ config, out, flags, deps }),
 });
 
 export default doctorCommand;
