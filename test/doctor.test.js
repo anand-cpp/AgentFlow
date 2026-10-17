@@ -13,6 +13,10 @@ import path from "node:path";
 
 import { doctorCommand } from "../src/commands/doctor.js";
 
+const detectServers = async () => [
+  { id: "typescript", installed: true, language: "TypeScript / JavaScript", command: "typescript-language-server", args: [], path: "/bin/tsls", install: "" },
+];
+
 function harness(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aflow-doctor-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -33,7 +37,7 @@ function harness(t) {
     },
   };
   const run = (ping, extra = {}) =>
-    doctorCommand.run({ config, out, flags: {}, deps: { ping, ...extra } });
+    doctorCommand.run({ config, out, flags: {}, deps: { ping, detectServers, ...extra } });
   return { config, run, get: () => captured };
 }
 
@@ -101,6 +105,7 @@ test("a reachable gateway is ok", async (t) => {
       getVersion: async () => ({ currentVersion: "1.2.3" }),
       probeModel: async (_c, model) => ({ model, status: "ok", reachable: true, elapsedMs: 3 }),
       listModels: async () => [{ id: "a" }, { id: "b" }],
+      detectServers,
     },
   });
   assert.equal(code, 0);
@@ -108,4 +113,26 @@ test("a reachable gateway is ok", async (t) => {
   assert.equal(gatewayCheck(h.last).status, "ok");
   assert.equal(h.last.catalogueCount, 2);
   assert.equal(h.last.reachable, 3);
+});
+
+test("language servers are reported without failing the command", async (t) => {
+  const h = harness(t);
+  const code = await h.run(async () => ({ ok: false, elapsedMs: 3, code: "unreachable", error: "offline" }), {
+    detectServers: async () => [
+      { id: "go", installed: true, language: "Go", command: "gopls", args: [], path: "/bin/gopls", install: "" },
+    ],
+  });
+  const lsp = h.get().summary.checks.find((c) => c.name === "lsp");
+  assert.equal(code, 0);
+  assert.equal(lsp.status, "ok");
+  assert.match(lsp.detail, /go/);
+});
+
+test("no language servers is informational, not an error", async (t) => {
+  const h = harness(t);
+  const code = await h.run(async () => ({ ok: false, elapsedMs: 3, code: "unreachable", error: "offline" }), { detectServers: async () => [] });
+  const lsp = h.get().summary.checks.find((c) => c.name === "lsp");
+  assert.equal(code, 0);
+  assert.equal(lsp.status, "unconfigured");
+  assert.doesNotMatch(h.get().text, /problem\(s\) found/);
 });

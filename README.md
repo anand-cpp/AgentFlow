@@ -77,6 +77,7 @@ These are the capabilities that are actually built today. Each is implemented in
 | **Durable, resumable state** | Sessions, a per-project Blackboard, and a structured JSONL event log live outside the repo. Resume with `aflow chat --resume <id>`. |
 | **Safe tool execution** | The model is untrusted input. Permissions are enforced by allowlist, filesystem tools are confined to a resolved workspace root, and approvals fail closed (no TTY → deny). |
 | **Git without leaving the loop** | `aflow git` and `/git` cover status, diff, log, branches, staging, commits (message generated from the staged diff), stash, and conflict resolution — plus ten `git.*` agent tools. Diffs are parsed from structured git output, paths and branch names are validated first, and a proposed write shows a git-aware diff before you approve it. |
+| **A language server in the loop** | When a language server is installed, `aflow lsp` and `/lsp` answer diagnostics, hover, and definition queries — and a file the agent writes is re-analysed, with the errors fed straight into the model's next prompt so it corrects itself in the same task (`src/core/lsp/`). |
 | **Zero runtime dependencies** | Nothing to audit, nothing to install for the tests to run, no transitive supply chain. |
 
 ## Quick start
@@ -167,6 +168,31 @@ validated before they reach git, and ignored files are never staged implicitly.
 What it will not do: push, fetch, pull, rebase, `reset --hard`, or force-delete a
 branch. Full reference in [`docs/GIT_INTEGRATION.md`](docs/GIT_INTEGRATION.md).
 
+## A language server, in the loop
+
+When a language server is on your PATH, AgentFlow uses it two ways. You can ask
+it questions directly, and — more usefully — the agent's own edits are checked
+against it.
+
+```sh
+node bin/aflow.js lsp status                 # which servers are installed
+node bin/aflow.js lsp diagnostics src/app.ts # current errors for one file
+node bin/aflow.js lsp hover src/app.ts 12 5  # what is this symbol
+node bin/aflow.js lsp definition src/app.ts 12 5
+```
+
+The feedback loop is the point. After the agent writes a file, the server
+re-analyses it and the resulting errors are appended to the next prompt, so the
+model sees the consequences of its own edit and corrects them *within the same
+task* — no separate "now run the compiler" step. Everything is advisory: a
+server that is slow, missing, or crashing never fails or stalls a run. Servers
+are launched per file type, supervised with a bounded restart backoff, and on
+Windows the whole process tree is killed so nothing is orphaned. The LSP layer
+is zero-dependency — its own JSON-RPC 2.0 framing over stdio — and the agent
+gains four read-scoped tools (`lsp.status`, `lsp.diagnostics`, `lsp.hover`,
+`lsp.definition`). Inside a session, `/lsp <subcommand>` shares the same
+dispatcher. Full reference in [`docs/LSP_INTEGRATION.md`](docs/LSP_INTEGRATION.md).
+
 ## Architecture
 
 <img src="docs/assets/readme/agentflow-architecture.svg" alt="AgentFlow architecture: the aflow CLI above a control plane of Configuration, Agent Runtime, and Tribunal, beside durable state; below them the Router and ProviderHealth feed an OpenAI-compatible gateway that reaches eleven hosted providers plus local Ollama." width="100%">
@@ -206,6 +232,12 @@ redacted before they are written.
 diff, staging, branches, commits, conflicts, log, and stash. Ten `git.*` tools
 sit on top, the `aflow git` command and `/git` slash share one dispatcher, and
 approvals render a write as a diff against the working tree.
+
+**LSP** — a zero-dependency language-server client (`src/core/lsp/`) with its
+own JSON-RPC 2.0 stdio framing, bounded process supervision, a diagnostics
+collector, and hover/definition/completion/symbol helpers. Four read-scoped
+`lsp.*` tools sit on top, `aflow lsp` and `/lsp` share one dispatcher, and a
+successful file write feeds the server's diagnostics back into the next prompt.
 
 **Security** — allowlist permissions resolving
 `deny → scope approval → allow → ask → deny`, workspace path containment,
@@ -398,7 +430,7 @@ Licensed under the [MIT License](LICENSE).
 
 <div align="center">
 
-[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) · [Architecture](ARCHITECTURE.md) · [Tribunal](docs/TRIBUNAL.md) · [Providers](docs/PROVIDERS.md) · [Git](docs/GIT_INTEGRATION.md) · [Origin](PROJECT_ORIGIN.md) · [MIT License](LICENSE)
+[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) · [Architecture](ARCHITECTURE.md) · [Tribunal](docs/TRIBUNAL.md) · [Providers](docs/PROVIDERS.md) · [Git](docs/GIT_INTEGRATION.md) · [LSP](docs/LSP_INTEGRATION.md) · [Origin](PROJECT_ORIGIN.md) · [MIT License](LICENSE)
 
 <br>
 

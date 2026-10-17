@@ -15,6 +15,7 @@ import { EventLog, EVENTS, defaultLogPath } from "../core/events.js";
 import { defaultKeysFile, readKeysFile, mergeEnv, configuredProviderNames } from "../core/keys.js";
 import { PROVIDERS } from "../core/gateway-server.js";
 import { findGitRoot, validateGitAvailable } from "../core/git/discover.js";
+import { detectInstalledServers } from "../core/lsp/registry.js";
 
 /**
  * Candidate models worth probing when the user hasn't named one.
@@ -92,6 +93,30 @@ function classifyGateway(pinged) {
   return { status: "warn", detail: pinged.error };
 }
 
+/**
+ * Report which language servers are on PATH.
+ *
+ * Like git, LSP is optional: a machine with none installed simply has no
+ * diagnostics feedback. That is informational, never a failing check, so this
+ * never returns `error`.
+ */
+async function checkLanguageServers(detect) {
+  const servers = await detect();
+  const installed = servers.filter((s) => s.installed);
+  if (!installed.length) {
+    return {
+      name: "lsp",
+      status: "unconfigured",
+      detail: "no language servers on PATH — install one (e.g. `npm i -g typescript-language-server typescript`) to enable diagnostics",
+    };
+  }
+  return {
+    name: "lsp",
+    status: "ok",
+    detail: `${installed.length} server(s) available (${installed.map((s) => s.id).join(", ")})`,
+  };
+}
+
 function checkOAuthClients() {
   const rows = [];
   for (const [name, envName] of [["GOOGLE", "GOOGLE"], ["ANTIGRAVITY", "ANTIGRAVITY"]]) {
@@ -147,6 +172,7 @@ async function runDoctor({ config, out, flags, deps = {} }) {
   checks.push(await checkGit());
   checks.push(checkProviderKeys());
   checks.push(...checkOAuthClients());
+  checks.push(await checkLanguageServers(deps.detectServers ?? detectInstalledServers));
 
   const probeGateway = deps.ping ?? ping;
   const pinged = await probeGateway(config);
