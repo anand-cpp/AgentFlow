@@ -71,6 +71,7 @@ const statusTool = {
   description: "Show the working-tree status: branch, staged, unstaged, untracked and unmerged paths.",
   inputSchema: {
     type: "object",
+    required: [],
     additionalProperties: false,
     properties: {
       untracked: { type: "string", enum: ["normal", "all", "no"], description: "Untracked file reporting. Defaults to normal." },
@@ -99,7 +100,7 @@ const statusTool = {
     for (const e of res.staged) lines.push(`  staged:   ${e.indexStatus} ${e.path}`);
     for (const e of res.unstaged) lines.push(`  unstaged: ${e.workTreeStatus} ${e.path}`);
     for (const e of res.unmerged) lines.push(`  unmerged: ${e.status} ${e.path}`);
-    for (const p of res.untracked) lines.push(`  untracked: ${p}`);
+    for (const p of res.untracked) lines.push(`  untracked: ${p.path}`);
     const clean = !res.staged.length && !res.unstaged.length && !res.untracked.length && !res.unmerged.length;
     if (clean) lines.push("  (clean)");
     const out = render(lines.join("\n"), "status");
@@ -125,6 +126,7 @@ const diffTool = {
   description: "Show changes as a unified diff, or as a per-file summary with --stat.",
   inputSchema: {
     type: "object",
+    required: [],
     additionalProperties: false,
     properties: {
       staged: { type: "boolean", description: "Diff the index against HEAD instead of the working tree." },
@@ -174,6 +176,7 @@ const logTool = {
   description: "Browse commit history with optional filters by path, author, date or message.",
   inputSchema: {
     type: "object",
+    required: [],
     additionalProperties: false,
     properties: {
       limit: { type: "integer", minimum: 1, maximum: 1000, description: "Maximum commits. Defaults to 20." },
@@ -278,6 +281,7 @@ const stageTool = {
   description: "Stage or unstage files, or the whole tree. Untracked-but-ignored files are never added implicitly.",
   inputSchema: {
     type: "object",
+    required: [],
     additionalProperties: false,
     properties: {
       files: { type: "array", items: { type: "string" }, description: "Workspace-relative paths. Ignored when all is true." },
@@ -387,6 +391,7 @@ const commitTool = {
     "Create a commit from the staged changes. When no message is given, a conventional message is generated from the staged diff.",
   inputSchema: {
     type: "object",
+    required: [],
     additionalProperties: false,
     properties: {
       message: { type: "string", description: "Commit message. Generated from the staged diff when omitted." },

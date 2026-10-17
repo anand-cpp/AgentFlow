@@ -82,10 +82,14 @@ export async function stashSave(ctx, message, opts = {}) {
     args.push("--", ...resolved);
   }
   const res = await ctx.run(args);
+  // `git stash push` prints "No local changes to save" and still exits 0, so a
+  // successful exit alone is not proof a stash was made. Treat that message as
+  // the no-op it is, in both the success and failure paths.
+  const nothing = /No local changes to save/i.test(`${res.stdout}\n${res.stderr}`);
   if (!res.ok) {
-    const nothing = /No local changes to save/i.test(`${res.stdout}\n${res.stderr}`);
     return { ok: false, ref: null, hash: null, error: nothing ? "no local changes to save" : res.error };
   }
+  if (nothing) return { ok: false, ref: null, hash: null, error: "no local changes to save" };
   const hash = await ctx.run(["rev-parse", "--verify", "refs/stash"]);
   return { ok: true, ref: "stash@{0}", hash: hash.ok ? hash.stdout.trim() : null, error: null };
 }
