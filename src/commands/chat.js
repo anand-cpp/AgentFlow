@@ -54,6 +54,7 @@ import { parseGitDiff, renderUnifiedDiff } from "../tui/diff.js";
 import { runTimeline } from "../tui/timeline-dialog.js";
 import { buildTimeline, renderTimeline } from "../tui/timeline.js";
 import { buildSwarmGraph, renderSwarmGraph } from "../tui/swarm.js";
+import { gitSlash } from "./git.js";
 
 const USAGE_ERROR = 2;
 const FAILURE = 1;
@@ -338,7 +339,12 @@ async function conversationLoop(session, io, workspace) {
     return text;
   };
 
-  while (!closed) {
+  // Drain the queue to exhaustion rather than stopping when `closed` flips:
+  // readline fires 'close' on stdin EOF even with lines still buffered, and any
+  // slash command that awaits a child process (git, a picker) yields long enough
+  // for that event to land. `nextLine` already returns queued lines first and
+  // only resolves null once both the queue is empty and the stream is closed.
+  while (true) {
     const block = await readBlock();
     if (block === null) break;
     const text = block.trim();
@@ -434,6 +440,14 @@ async function conversationLoop(session, io, workspace) {
       if (parsed.name === "swarm") {
         const runs = readAgentRuns(session);
         io.output.write(`${renderSwarmGraph(buildSwarmGraph(runs), { width: io.output.columns || 80 })}\n`);
+        continue;
+      }
+      // `/git` reaches the same dispatcher the `aflow git` command uses, so the
+      // repository surface in a conversation is not a second implementation.
+      // It is text-only -- no viewer -- so it behaves identically on a TTY and
+      // in a script.
+      if (parsed.name === "git") {
+        io.output.write(`${await gitSlash(parsed.arg, { root: workspace.root })}\n`);
         continue;
       }
       const result = await session.command(parsed);
@@ -623,6 +637,7 @@ export const chatCommand = defineCommand("chat", {
     /diff [file]         open the diff viewer over workspace changes
     /timeline            browse this session's entry stream
     /swarm               draw this session's agent handoff graph
+    /git [sub]           repository status, log, diff, branch, stage, commit, stash
 
   Responses stream token by token. Ctrl+C cancels the current response;
   Ctrl+C again, or Ctrl+D (EOF), exits. Every exchange is saved to the

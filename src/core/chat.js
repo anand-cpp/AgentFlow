@@ -115,6 +115,7 @@ export const SLASH_HELP = [
   "  /diff [file]         open the interactive diff viewer over workspace changes",
   "  /timeline            browse this session's entry stream",
   "  /swarm               draw this session's agent handoff graph",
+  "  /git [sub]           repository status, log, diff, branch, stage, commit, stash",
   "",
   "Anything without a leading / is sent to the model.",
 ].join("\n");

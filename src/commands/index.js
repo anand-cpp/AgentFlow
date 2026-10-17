@@ -17,6 +17,7 @@ import "../commands/agent.js";
 import "../commands/server.js";
 import "../commands/tribunal.js";
 import "../commands/chat.js";
+import "../commands/git.js";
 import "../commands/publish.js";
 import "../commands/setup.js";
 
