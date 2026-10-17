@@ -134,7 +134,8 @@ export class AgentRuntime {
    *   registry?: object, tools?: object|Map, complete?: Function, catalogue?: Array,
    *   hints?: object, log?: object, now?: () => number, approver?: object,
    *   blackboard?: object, sessions?: object, providerHealth?: object,
-   *   guards?: Array, config?: object, workspaceRoot?: object|string
+   *   guards?: Array, config?: object, workspaceRoot?: object|string,
+   *   lspBridge?: object|null
    * }} [options]
    */
   constructor({
@@ -161,6 +162,12 @@ export class AgentRuntime {
     // every tool call in this run compares against this value, so it cannot be
     // recomputed per call without the answer depending on when the call happened.
     workspaceRoot = null,
+    // Optional LSP feedback loop. When present, a successful write refreshes
+    // language-server diagnostics for the file and the next prompt carries any
+    // errors, so the model sees the consequences of its own edit. Advisory only:
+    // a null bridge is the normal no-LSP path, and the bridge swallows its own
+    // failures.
+    lspBridge = null,
   } = {}) {
     if (!registry) throw new RuntimeError("AgentRuntime requires a registry", "no_registry");
     if (typeof complete !== "function") {
@@ -181,6 +188,7 @@ export class AgentRuntime {
     this.providerHealth = providerHealth || new ProviderHealth({ now: this.now });
     this.guards = guards;
     this.config = config;
+    this.lspBridge = lspBridge;
     this.workspace = this.#bindWorkspace(workspaceRoot);
     // Blackboard dedupe keys for the CURRENT run. Seeded here and cleared at the top
     // of every run(), so its lifetime is exactly one run -- see #board.
@@ -428,6 +436,20 @@ export class AgentRuntime {
       agent.lifecycle?.onToolResult?.(outcome, { agent, result });
       if (outcome.outcome === OUTCOME.OK) {
         transcript.push({ role: "tool", tool: call.tool, output: outcome.output, contexts: outcome.contexts });
+        // Self-correction loop: after a successful write, ask the language server
+        // what it thinks of the new bytes. The diagnostics land in the manager and
+        // the next prompt carries them. Contained on purpose -- a slow or broken
+        // server must not turn a good write into a failed tool call.
+        if (this.lspBridge && call.tool === "filesystem.write") {
+          const written = outcome.output?.path ?? call.args?.path ?? null;
+          if (written) {
+            try {
+              await this.lspBridge.afterWrite(written);
+            } catch (err) {
+              this.log?.warn?.(`lsp: diagnostics refresh failed: ${err?.message ?? err}`);
+            }
+          }
+        }
       } else {
         // An error still goes into the transcript, as an observation. Hiding it
         // leaves the model with a tool call it made and no trace of the answer,
@@ -639,6 +661,12 @@ export class AgentRuntime {
         this.guard(agent, result, signal, startedAt);
 
         currentPrompt = buildPrompt(agent, context, task, iteration, transcript);
+
+        // Language-server errors from prior iterations ride along with the prompt.
+        // Recomputed each iteration because a write from the previous one may have
+        // introduced (or cleared) them.
+        const lspBlock = this.lspBridge?.renderPromptBlock?.() ?? "";
+        if (lspBlock) currentPrompt = `${currentPrompt}\n\n${lspBlock}`;
 
         let receipt = await router.route({
           signal,
