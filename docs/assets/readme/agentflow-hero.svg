@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 384" width="1120" height="384" role="img" aria-labelledby="heroTitle heroDesc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title id="heroTitle">AgentFlow — terminal-first, multi-model agent runtime</title>
+  <desc id="heroDesc">The AgentFlow wordmark above a left-to-right pipeline: Task, Agent Runtime, Router, Providers, Verification. A caption notes that sessions, blackboard, and the event log hold durable state across a provider switch.</desc>
+  <defs>
+    <radialGradient id="heroGlow" cx="18%" cy="0%" r="70%">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.16"/>
+      <stop offset="60%" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="heroGlow2" cx="88%" cy="8%" r="55%">
+      <stop offset="0%" stop-color="#fbbf24" stop-opacity="0.10"/>
+      <stop offset="70%" stop-color="#fbbf24" stop-opacity="0"/>
+    </radialGradient>
+    <marker id="heroArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#22d3ee"/>
+    </marker>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="1119" height="383" rx="18" fill="#0d1117" stroke="#2d333b"/>
+  <rect x="0.5" y="0.5" width="1119" height="383" rx="18" fill="url(#heroGlow)"/>
+  <rect x="0.5" y="0.5" width="1119" height="383" rx="18" fill="url(#heroGlow2)"/>
+  <rect x="0.5" y="0.5" width="1119" height="383" rx="18" fill="none" stroke="#2d333b"/>
+
+  <!-- Brand mark -->
+  <g transform="translate(56 54) scale(0.185)">
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M128 34 L209.6 81 L209.6 175 L128 222 L46.4 175 L46.4 81 Z" fill="#0d1117" stroke="#22d3ee" stroke-width="9"/>
+      <g stroke="#22d3ee" stroke-width="7">
+        <path d="M92 99 L119 121"/><path d="M92 128 L119 128"/><path d="M92 157 L119 135"/><path d="M137 128 L166 128"/>
+      </g>
+      <circle cx="88" cy="98" r="9" fill="#22d3ee" stroke="none"/>
+      <circle cx="88" cy="128" r="9" fill="#22d3ee" stroke="none"/>
+      <circle cx="88" cy="158" r="9" fill="#22d3ee" stroke="none"/>
+      <circle cx="128" cy="128" r="11" fill="#22d3ee" stroke="#0d1117" stroke-width="4"/>
+      <circle cx="170" cy="128" r="9" fill="#fbbf24" stroke="none"/>
+    </g>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="112" y="88" font-size="42" font-weight="700" fill="#e6edf3" letter-spacing="-0.6">AgentFlow</text>
+  <text x="112" y="116" font-size="15" fill="#8b949e">Terminal-first, multi-model agent runtime — routed, resumable, adversarially reviewed.</text>
+
+  <!-- Pipeline nodes -->
+  <!-- x positions: 56, 262, 468, 674, 880 ; width 168 ; gap 38 ; y 218 h 64 -->
+  <g>
+    <rect x="56" y="218" width="168" height="64" rx="11" fill="#161b22" stroke="#30363d"/>
+    <text x="140" y="246" text-anchor="middle" font-size="13.5" font-weight="700" fill="#e6edf3" letter-spacing="0.6">TASK</text>
+    <text x="140" y="265" text-anchor="middle" font-size="11" fill="#8b949e">your prompt</text>
+
+    <rect x="262" y="218" width="168" height="64" rx="11" fill="#161b22" stroke="#30363d"/>
+    <text x="346" y="246" text-anchor="middle" font-size="13.5" font-weight="700" fill="#e6edf3" letter-spacing="0.6">AGENT RUNTIME</text>
+    <text x="346" y="265" text-anchor="middle" font-size="11" fill="#8b949e">8 agents · tools</text>
+
+    <rect x="468" y="218" width="168" height="64" rx="11" fill="#161b22" stroke="#30363d"/>
+    <text x="552" y="246" text-anchor="middle" font-size="13.5" font-weight="700" fill="#e6edf3" letter-spacing="0.6">ROUTER</text>
+    <text x="552" y="265" text-anchor="middle" font-size="11" fill="#8b949e">tiers · health</text>
+
+    <rect x="674" y="218" width="168" height="64" rx="11" fill="#161b22" stroke="#30363d"/>
+    <text x="758" y="246" text-anchor="middle" font-size="13.5" font-weight="700" fill="#e6edf3" letter-spacing="0.6">PROVIDERS</text>
+    <text x="758" y="265" text-anchor="middle" font-size="11" fill="#8b949e">11 hosted · Ollama</text>
+
+    <rect x="880" y="218" width="168" height="64" rx="11" fill="#161b22" stroke="#2a4a3a"/>
+    <text x="964" y="246" text-anchor="middle" font-size="13.5" font-weight="700" fill="#fbbf24" letter-spacing="0.6">VERIFY</text>
+    <text x="964" y="265" text-anchor="middle" font-size="11" fill="#8b949e">tribunal gate</text>
+  </g>
+
+  <!-- Arrows -->
+  <g stroke="#22d3ee" stroke-width="2.4">
+    <line x1="226" y1="250" x2="258" y2="250" marker-end="url(#heroArrow)"/>
+    <line x1="432" y1="250" x2="464" y2="250" marker-end="url(#heroArrow)"/>
+    <line x1="638" y1="250" x2="670" y2="250" marker-end="url(#heroArrow)"/>
+    <line x1="844" y1="250" x2="876" y2="250" marker-end="url(#heroArrow)"/>
+  </g>
+
+  <!-- Durable state caption -->
+  <g>
+    <line x1="346" y1="300" x2="346" y2="322" stroke="#3fb950" stroke-width="2" stroke-dasharray="4 4"/>
+    <line x1="964" y1="300" x2="964" y2="322" stroke="#3fb950" stroke-width="2" stroke-dasharray="4 4"/>
+    <line x1="346" y1="322" x2="964" y2="322" stroke="#3fb950" stroke-width="2" stroke-dasharray="4 4"/>
+    <rect x="356" y="308" width="598" height="28" rx="8" fill="#0d1117"/>
+    <text x="655" y="327" text-anchor="middle" font-size="12.5" fill="#8b949e">
+      <tspan fill="#3fb950" font-weight="700">durable state</tspan> · Sessions · Blackboard · Event log — the thread survives a provider switch
+    </text>
+  </g>
+</svg>

@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-labelledby="socTitle socDesc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title id="socTitle">AgentFlow social preview</title>
+  <desc id="socDesc">AgentFlow wordmark and tagline: a terminal-first, multi-model agent runtime that routes across twelve providers, preserves the thread, and puts every answer on trial. A row of chips shows Task, Runtime, Router, Providers, and Verification.</desc>
+  <defs>
+    <linearGradient id="socBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#0a0d12"/>
+    </linearGradient>
+    <radialGradient id="socGlow" cx="12%" cy="6%" r="60%">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.20"/>
+      <stop offset="65%" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="socGlow2" cx="92%" cy="94%" r="55%">
+      <stop offset="0%" stop-color="#fbbf24" stop-opacity="0.14"/>
+      <stop offset="70%" stop-color="#fbbf24" stop-opacity="0"/>
+    </radialGradient>
+    <marker id="socArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#2b8ea1"/>
+    </marker>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#socBg)"/>
+  <rect width="1280" height="640" fill="url(#socGlow)"/>
+  <rect width="1280" height="640" fill="url(#socGlow2)"/>
+  <rect x="0" y="0" width="1280" height="640" fill="none" stroke="#2d333b" stroke-width="2"/>
+
+  <!-- Mark -->
+  <g transform="translate(84 92) scale(0.40)">
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M128 34 L209.6 81 L209.6 175 L128 222 L46.4 175 L46.4 81 Z" fill="#0d1117" stroke="#22d3ee" stroke-width="9"/>
+      <g stroke="#22d3ee" stroke-width="7">
+        <path d="M92 99 L119 121"/><path d="M92 128 L119 128"/><path d="M92 157 L119 135"/><path d="M137 128 L166 128"/>
+      </g>
+      <circle cx="88" cy="98" r="9" fill="#22d3ee" stroke="none"/>
+      <circle cx="88" cy="128" r="9" fill="#22d3ee" stroke="none"/>
+      <circle cx="88" cy="158" r="9" fill="#22d3ee" stroke="none"/>
+      <circle cx="128" cy="128" r="11" fill="#22d3ee" stroke="#0d1117" stroke-width="4"/>
+      <circle cx="170" cy="128" r="9" fill="#fbbf24" stroke="none"/>
+    </g>
+  </g>
+
+  <text x="212" y="172" font-size="66" font-weight="700" fill="#e6edf3" letter-spacing="-1">AgentFlow</text>
+  <text x="84" y="270" font-size="27" fill="#c9d1d9">Terminal-first, multi-model agent runtime</text>
+  <text x="84" y="312" font-size="20" fill="#8b949e">Route across twelve providers · never lose the thread · put every answer on trial</text>
+
+  <line x1="84" y1="366" x2="1196" y2="366" stroke="#21262d" stroke-width="2"/>
+
+  <!-- Flow chips -->
+  <g font-size="17" font-weight="600">
+    <rect x="84" y="412" width="150" height="52" rx="12" fill="#161b22" stroke="#30363d"/>
+    <text x="159" y="444" text-anchor="middle" fill="#e6edf3">Task</text>
+
+    <rect x="298" y="412" width="196" height="52" rx="12" fill="#161b22" stroke="#30363d"/>
+    <text x="396" y="444" text-anchor="middle" fill="#e6edf3">Agent runtime</text>
+
+    <rect x="558" y="412" width="150" height="52" rx="12" fill="#161b22" stroke="#30363d"/>
+    <text x="633" y="444" text-anchor="middle" fill="#e6edf3">Router</text>
+
+    <rect x="772" y="412" width="180" height="52" rx="12" fill="#161b22" stroke="#30363d"/>
+    <text x="862" y="444" text-anchor="middle" fill="#e6edf3">Providers</text>
+
+    <rect x="1016" y="412" width="180" height="52" rx="12" fill="#161b22" stroke="#20402f"/>
+    <text x="1106" y="444" text-anchor="middle" fill="#fbbf24">Verification</text>
+  </g>
+  <g stroke="#2b8ea1" stroke-width="2.6">
+    <line x1="234" y1="438" x2="292" y2="438" marker-end="url(#socArrow)"/>
+    <line x1="494" y1="438" x2="552" y2="438" marker-end="url(#socArrow)"/>
+    <line x1="708" y1="438" x2="766" y2="438" marker-end="url(#socArrow)"/>
+    <line x1="952" y1="438" x2="1010" y2="438" marker-end="url(#socArrow)"/>
+  </g>
+
+  <!-- Footer -->
+  <text x="84" y="556" font-size="19" fill="#8b949e" font-family="ui-monospace, Menlo, Consolas, monospace">github.com/anand-cpp/AgentFlow</text>
+  <text x="1196" y="556" text-anchor="end" font-size="18" fill="#6e7681">MIT · zero runtime dependencies · Node ≥ 20</text>
+</svg>
