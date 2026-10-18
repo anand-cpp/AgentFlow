@@ -78,6 +78,7 @@ These are the capabilities that are actually built today. Each is implemented in
 | **Safe tool execution** | The model is untrusted input. Permissions are enforced by allowlist, filesystem tools are confined to a resolved workspace root, and approvals fail closed (no TTY → deny). |
 | **Git without leaving the loop** | `aflow git` and `/git` cover status, diff, log, branches, staging, commits (message generated from the staged diff), stash, and conflict resolution — plus ten `git.*` agent tools. Diffs are parsed from structured git output, paths and branch names are validated first, and a proposed write shows a git-aware diff before you approve it. |
 | **A language server in the loop** | When a language server is installed, `aflow lsp` and `/lsp` answer diagnostics, hover, and definition queries — and a file the agent writes is re-analysed, with the errors fed straight into the model's next prompt so it corrects itself in the same task (`src/core/lsp/`). |
+| **MCP servers as agent tools** | Point `mcp.json` (Claude Desktop / OpenCode-compatible) at any MCP server over stdio or SSE and its tools appear in the runtime as namespaced `mcp__server__tool` agent tools — discovered, permission-gated, and callable like built-ins, with a broken server degrading to isolation, never a failed run (`src/core/mcp/`). |
 | **Zero runtime dependencies** | Nothing to audit, nothing to install for the tests to run, no transitive supply chain. |
 
 ## Quick start
@@ -193,6 +194,30 @@ gains four read-scoped tools (`lsp.status`, `lsp.diagnostics`, `lsp.hover`,
 `lsp.definition`). Inside a session, `/lsp <subcommand>` shares the same
 dispatcher. Full reference in [`docs/LSP_INTEGRATION.md`](docs/LSP_INTEGRATION.md).
 
+## MCP servers, as agent tools
+
+The Model Context Protocol is a standard way for a helper program to expose
+tools, resources, and prompt templates. Adopt one, and the agent gets its whole
+surface without AgentFlow carrying a single new dependency for it.
+
+```sh
+node bin/aflow.js mcp status                          # servers + what they expose
+node bin/aflow.js mcp tools                           # every tool with its schema
+node bin/aflow.js mcp call sqlite read_query '{"sql":"SELECT 1"}'
+node bin/aflow.js mcp read sqlite file://status.txt
+```
+
+Configuration is the `mcpServers` block used by Claude Desktop and OpenCode, in
+`mcp.json`, `.agentflow/mcp.json`, or your `package.json`'s `mcp` key — stdio
+servers (`command`/`args`) and SSE servers (`url`) both. Every discovered tool
+is registered into the agent runtime as `mcp__<server>__<tool>`, read-scoped
+and permission-gated like any built-in tool, so the model calls an MCP tool the
+same way it calls `fs.read`. Failure isolation is the rule: a server that
+cannot spawn or identify itself is reported and skipped, and the healthy
+servers (and the run) continue either way. Inside a session, `/mcp <subcommand>`
+shares the same dispatcher. Full reference in
+[`docs/MCP_INTEGRATION.md`](docs/MCP_INTEGRATION.md).
+
 ## Architecture
 
 <img src="docs/assets/readme/agentflow-architecture.svg" alt="AgentFlow architecture: the aflow CLI above a control plane of Configuration, Agent Runtime, and Tribunal, beside durable state; below them the Router and ProviderHealth feed an OpenAI-compatible gateway that reaches eleven hosted providers plus local Ollama." width="100%">
@@ -238,6 +263,15 @@ own JSON-RPC 2.0 stdio framing, bounded process supervision, a diagnostics
 collector, and hover/definition/completion/symbol helpers. Four read-scoped
 `lsp.*` tools sit on top, `aflow lsp` and `/lsp` share one dispatcher, and a
 successful file write feeds the server's diagnostics back into the next prompt.
+
+**MCP** — a zero-dependency Model Context Protocol client (`src/core/mcp/`)
+speaking protocol version 2024-11-05 over newline-delimited stdio JSON and the
+SSE two-endpoint transport, with an `mcpServers` config parser (Claude Desktop
+/ OpenCode compatible, `${VAR}` expansion), a server manager that isolates
+start-up and runtime failures per server, and tool/resource/prompt bridges that
+register discovered MCP tools as read-scoped `mcp__<server>__<tool>` agent
+tools. `aflow mcp` and `/mcp` share one dispatcher, and `doctor` reports MCP
+without ever failing on an unconfigured or offline server.
 
 **Security** — allowlist permissions resolving
 `deny → scope approval → allow → ask → deny`, workspace path containment,
@@ -430,7 +464,7 @@ Licensed under the [MIT License](LICENSE).
 
 <div align="center">
 
-[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) · [Architecture](ARCHITECTURE.md) · [Tribunal](docs/TRIBUNAL.md) · [Providers](docs/PROVIDERS.md) · [Git](docs/GIT_INTEGRATION.md) · [LSP](docs/LSP_INTEGRATION.md) · [Origin](PROJECT_ORIGIN.md) · [MIT License](LICENSE)
+[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) · [Architecture](ARCHITECTURE.md) · [Tribunal](docs/TRIBUNAL.md) · [Providers](docs/PROVIDERS.md) · [Git](docs/GIT_INTEGRATION.md) · [LSP](docs/LSP_INTEGRATION.md) · [MCP](docs/MCP_INTEGRATION.md) · [Origin](PROJECT_ORIGIN.md) · [MIT License](LICENSE)
 
 <br>
 
