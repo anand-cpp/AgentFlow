@@ -15,9 +15,10 @@ import { bold, dim, green, heading, red, yellow } from "../cli/ui.js";
 const FAILURE = 1;
 const SHOW_LIMIT = 25;
 
-function scorePercent(score) {
-  const pct = score * 100;
-  return pct >= 0.1 ? pct.toFixed(1) : "<0.1";
+function relativeScore(score, maxScore) {
+  if (!(maxScore > 0)) return "0";
+  const rel = Math.round((score / maxScore) * 100);
+  return String(rel);
 }
 
 /** Strip symbol nodes (`file#name`) and external stubs from the ranking. */
@@ -30,9 +31,14 @@ export function fileRanking(map) {
 /** Render `aflow map show`: ranked files with their top symbols. */
 function renderShow(map, limit = SHOW_LIMIT) {
   const units = new Map((map.units ?? []).map((u) => [u.file, u]));
-  const lines = [heading(`repository map — ${map.stats?.files ?? map.files?.length ?? 0} files`),
-    dim(`cache: ${cachePathFor(map.root ?? process.cwd())}`), ""];
   const ranking = fileRanking(map);
+  const max = ranking[0]?.score ?? 0;
+  const lines = [
+    heading(`repository map — ${map.stats?.files ?? map.files?.length ?? 0} files`),
+    dim(`cache: ${cachePathFor(map.root ?? process.cwd())}`),
+    dim("rank = relative structural weight (100 = most depended-upon file)"),
+    "",
+  ];
   if (!ranking.length) return yellow("no files in the map — is this workspace empty?");
   for (const entry of ranking.slice(0, limit)) {
     const unit = units.get(entry.id);
@@ -42,7 +48,7 @@ function renderShow(map, limit = SHOW_LIMIT) {
       .map((s) => s.name);
     const more = (unit?.symbols?.filter((s) => s.exported)?.length ?? 0) - symbols.length;
     const tail = symbols.length ? ` ${dim(symbols.join(", ") + (more > 0 ? `, +${more}` : ""))}` : "";
-    lines.push(`${bold(entry.id)} ${dim(scorePercent(entry.score) + "%")}${tail}`);
+    lines.push(`${bold(entry.id)} ${dim(relativeScore(entry.score, max))}${tail}`);
   }
   if (ranking.length > limit) lines.push(dim(`…and ${ranking.length - limit} more`));
   if (map.truncated) lines.push(yellow("(walk truncated at the file cap — rank covers a subset)"));
@@ -64,7 +70,8 @@ function renderStats(map) {
     `freshness      ${fresh.stale ? yellow(`stale${fresh.reason ? ` — ${fresh.reason} changed` : ""}`) : green("fresh")}`,
   ];
   const top = fileRanking(map).slice(0, 10);
-  if (top.length) lines.push("", dim("top 10:"), ...top.map((e) => `  ${bold(e.id)} ${dim(scorePercent(e.score) + "%")}`));
+  const maxTop = top[0]?.score ?? 0;
+  if (top.length) lines.push("", dim("top 10:"), ...top.map((e) => `  ${bold(e.id)} ${dim(relativeScore(e.score, maxTop))}`));
   return lines.join("\n");
 }
 
