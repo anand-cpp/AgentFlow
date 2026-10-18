@@ -7,11 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned
-- Full-screen TUI (terminal interface beyond the line-oriented chat loop)
-- Repository map / code-graph view
-- Git integration (history, diff, and commit workflows in-session)
-- Plugin loader for third-party agents and tools
+## [1.0.0] - 2026-10-18
+
+### Added
+- Zero-dependency plugin system: manifest schema, discovery across three
+  install locations, a `node:vm` sandboxed loader (`require` limited to
+  `node:events`), lifecycle hooks, and extension points for tools, model
+  providers, slash commands, and budget-admitted context enrichers — all
+  fail-isolated and namespaced `plugin__<id>__*`
+- Manifest permissions enforced as active registration gates
+  (`src/core/plugins/manager.js`): a plugin may only register what its
+  manifest declares
+- Lazy command loading (`src/cli/registry.js`): command metadata registers
+  eagerly and each command module imports on demand, so `--version` and
+  `--help` start under 80ms
+- Startup benchmark (`scripts/bench-startup.mjs`) and cold-start regression
+  tests (`test/perf/startup.test.js`)
+- Interactive provider setup wizard (`aflow setup`): guided credential entry,
+  live key testing before saving (`--check`/`--test`), owner-only `keys.env`,
+  `--export`/`--reset`, rendered as a TUI table
+- Cross-platform terminal and path hardening: terminal-width detection and
+  table width capping (`src/cli/ui.js`), Windows drive-letter and posix
+  pathspec handling (`src/core/git/discover.js`), non-TTY and `TERM=dumb`
+  fallbacks throughout
+- `aflow plugin` CLI and `/plugin` slash command: list, inspect, enable,
+  disable, scaffold (`create`) — with `doctor` reporting plugin health
+- README showcase: installation guide, honest comparison table vs
+  OpenCode/Cline/Aider, ASCII architecture diagram
+
+### Changed
+- CLI command registry split into eager metadata + lazy `run` loading
+- `aflow setup --check` gains a `--test` alias and a table-rendered summary
+- Plugin `context` added as a fifth permission domain, enforced like the others
+- CHANGELOG.md following Keep a Changelog format
+
+### Fixed
+- Plugin stream path returned a bare string instead of the gateway completion
+  object, so plugin-provider replies came back empty
+- Chat engine installed the provider dispatch wrapper by reading `.stream`
+  (which is `undefined`) instead of `streamComplete`, breaking streaming once
+  any plugin provider was registered
+
+### Security
+- Plugin registrations that exceed declared manifest permissions are refused
+  and recorded as per-plugin diagnostics rather than silently granted
 
 ## [0.3.0] - 2026-10-14
 
