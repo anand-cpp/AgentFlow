@@ -53,6 +53,11 @@ export default [
     },
   },
   {
-    ignores: ["node_modules/**", ".next/**", "dist/**", "build/**", "out/**", "coverage/**", "open-sse/**"],
+    ignores: ["node_modules/**", ".next/**", "dist/**", "build/**", "out/**", "coverage/**", "open-sse/**",
+      // Plugin fixtures are payloads, not host modules. They are CommonJS or
+      // ESM plugin sources evaluated inside the loader's vm sandbox, so the
+      // host toolchain must not lint or typecheck them as part of this
+      // package -- `module.exports` is correct there and an error here.
+      "test/plugins/fixtures/**"],
   },
 ];

@@ -1,0 +1,14 @@
+{
+  "id": "sample-plugin",
+  "name": "Sample Plugin",
+  "version": "1.0.0",
+  "description": "Reference AgentFlow plugin: read tools, enrichment and veto hooks, a slash command, and a context block.",
+  "main": "index.js",
+  "minAgentFlowVersion": "0.1.0",
+  "permissions": {
+    "hooks": true,
+    "tools": true,
+    "commands": true,
+    "providers": false
+  }
+}

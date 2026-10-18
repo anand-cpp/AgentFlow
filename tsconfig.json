@@ -14,5 +14,5 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src/**/*.js", "bin/**/*.js", "scripts/**/*.mjs", "test/**/*.js"],
-  "exclude": ["node_modules", ".next", "out", "dist", "build", "open-sse"]
+  "exclude": ["node_modules", ".next", "out", "dist", "build", "open-sse", "test/plugins/fixtures"]
 }
