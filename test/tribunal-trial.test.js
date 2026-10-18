@@ -526,3 +526,66 @@ test("a skipped merge means the retry loop never starts", async () => {
   assert.equal(loop.finalVerdict, TRIAL_STAGE_STATUS.SKIPPED);
   assert.equal(loop.iterationsUsed, 0);
 });
+
+// ---------------------------------------------------------------------------
+// Rotation guard
+// ---------------------------------------------------------------------------
+
+test("rotation guard engaged when synthesizer and adversary are the same model", async () => {
+  const { fn } = queueComplete([trialReport()]);
+  const result = await runTrial({
+    mergeReport: mergeReport(),
+    completeFn: fn,
+    modelId: "model-a", // adversary
+    synthesizerModelId: "model-a", // synthesizer — same as adversary
+  });
+  assert.equal(result.status, "OK");
+  assert.equal(result.rotationGuardEngaged, true);
+  assert.equal(result.modelId, "model-a");
+});
+
+test("rotation guard not engaged when models differ", async () => {
+  const { fn } = queueComplete([trialReport()]);
+  const result = await runTrial({
+    mergeReport: mergeReport(),
+    completeFn: fn,
+    modelId: "model-b", // adversary
+    synthesizerModelId: "model-a", // synthesizer — different
+  });
+  assert.equal(result.status, "OK");
+  assert.equal(result.rotationGuardEngaged, false);
+  assert.equal(result.modelId, "model-b");
+});
+
+test("rotation guard not engaged when no synthesizer model", async () => {
+  const { fn } = queueComplete([trialReport()]);
+  const result = await runTrial({
+    mergeReport: mergeReport(),
+    completeFn: fn,
+    modelId: "model-a",
+    synthesizerModelId: null,
+  });
+  assert.equal(result.status, "OK");
+  assert.equal(result.rotationGuardEngaged, false);
+});
+
+test("rotation guard not engaged when synthesizer model is empty string", async () => {
+  const { fn } = queueComplete([trialReport()]);
+  const result = await runTrial({
+    mergeReport: mergeReport(),
+    completeFn: fn,
+    modelId: "model-a",
+    synthesizerModelId: "",
+  });
+  assert.equal(result.status, "OK");
+  assert.equal(result.rotationGuardEngaged, false);
+});
+
+test("a skipped merge means the retry loop never starts", async () => {
+  const loop = await runTrialWithRetry({
+    mergeStageResult: { stage: "MERGE", status: "SKIPPED" },
+    completeFn: async () => ({ text: "{}" }),
+  });
+  assert.equal(loop.finalVerdict, TRIAL_STAGE_STATUS.SKIPPED);
+  assert.equal(loop.iterationsUsed, 0);
+});

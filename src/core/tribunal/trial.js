@@ -269,10 +269,11 @@ function parseTrialJson(text) {
  * @param {Array}    [input.crucibleFindings]
  * @param {Array}    [input.originalProposals]
  * @param {Function} [input.completeFn]   gateway complete(config, modelId, prompt, opts)
- * @param {string}   [input.modelId]
+ * @param {string}   [input.modelId]          the adversary/prosecutor model
+ * @param {string}   [input.synthesizerModelId]  the model that synthesized the merge
  * @param {object}   [input.options]    { config, domain, opts: { ... }, now }
  * @returns {Promise<
- *   { status: "OK", report: object, modelId: string|null, elapsed_ms: number } |
+ *   { status: "OK", report: object, modelId: string|null, elapsed_ms: number, rotationGuardEngaged?: boolean } |
  *   { status: "MISTRIAL", rawResponse: string|null, errors: string[], modelId: string|null, elapsed_ms: number }
  * >}
  */
@@ -282,6 +283,7 @@ export async function runTrial({
   originalProposals = [],
   completeFn,
   modelId = null,
+  synthesizerModelId = null,
   options = {},
 } = {}) {
   const now = typeof options.now === "function" ? options.now : Date.now;
@@ -307,6 +309,11 @@ export async function runTrial({
   const domain = options.domain ?? "code";
   const prompt = buildTrialPrompt({ mergeReport, crucibleFindings, originalProposals, domain });
 
+  // Rotation guard: the adversary (prosecutor) must differ from the synthesizer.
+  // If they are the same model, flag it so the caller can route to a different
+  // model rather than let a model prosecute its own merge.
+  const rotationGuardEngaged = synthesizerModelId !== null && synthesizerModelId === modelId;
+
   let text;
   try {
     const response = await completeFn(options.config ?? null, modelId, prompt, {
@@ -330,6 +337,7 @@ export async function runTrial({
     status: "OK",
     report: redactDeep(parsed.value),
     modelId,
+    rotationGuardEngaged,
     elapsed_ms: Math.max(0, now() - began),
   };
 }

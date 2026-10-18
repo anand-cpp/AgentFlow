@@ -94,6 +94,7 @@ export async function runTrialStage({
     originalProposals,
     completeFn,
     modelId,
+    synthesizerModelId: mergeStageResult?.modelId,
     options,
   });
 
@@ -202,6 +203,7 @@ export async function runTrialWithRetry({
       originalProposals,
       completeFn,
       modelId,
+      synthesizerModelId: currentMerge?.modelId,
       options,
     });
 
