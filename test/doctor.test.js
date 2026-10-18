@@ -136,3 +136,42 @@ test("no language servers is informational, not an error", async (t) => {
   assert.equal(lsp.status, "unconfigured");
   assert.doesNotMatch(h.get().text, /problem\(s\) found/);
 });
+
+// --- mcp check ---------------------------------------------------------------
+
+test("an mcp run without mcp.json is unconfigured, not an error", async (t) => {
+  const h = harness(t);
+  const code = await h.run(async () => ({ ok: false, elapsedMs: 3, code: "unreachable", error: "offline" }), {
+    mcpServers: async () => [],
+  });
+  const mcp = h.get().summary.checks.find((c) => c.name === "mcp");
+  assert.equal(code, 0);
+  assert.equal(mcp.status, "unconfigured");
+  assert.doesNotMatch(h.get().text, /problem\(s\) found/);
+});
+
+test("configured stdio mcp servers resolve on PATH", async (t) => {
+  const h = harness(t);
+  const code = await h.run(async () => ({ ok: false, elapsedMs: 3, code: "unreachable", error: "offline" }), {
+    mcpServers: async () => [
+      { name: "rtl", type: "stdio", command: "node" },
+      { name: "remote", type: "sse", url: "http://localhost:8080/sse" },
+    ],
+  });
+  const mcp = h.get().summary.checks.find((c) => c.name === "mcp");
+  assert.equal(code, 0);
+  assert.equal(mcp.status, "ok");
+  assert.match(mcp.detail, /rtl, remote/);
+});
+
+test("an mcp server whose command is missing is informational, not an error", async (t) => {
+  const h = harness(t);
+  const code = await h.run(async () => ({ ok: false, elapsedMs: 3, code: "unreachable", error: "offline" }), {
+    mcpServers: async () => [{ name: "sqlite", type: "stdio", command: "definitely-not-a-real-command-9router" }],
+  });
+  const mcp = h.get().summary.checks.find((c) => c.name === "mcp");
+  assert.equal(code, 0, "an absent MCP binary must never fail doctor");
+  assert.equal(mcp.status, "info");
+  assert.match(mcp.detail, /not found on PATH/);
+  assert.doesNotMatch(h.get().text, /problem\(s\) found/);
+});

@@ -16,6 +16,8 @@ import { defaultKeysFile, readKeysFile, mergeEnv, configuredProviderNames } from
 import { PROVIDERS } from "../core/gateway-server.js";
 import { findGitRoot, validateGitAvailable } from "../core/git/discover.js";
 import { detectInstalledServers } from "../core/lsp/registry.js";
+import { getMcpServers } from "../core/mcp/config.js";
+import { execFile } from "node:child_process";
 
 /**
  * Candidate models worth probing when the user hasn't named one.
@@ -117,6 +119,64 @@ async function checkLanguageServers(detect) {
   };
 }
 
+/**
+ * Probe whether an MCP stdio command resolves on PATH.
+ * @param {string} command
+ * @returns {Promise<boolean>}
+ */
+function probeCommand(command) {
+  const WHICH = process.platform === "win32" ? "where" : "which";
+  return new Promise((resolve) => {
+    execFile(WHICH, [command], { timeout: 4000, windowsHide: true }, (err) => resolve(!err));
+  });
+}
+
+/**
+ * Report configured MCP servers.
+ *
+ * Like LSP, MCP is optional: a project without mcp.json is `unconfigured`, and a
+ * configured server whose binary is missing from PATH is informational — never
+ * an error, because doctor must not fail on an offline or disabled server.
+ */
+async function checkMcpServers(load) {
+  const servers = await load();
+  if (!servers.length) {
+    return {
+      name: "mcp",
+      status: "unconfigured",
+      detail: "no MCP servers configured — add mcp.json or .agentflow/mcp.json with an `mcpServers` block",
+    };
+  }
+  const results = await Promise.all(
+    servers.map(async (s) => {
+      if (s.type !== "stdio") return { name: s.name, command: s.url ?? "<sse>", found: true };
+      const found = await probeCommand(s.command);
+      return { name: s.name, command: s.command, found };
+    }),
+  );
+  const names = results.map((r) => r.name).join(", ");
+  const missing = results.filter((r) => !r.found);
+  if (missing.length === results.length) {
+    return {
+      name: "mcp",
+      status: "info",
+      detail: `${results.length} server(s) configured (${names}) — ${missing.map((m) => m.command).join(", ")} not found on PATH`,
+    };
+  }
+  if (missing.length) {
+    return {
+      name: "mcp",
+      status: "warn",
+      detail: `${results.length - missing.length}/${results.length} configured servers ready (${names}) — ${missing.map((m) => m.command).join(", ")} not found on PATH`,
+    };
+  }
+  return {
+    name: "mcp",
+    status: "ok",
+    detail: `${results.length} server(s) configured (${names})`,
+  };
+}
+
 function checkOAuthClients() {
   const rows = [];
   for (const [name, envName] of [["GOOGLE", "GOOGLE"], ["ANTIGRAVITY", "ANTIGRAVITY"]]) {
@@ -173,6 +233,7 @@ async function runDoctor({ config, out, flags, deps = {} }) {
   checks.push(checkProviderKeys());
   checks.push(...checkOAuthClients());
   checks.push(await checkLanguageServers(deps.detectServers ?? detectInstalledServers));
+  checks.push(await checkMcpServers(deps.mcpServers ?? (() => getMcpServers(process.cwd()))));
 
   const probeGateway = deps.ping ?? ping;
   const pinged = await probeGateway(config);
