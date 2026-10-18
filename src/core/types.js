@@ -219,6 +219,10 @@
  * @property {boolean} noColor         disable ANSI colour
  * @property {string} logLevel         debug | info | warn | error
  * @property {string|null} logPath     explicit event-log path, or null for default
+ * @property {boolean} mapEnabled      repository map injected into agent context
+ * @property {number} mapMaxFiles      hard cap on walked files before ranking
+ * @property {number} mapMaxPromptTokens  token budget of the injected map section
+ * @property {string[]|null} mapLanguages  language-family allowlist, null = all known
  */
 
 export {};

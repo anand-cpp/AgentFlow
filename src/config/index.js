@@ -60,6 +60,18 @@ export const DEFAULTS = Object.freeze({
   logLevel: "info",
   // Explicit log path; null means use the platform default.
   logPath: null,
+  // Repository map (src/core/map). A PageRank-ranked structural view of the
+  // workspace injected into agent context. Enabled by default; the map never
+  // blocks a run — every map failure degrades to "no map".
+  mapEnabled: true,
+  // Hard cap on walked files before ranking.
+  mapMaxFiles: 5000,
+  // Output budget, in tokens (~4 chars), of the map section injected into
+  // agent context and shown by `aflow map query`.
+  mapMaxPromptTokens: 2000,
+  // Language families the extractors index. Null (or []) means "all known";
+  // an explicit list like ["js","python"] narrows extraction.
+  mapLanguages: null,
 });
 
 function readJsonFile(file) {
@@ -121,6 +133,9 @@ const ENV_MAP = {
   AGENTFLOW_NO_COLOR: "noColor",
   AGENTFLOW_LOG_LEVEL: "logLevel",
   AGENTFLOW_LOG_PATH: "logPath",
+  AGENTFLOW_MAP_ENABLED: "mapEnabled",
+  AGENTFLOW_MAP_MAX_FILES: "mapMaxFiles",
+  AGENTFLOW_MAP_MAX_PROMPT_TOKENS: "mapMaxPromptTokens",
 };
 
 /**

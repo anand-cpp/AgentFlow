@@ -18,13 +18,30 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { walkWorkspace } from "./walk.js";
-import { extractSource } from "./extract.js";
+import { extractSource, detectLanguage } from "./extract.js";
 import { buildRefGraph } from "./graph.js";
 import { pagerank } from "./pagerank.js";
 import { writeAtomicFile, readJsonFile } from "../persist.js";
 
 export const CACHE_RELATIVE = ".agentflow/repo-map.json";
 export const SNAPSHOT_VERSION = 1;
+
+/** Read+extract all walkable files, honouring an optional language allowlist. */
+function extractUnits(walk, languages) {
+  const wanted = Array.isArray(languages) && languages.length ? new Set(languages) : null;
+  const units = [];
+  for (const file of walk.files) {
+    if (wanted && !wanted.has(detectLanguage(file.rel))) continue;
+    let text;
+    try {
+      text = fs.readFileSync(file.abs, "utf8");
+    } catch {
+      continue; // raced with a delete; the map ships without this file
+    }
+    units.push(extractSource(file.rel, text));
+  }
+  return units;
+}
 
 /** Absolute path of the map cache for a workspace root. */
 export function cachePathFor(root) {
@@ -35,7 +52,7 @@ export function cachePathFor(root) {
  * Build (or rebuild) the map for a workspace and write the cache.
  *
  * @param {string} root absolute workspace root
- * @param {{ maxFiles?: number, gitignore?: boolean, biases?: Map<string, number>, write?: boolean }} [options]
+ * @param {{ maxFiles?: number, gitignore?: boolean, biases?: Map<string, number>, languages?: string[], write?: boolean }} [options]
  */
 export function buildMap(root, options = {}) {
   const walk = walkWorkspace(root, {
@@ -43,16 +60,7 @@ export function buildMap(root, options = {}) {
     gitignore: options.gitignore,
   });
 
-  const units = [];
-  for (const file of walk.files) {
-    let text;
-    try {
-      text = fs.readFileSync(file.abs, "utf8");
-    } catch {
-      continue; // raced with a delete; the map ships without this file
-    }
-    units.push(extractSource(file.rel, text));
-  }
+  const units = extractUnits(walk, options.languages);
 
   const fileSet = new Set(walk.files.map((f) => f.rel));
   const { graph, unresolved } = buildRefGraph(units, { fileSet });
@@ -102,7 +110,7 @@ export function loadMap(root) {
  * Refresh the map, re-extracting only what changed.
  *
  * @param {string} root
- * @param {{ maxFiles?: number, biases?: Map<string, number>, write?: boolean }} [options]
+ * @param {{ maxFiles?: number, biases?: Map<string, number>, languages?: string[], write?: boolean }} [options]
  * @returns {{ snapshot: object, changed: string[], removed: string[], rebuilt: boolean }}
  */
 export function refreshMap(root, options = {}) {
@@ -120,7 +128,12 @@ export function refreshMap(root, options = {}) {
   const removed = [];
   const units = [];
 
+  const wanted = Array.isArray(options.languages) && options.languages.length
+    ? new Set(options.languages)
+    : null;
+
   for (const [rel, file] of current) {
+    if (wanted && !wanted.has(detectLanguage(rel))) continue;
     const old = prior.get(rel);
     if (old && old.size === file.size && old.mtimeMs === file.mtimeMs && priorUnits.has(rel)) {
       units.push(priorUnits.get(rel));

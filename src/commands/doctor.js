@@ -17,6 +17,7 @@ import { PROVIDERS } from "../core/gateway-server.js";
 import { findGitRoot, validateGitAvailable } from "../core/git/discover.js";
 import { detectInstalledServers } from "../core/lsp/registry.js";
 import { getMcpServers } from "../core/mcp/config.js";
+import { mapFreshness } from "../core/map/build.js";
 import { execFile } from "node:child_process";
 
 /**
@@ -177,6 +178,47 @@ async function checkMcpServers(load) {
   };
 }
 
+/**
+ * Report the repository map's cache state.
+ *
+ * The map is derived data that rebuilds itself on demand, so there is no
+ * failure posture here by construction: a missing cache is `info` (the agent
+ * bridge builds it on the next run), a stale one is `info` for the same
+ * reason. Doctor never hard-errors on the map.
+ * @param {(root: string) => {present: boolean, stale: boolean, ageMs: number|null, reason: string|null}} freshness
+ */
+function checkRepoMap(freshness) {
+  let fresh;
+  try {
+    fresh = freshness(process.cwd());
+  } catch (err) {
+    return {
+      name: "repo-map",
+      status: "info",
+      detail: `cache state unreadable (${err?.message ?? err}) — the map will rebuild on demand`,
+    };
+  }
+  if (!fresh.present) {
+    return {
+      name: "repo-map",
+      status: "info",
+      detail: "not built yet — run `aflow map build` or let the agent runtime build it",
+    };
+  }
+  if (fresh.stale) {
+    return {
+      name: "repo-map",
+      status: "info",
+      detail: `cache stale (${fresh.reason} changed) — refreshes automatically`,
+    };
+  }
+  return {
+    name: "repo-map",
+    status: "ok",
+    detail: `cache fresh${Number.isFinite(fresh.ageMs) ? ` (${Math.round(fresh.ageMs / 1000)}s old)` : ""}`,
+  };
+}
+
 function checkOAuthClients() {
   const rows = [];
   for (const [name, envName] of [["GOOGLE", "GOOGLE"], ["ANTIGRAVITY", "ANTIGRAVITY"]]) {
@@ -234,6 +276,7 @@ async function runDoctor({ config, out, flags, deps = {} }) {
   checks.push(...checkOAuthClients());
   checks.push(await checkLanguageServers(deps.detectServers ?? detectInstalledServers));
   checks.push(await checkMcpServers(deps.mcpServers ?? (() => getMcpServers(process.cwd()))));
+  checks.push(checkRepoMap(/** @type {any} */ (deps.mapFresh) ?? mapFreshness));
 
   const probeGateway = deps.ping ?? ping;
   const pinged = await probeGateway(config);

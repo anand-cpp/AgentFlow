@@ -175,3 +175,48 @@ test("an mcp server whose command is missing is informational, not an error", as
   assert.match(mcp.detail, /not found on PATH/);
   assert.doesNotMatch(h.get().text, /problem\(s\) found/);
 });
+
+test("the repo-map check reports a missing cache as info, never error", async (t) => {
+  const h = harness(t);
+  const code = await h.run(async () => ({ ok: false, elapsedMs: 3, code: "unreachable", error: "offline" }), {
+    mapFresh: () => ({ present: false, stale: true, ageMs: null, reason: null }),
+  });
+  const row = h.get().summary.checks.find((c) => c.name === "repo-map");
+  assert.equal(code, 0, "an absent map cache must never fail doctor");
+  assert.equal(row.status, "info");
+  assert.match(row.detail, /not built yet/);
+  assert.doesNotMatch(h.get().text, /problem\(s\) found/);
+});
+
+test("the repo-map check reports a fresh cache as ok", async (t) => {
+  const h = harness(t);
+  await h.run(async () => ({ ok: false, elapsedMs: 3, code: "unreachable", error: "offline" }), {
+    mapFresh: () => ({ present: true, stale: false, ageMs: 1500, reason: null }),
+  });
+  const row = h.get().summary.checks.find((c) => c.name === "repo-map");
+  assert.equal(row.status, "ok");
+  assert.match(row.detail, /fresh/);
+});
+
+test("a stale repo-map cache is informational and names the changed file", async (t) => {
+  const h = harness(t);
+  const code = await h.run(async () => ({ ok: false, elapsedMs: 3, code: "unreachable", error: "offline" }), {
+    mapFresh: () => ({ present: true, stale: true, ageMs: 90000, reason: "src/a.js" }),
+  });
+  const row = h.get().summary.checks.find((c) => c.name === "repo-map");
+  assert.equal(code, 0, "a stale cache is not an error — it refreshes itself");
+  assert.equal(row.status, "info");
+  assert.match(row.detail, /stale/);
+  assert.match(row.detail, /src\/a\.js/);
+});
+
+test("an unreadable cache state degrades to info", async (t) => {
+  const h = harness(t);
+  const code = await h.run(async () => ({ ok: false, elapsedMs: 3, code: "unreachable", error: "offline" }), {
+    mapFresh: () => { throw new Error("disk exploded"); },
+  });
+  const row = h.get().summary.checks.find((c) => c.name === "repo-map");
+  assert.equal(code, 0);
+  assert.equal(row.status, "info");
+  assert.match(row.detail, /rebuild on demand/);
+});

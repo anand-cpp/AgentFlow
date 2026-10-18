@@ -31,6 +31,12 @@ export class RepoMapAgentBridge {
     this.maxTokens = Number.isFinite(config?.mapMaxPromptTokens) && config.mapMaxPromptTokens > 0
       ? config.mapMaxPromptTokens
       : 2000;
+    this.maxFiles = Number.isFinite(config?.mapMaxFiles) && config.mapMaxFiles > 0
+      ? config.mapMaxFiles
+      : undefined;
+    this.languages = Array.isArray(config?.mapLanguages) && config.mapLanguages.length
+      ? config.mapLanguages
+      : undefined;
     this._now = now;
     this._lastFreshCheck = 0;
     this._lastSnapshot = null;
@@ -50,7 +56,7 @@ export class RepoMapAgentBridge {
     }
     this._lastFreshCheck = t;
     try {
-      const { snapshot } = refreshMap(this.root);
+      const { snapshot } = refreshMap(this.root, { maxFiles: this.maxFiles, languages: this.languages });
       this._lastSnapshot = snapshot;
       return snapshot;
     } catch {
