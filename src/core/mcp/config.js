@@ -9,7 +9,10 @@ export function readJsonSafe(file) {
   try {
     if (!fs.existsSync(file)) return null;
     const raw = fs.readFileSync(file, "utf8");
-    const parsed = JSON.parse(raw);
+    // Windows tooling (PowerShell 5's Set-Content -Encoding UTF8) writes a BOM;
+    // JSON.parse rejects it, so strip it before parsing.
+    const cleaned = raw.replace(/^\uFEFF/, "");
+    const parsed = JSON.parse(cleaned);
     return parsed && typeof parsed === "object" ? parsed : null;
   } catch {
     return null;

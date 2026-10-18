@@ -9,7 +9,7 @@
 import path from "node:path";
 import { defineCommand } from "../cli/registry.js";
 import { McpServerManager } from "../core/mcp/manager.js";
-import { getMcpServers, normalizeServerConfig } from "../core/mcp/config.js";
+import { getMcpServers } from "../core/mcp/config.js";
 import { bold, dim, green, heading, red, yellow } from "../cli/ui.js";
 
 const FAILURE = 1;
@@ -24,7 +24,7 @@ function renderStatus(configured, manager) {
   const rows = manager.servers;
   for (const cfg of configured) {
     const entry = rows.get(cfg.name);
-    if (entry) {
+    if (entry && entry.status === "ready") {
       const tools = entry.tools.getTools();
       const resources = entry.resources.resources.size;
       lines.push(`${bold(cfg.name)} ${green("connected")} ${dim(entry.config.type)} ${tools.length} tools, ${resources} resources`);
@@ -33,7 +33,8 @@ function renderStatus(configured, manager) {
       }
       if (tools.length > 10) lines.push(dim(`  …and ${tools.length - 10} more`));
     } else {
-      lines.push(`${bold(cfg.name)} ${red("failed")} ${dim(cfg.type)}`);
+      const why = entry?.error ? ` — ${entry.error}` : "";
+      lines.push(`${bold(cfg.name)} ${red("failed")} ${dim(cfg.type || "stdio")}${why}`);
     }
   }
   return lines.join("\n");
@@ -60,7 +61,7 @@ function renderTools(manager) {
  */
 export async function dispatchMcp(root, tokens) {
   const [sub = "status", ...rest] = tokens;
-  const configured = getMcpServers(root).map(normalizeServerConfig);
+  const configured = getMcpServers(root);
 
   if (sub === "help" || sub === "--help") {
     return { ok: true, text: mcpCommand.usage, data: { usage: mcpCommand.usage } };

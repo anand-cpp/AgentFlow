@@ -71,12 +71,25 @@ export class McpClient {
     if (this._wired) return;
     this.transport ??= this._createTransport();
     this.transport.on("message", (msg) => this._handleMessage(msg));
-    this.transport.on("error", (err) => this._emit("error", err));
+    this.transport.on("error", (err) => {
+      // A spawn failure means no server will ever answer: settle every pending
+      // request immediately instead of letting each one ride out its timeout.
+      if (err?.type === "spawn") this.#failAll(new McpRequestError(err.err?.message ?? "the server process could not be spawned"));
+      this._emit("error", err);
+    });
     this.transport.on("exit", (detail) => this._emit("exit", detail));
     this.transport.on("open", (detail) => this._emit("open", detail));
     this.transport.connect();
     this._wired = true;
     this._connected = true;
+  }
+
+  #failAll(cause) {
+    for (const [, entry] of this._pending) {
+      clearTimeout(entry.timer);
+      entry.reject(cause);
+    }
+    this._pending.clear();
   }
 
   connect() {
