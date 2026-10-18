@@ -218,7 +218,14 @@ export function loadPluginSpec(dir, { currentVersion = "" } = {}) {
     version: typeof manifest.version === "string" ? manifest.version : null,
     description: typeof manifest.description === "string" ? manifest.description : null,
     author: typeof manifest.author === "string" ? manifest.author : null,
-    main: typeof manifest.main === "string" ? manifest.main : "index.js",
+    // Default entry: index.js, unless an ESM index.mjs exists. Manifest authors
+    // who write either explicitly always win.
+    main:
+      typeof manifest.main === "string" && manifest.main.trim() !== ""
+        ? manifest.main
+        : fs.existsSync(path.join(dir, "index.mjs"))
+          ? "index.mjs"
+          : "index.js",
     permissions: perms,
     minAgentFlowVersion: minVersion,
     versionOk,
