@@ -100,6 +100,15 @@ export class PluginHookRegistry {
     return [...this.subscribers.get(hookName) ?? []].map((s) => s.pluginId);
   }
 
+  /** Hook names one plugin is subscribed to (sorted, for inspect). */
+  hookNamesFor(pluginId) {
+    const names = [];
+    for (const [hookName, subs] of this.subscribers) {
+      if (subs.some((s) => s.pluginId === pluginId)) names.push(hookName);
+    }
+    return names.sort();
+  }
+
   /**
    * Invoke every subscriber for a hook, serially, with a payload.
    *
