@@ -220,3 +220,67 @@ test("an unreadable cache state degrades to info", async (t) => {
   assert.equal(row.status, "info");
   assert.match(row.detail, /rebuild on demand/);
 });
+
+// --- plugins -----------------------------------------------------------------
+//
+// Plugins are third-party code, so the check has exactly three honest answers:
+// none found (unconfigured), all active (ok), or some that would not load
+// (warn). It is never an error: a broken plugin costs the session whatever that
+// plugin would have added, not the session.
+
+const OFFLINE = async () => ({ ok: false, elapsedMs: 3, code: "unreachable", error: "offline" });
+
+function pluginCheck(summary) {
+  return summary.checks.find((c) => c.name === "plugins");
+}
+
+test("no plugins discovered is unconfigured, not a problem", async (t) => {
+  const h = harness(t);
+  const code = await h.run(OFFLINE, { pluginReport: async () => ({ plugins: [], stats: { loaded: [], problems: [] } }) });
+  assert.equal(code, 0);
+  assert.equal(pluginCheck(h.get().summary).status, "unconfigured");
+  assert.doesNotMatch(h.get().text, /problem\(s\) found/);
+});
+
+test("active plugins are ok and their registrations are counted", async (t) => {
+  const h = harness(t);
+  await h.run(OFFLINE, {
+    pluginReport: async () => ({
+      plugins: [{ id: "greeter", status: "enabled" }, { id: "lurker", status: "disabled" }],
+      stats: {
+        loaded: [{ id: "greeter", tools: ["plugin__greeter__hi"], commands: ["greeter"], providers: [], contexts: [] }],
+        problems: [],
+      },
+    }),
+  });
+  const row = pluginCheck(h.get().summary);
+  assert.equal(row.status, "ok");
+  assert.match(row.detail, /1 active, 1 disabled/);
+  assert.match(row.detail, /2 registration/);
+});
+
+test("a plugin that will not load is a warning, and doctor still exits 0", async (t) => {
+  const h = harness(t);
+  const code = await h.run(OFFLINE, {
+    pluginReport: async () => ({
+      plugins: [{ id: "bad", status: "enabled" }],
+      stats: { loaded: [], problems: [{ id: "bad", lines: ["bad: activate threw"] }] },
+    }),
+  });
+  const row = pluginCheck(h.get().summary);
+  assert.equal(code, 0, "a broken third-party plugin must never fail doctor");
+  assert.equal(row.status, "warn");
+  assert.match(row.detail, /1 not loaded \(bad\)/);
+  assert.match(row.detail, /activate threw/);
+});
+
+test("a plugin probe that throws is caught, not propagated", async (t) => {
+  const h = harness(t);
+  const code = await h.run(OFFLINE, {
+    pluginReport: async () => { throw new Error("discovery exploded"); },
+  });
+  const row = pluginCheck(h.get().summary);
+  assert.equal(code, 0);
+  assert.equal(row.status, "warn");
+  assert.match(row.detail, /plugin discovery failed/);
+});

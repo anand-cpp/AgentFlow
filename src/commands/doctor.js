@@ -18,6 +18,9 @@ import { findGitRoot, validateGitAvailable } from "../core/git/discover.js";
 import { detectInstalledServers } from "../core/lsp/registry.js";
 import { getMcpServers } from "../core/mcp/config.js";
 import { mapFreshness } from "../core/map/build.js";
+import { PluginManager } from "../core/plugins/manager.js";
+import { RESERVED_COMMANDS } from "../core/chat.js";
+import { VERSION } from "../core/version.js";
 import { execFile } from "node:child_process";
 
 /**
@@ -256,6 +259,74 @@ function checkProviderKeys() {
 }
 
 /**
+ * Report the plugin landscape.
+ *
+ * Plugins are third-party code, so a broken one is a warning, never a doctor
+ * failure: the session still runs, minus whatever that plugin would have
+ * added. Discovery and loading are wrapped anyway, because a check whose own
+ * probe throws would take the whole report down with it.
+ *
+ * @param {() => Promise<{plugins: object[], stats: object}>} load
+ */
+async function checkPlugins(load) {
+  let report;
+  try {
+    report = await load();
+  } catch (err) {
+    return {
+      name: "plugins",
+      status: "warn",
+      detail: `plugin discovery failed (${err?.message ?? err}) — plugins ignored this run`,
+    };
+  }
+  const { plugins, stats } = report;
+  if (!plugins.length) {
+    return {
+      name: "plugins",
+      status: "unconfigured",
+      detail: "no plugins discovered — run `aflow plugin create <id>` to scaffold one",
+    };
+  }
+  const loadedIds = new Set(stats.loaded.map((p) => p.id));
+  const disabled = plugins.filter((p) => p.status === "disabled");
+  const invalid = plugins.filter((p) => p.status === "invalid");
+  const failed = plugins.filter((p) => p.status === "enabled" && !loadedIds.has(p.id));
+  const active = plugins.length - disabled.length - invalid.length - failed.length;
+
+  const adds = stats.loaded.reduce(
+    (n, p) => n + p.tools.length + p.commands.length + p.providers.length + p.contexts.length,
+    0
+  );
+  const base = `${active} active, ${disabled.length} disabled (${adds} registration(s))`;
+
+  if (invalid.length || failed.length) {
+    const names = [...invalid, ...failed].map((p) => p.id).join(", ");
+    const first = (stats.problems.find((p) => [...invalid, ...failed].some((x) => x.id === p.id))?.lines ?? [])[0];
+    return {
+      name: "plugins",
+      status: "warn",
+      detail: `${base} — ${invalid.length + failed.length} not loaded (${names})${first ? `: ${first}` : ""}`,
+    };
+  }
+  return { name: "plugins", status: "ok", detail: base };
+}
+
+/** Load every plugin and snapshot it for the doctor. Never throws. */
+async function loadPluginReport() {
+  const manager = new PluginManager({
+    workspaceRoot: process.cwd(),
+    currentVersion: VERSION,
+    builtinCommands: RESERVED_COMMANDS,
+  });
+  try {
+    await manager.init();
+    return { plugins: manager.discovered, stats: manager.stats() };
+  } finally {
+    await manager.shutdown().catch(() => {});
+  }
+}
+
+/**
  * @param {{ config: object, out: object, flags: Record<string, unknown>, deps?: Record<string, Function> }} args
  */
 async function runDoctor({ config, out, flags, deps = {} }) {
@@ -276,6 +347,7 @@ async function runDoctor({ config, out, flags, deps = {} }) {
   checks.push(...checkOAuthClients());
   checks.push(await checkLanguageServers(deps.detectServers ?? detectInstalledServers));
   checks.push(await checkMcpServers(deps.mcpServers ?? (() => getMcpServers(process.cwd()))));
+  checks.push(await checkPlugins(deps.pluginReport ?? loadPluginReport));
   checks.push(checkRepoMap(/** @type {any} */ (deps.mapFresh) ?? mapFreshness));
 
   const probeGateway = deps.ping ?? ping;
