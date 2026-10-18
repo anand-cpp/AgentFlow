@@ -45,7 +45,7 @@ export async function loadCommand(name) {
   try {
     // Dynamic import is relative to this module (src/cli/registry.js).
     await import(`../commands/${name}.js`);
-  } catch (err) {
+  } catch {
     // A command module that fails to load is reported at dispatch time, not
     // here -- the caller decides how to surface it.
     return null;
