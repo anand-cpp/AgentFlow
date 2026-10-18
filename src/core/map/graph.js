@@ -140,6 +140,10 @@ export function buildRefGraph(units, options = {}) {
         ? (fileSet.has(entry.resolved) ? entry.resolved : resolveImport(entry.raw, unit.file, fileSet).resolved)
         : resolveImport(entry.raw, unit.file, fileSet).resolved;
       if (target) {
+        // Write the resolution back on the caller's unit, so snapshot
+        // consumers (context packing, the CLI) see resolved targets
+        // without rebuilding the graph.
+        entry.resolved = target;
         graph.addEdge(unit.file, target, { weight: 1, kind: "import" });
       } else {
         unresolved.push({ file: unit.file, raw: entry.raw });
