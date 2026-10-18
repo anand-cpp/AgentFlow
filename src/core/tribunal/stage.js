@@ -22,7 +22,8 @@
 
 import { REVIEW_DECISION, classifyFindings } from "./review-schema.js";
 import { assessDowngrade } from "./confidence.js";
-import { runSelfReview } from "./self-review.js";
+import { runSelfReview, SELF_REVIEW_SYSTEM_PROMPT } from "./self-review.js";
+import { assignPersona, personaPromptModifier, loadPersonas } from "./personas.js";
 
 export const STAGE_OUTCOME = {
   REVIEWED: "reviewed",
@@ -64,11 +65,22 @@ export async function runSelfAdversarialStage({
   // deep = 5; inquisition null = no cap).
   const depthModels = depth?.models;
   const capped = depthModels !== null ? list.slice(0, depthModels) : list;
+  // Personas are configured data (config.personas); every reviewer examines a
+  // proposal through a distinct lens so no single framing dominates.
+  const personas = loadPersonas(config);
   const results = [];
 
   for (let index = 0; index < capped.length; index += 1) {
+    const persona = assignPersona(capped[index], index, personas);
+    const personaOpts = {
+      ...opts,
+      persona,
+      system: personaPromptModifier(persona)
+        ? `${SELF_REVIEW_SYSTEM_PROMPT}\n\n${personaPromptModifier(persona)}`
+        : SELF_REVIEW_SYSTEM_PROMPT,
+    };
     results.push(
-      await reviewCandidate({ candidate: capped[index], index, complete, config, maxRevisions, opts }),
+      await reviewCandidate({ candidate: capped[index], index, complete, config, maxRevisions, opts: personaOpts }),
     );
   }
 
@@ -86,6 +98,7 @@ export async function runSelfAdversarialStage({
 async function reviewCandidate({ candidate, index, complete, config, maxRevisions, opts }) {
   const id = candidate?.id ?? `candidate-${index + 1}`;
   const modelId = candidate?.model ?? null;
+  const personaId = opts.persona?.id ?? null;
   const traces = [];
   let current = candidate;
   let limitReached = false;
@@ -99,6 +112,7 @@ async function reviewCandidate({ candidate, index, complete, config, maxRevision
       return {
         id,
         model: modelId,
+        personaId,
         ok: false,
         outcome: STAGE_OUTCOME.INVALID_REVIEW,
         iterations: revision + 1,
@@ -146,6 +160,7 @@ async function reviewCandidate({ candidate, index, complete, config, maxRevision
   return {
     id,
     model: modelId,
+    personaId,
     ok: true,
     outcome: limitReached ? STAGE_OUTCOME.REVISION_LIMIT : STAGE_OUTCOME.REVIEWED,
     iterations: traces.length,

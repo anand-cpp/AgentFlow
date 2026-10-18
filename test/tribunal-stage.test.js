@@ -59,7 +59,10 @@ test("every candidate is reviewed, with the review system prompt", async () => {
     complete: fn,
   });
   assert.equal(calls.length, 2);
-  assert.ok(calls.every((c) => c.system === SELF_REVIEW_SYSTEM_PROMPT));
+  // Every review uses the base system prompt; personas append a modifier, so
+  // the two candidates are reviewed through different lenses.
+  assert.ok(calls.every((c) => c.system.startsWith(SELF_REVIEW_SYSTEM_PROMPT)));
+  assert.notEqual(calls[0].system, calls[1].system, "distinct candidates get distinct persona modifiers");
   assert.equal(result.summary.total, 2);
   assert.equal(result.summary.reviewed, 2);
 });
