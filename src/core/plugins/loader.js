@@ -244,7 +244,7 @@ function evaluateCjsSafe(entry, code, spec, consoleLike) {
  * @param {{ timeoutMs?: number, onLine?: Function, onHook?: Function,
  *           onRegisterTool?: Function, onRegisterProvider?: Function,
  *           onRegisterSlashCommand?: Function, onRegisterContextProvider?: Function }} [deps]
- * @returns {{ ok: boolean, plugin?: object, error?: Error, diagnostics: string[] }}
+ * @returns {Promise<{ ok: boolean, plugin?: object, error?: Error, diagnostics: string[] }>}
  *   never throws: `ok: false` plus diagnostics covers every failure mode.
  */
 export async function loadPlugin(spec, deps = {}) {

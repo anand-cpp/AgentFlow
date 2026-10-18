@@ -77,7 +77,7 @@ export class PluginToolRegistry {
    *
    * @param {string} pluginId
    * @param {{ name: string, description: string, schema?: object, execute: Function }} def
-   * @returns {{ ok: boolean, fullName?: string, error?: string }}
+   * @returns {{ ok: boolean, fullName?: string, error?: string, errors?: Array<string> }}
    */
   register(pluginId, def) {
     if (!def || typeof def !== "object") {

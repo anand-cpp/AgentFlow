@@ -135,7 +135,7 @@ export class AgentRuntime {
    *   hints?: object, log?: object, now?: () => number, approver?: object,
    *   blackboard?: object, sessions?: object, providerHealth?: object,
    *   guards?: Array, config?: object, workspaceRoot?: object|string,
-   *   lspBridge?: object|null
+   *   lspBridge?: object|null, plugins?: object|null
    * }} [options]
    */
   constructor({

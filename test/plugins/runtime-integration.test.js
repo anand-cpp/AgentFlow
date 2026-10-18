@@ -178,7 +178,7 @@ test("beforeToolExecute denial stops the loop like a permission denial", async (
 
   const prompts = [];
   let n = 0;
-  const complete = async (_c, modelId, prompt, opts = {}) => {
+  const complete = async (_c, modelId, prompt, _opts = {}) => {
     prompts.push(prompt);
     n += 1;
     const out = n === 1

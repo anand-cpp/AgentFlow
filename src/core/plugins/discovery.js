@@ -50,12 +50,14 @@ export function pluginsStateFile(root = process.cwd()) {
  *   on any problem -- a corrupt state file must not disable plugins.
  */
 export function readPluginState(root = process.cwd()) {
-  const { ok, value } = readJsonFile(pluginsStateFile(root));
-  if (!ok) return { enabled: {}, error: null };
+  const file = readJsonFile(pluginsStateFile(root));
+  if (!file.ok) return { enabled: {}, error: null };
+  const value = file.value;
   const plugins =
     value && typeof value === "object" && value.plugins && typeof value.plugins === "object"
       ? value.plugins
       : {};
+  /** @type {Record<string, boolean>} */
   const enabled = {};
   for (const [id, entry] of Object.entries(plugins)) {
     // Plain booleans are the canonical on-disk shape; `{ enabled }` wrapper
@@ -80,11 +82,12 @@ export function writePluginState(enabled, root = process.cwd()) {
   const file = pluginsStateFile(root);
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
+    /** @type {Record<string, boolean>} */
     const out = {};
-  for (const [id, entry] of Object.entries(enabled)) {
-    out[id] = typeof entry === "boolean" ? entry : Boolean(entry?.enabled);
-  }
-  writeAtomicFile(file, JSON.stringify({ version: 1, plugins: out }, null, 2) + "\n");
+    for (const [id, entry] of Object.entries(enabled)) {
+      out[id] = typeof entry === "boolean" ? entry : Boolean(/** @type {any} */ (entry)?.enabled);
+    }
+    writeAtomicFile(file, JSON.stringify({ version: 1, plugins: out }, null, 2) + "\n");
     return { ok: true, error: null };
   } catch (error) {
     return { ok: false, error: error?.message ?? String(error) };

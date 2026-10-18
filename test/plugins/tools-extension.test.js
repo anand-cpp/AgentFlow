@@ -23,7 +23,7 @@ test("registerTool validates definition fields", () => {
   assert.match(reg.register(pid, { ...goodDef, name: "" }).error, /name must match/);
   assert.match(reg.register(pid, { ...goodDef, name: "has space" }).error, /name must match/);
   assert.match(reg.register(pid, { ...goodDef, description: "" }).error, /description is required/);
-  assert.match(reg.register(pid, { ...goodDef, execute: "nope" }).error, /execute must be a function/);
+  assert.match(reg.register(pid, /** @type {any} */ ({ ...goodDef, execute: "nope" })).error, /execute must be a function/);
   assert.equal(reg.size, 0, "nothing registered after all the refusals");
 });
 

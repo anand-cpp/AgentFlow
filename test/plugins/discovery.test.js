@@ -19,8 +19,9 @@ import {
 import { MANIFEST_FILE } from "../../src/core/plugins/manifest.js";
 
 /** Admission helper: every plugin fixture gets a valid minimal manifest file
- *  unless the test overrides the content string. */
-function makePlugin(root, rel, manifest = { id: path.basename(rel) }) {
+ *  unless the test overrides the content string. `manifest` accepts a parsed
+ *  object or raw JSON text, so the negative cases can hand it invalid input. */
+function makePlugin(root, rel, /** @type {object|string} */ manifest = { id: path.basename(rel) }) {
   const dir = path.join(root, rel);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(

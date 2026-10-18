@@ -394,7 +394,11 @@ export class ChatSession {
         const dispatched = manager.providerDispatch(base);
         if (dispatched) {
           this.complete = dispatched.complete;
-          this.stream = dispatched.stream;
+          // The dispatch wrapper names it `streamComplete`, matching the base
+          // object it wraps. Reading `.stream` here silently installed
+          // `undefined`, so every streamed reply threw as soon as a plugin
+          // registered a provider.
+          this.stream = dispatched.streamComplete;
         }
       }
       if (this.runtime) manager.registerToolsInto(this.runtime);

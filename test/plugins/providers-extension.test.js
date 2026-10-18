@@ -112,6 +112,7 @@ test("dispatch passes builtin providers through untouched", async () => {
 
 test("dispatch wires the {system, messages} contract and stream emits once", async () => {
   const reg = new PluginProviderRegistry();
+  /** @type {any} Assigned inside the provider callback, so annotate it. */
   let seen;
   reg.register("p", {
     ...goodDef,
@@ -123,14 +124,19 @@ test("dispatch wires the {system, messages} contract and stream emits once", asy
   const base = { complete: async () => { throw new Error("no"); }, streamComplete: async () => { throw new Error("no"); } };
   const wrapped = installPluginProviderDispatch({ base, registry: reg });
   const tokens = [];
-  const text = await wrapped.streamComplete({}, "plugin__p__localllm/mistral", [
+  const res = await wrapped.streamComplete({}, "plugin__p__localllm/mistral", [
     { role: "system", content: "be brief" },
     { role: "user", content: "question" },
   ], { onToken: (t) => tokens.push(t) });
   assert.deepEqual(seen.system, "be brief");
   assert.deepEqual(seen.messages, [{ role: "user", content: "question" }]);
   assert.deepEqual(tokens, ["one shot"]);
-  assert.equal(text, "one shot");
+  // The stream path returns the gateway completion shape, because that is the
+  // contract the chat engine reads (`.text`). Returning the bare string made
+  // plugin-provider replies come back empty even though the tokens were right.
+  assert.equal(res.text, "one shot");
+  assert.equal(res.model, "plugin__p__localllm/mistral");
+  assert.equal(res.streamed, true);
 });
 
 test("plugin provider failure is wrapped with the plugin prefix and code", async () => {

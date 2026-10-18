@@ -37,6 +37,14 @@ export function mergeExtraText(base, ...parts) {
 }
 
 export class PluginManager {
+  /**
+   * @param {{
+   *   workspaceRoot?: string,
+   *   currentVersion?: string,
+   *   builtinCommands?: ReadonlyArray<string>,
+   *   promptTokenBudget?: number
+   * }} [options]
+   */
   constructor({
     workspaceRoot = process.cwd(),
     currentVersion = VERSION,

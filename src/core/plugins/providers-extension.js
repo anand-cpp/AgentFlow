@@ -146,7 +146,8 @@ function raceTimeout(promise, ms, providerId) {
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
       const err = new Error(`plugin provider ${providerId} timed out after ${ms}ms`);
-      err.code = "plugin_provider_timeout";
+      // Node errors carry `code`; the base Error type does not declare it.
+      /** @type {any} */ (err).code = "plugin_provider_timeout";
       reject(err);
     }, ms);
   });
@@ -203,14 +204,17 @@ export function installPluginProviderDispatch({ base, registry, log = null }) {
       // the message, so "rate limited" from a plugin provider cascades like
       // any other rate limit.
       const wrapped = new Error(`plugin provider ${provider}: ${error?.message ?? String(error)}`);
-      wrapped.code = error?.code ?? "plugin_provider_error";
+      // Node errors carry `code`; the base Error type does not declare it.
+      /** @type {any} */ (wrapped).code = error?.code ?? "plugin_provider_error";
       throw wrapped;
     }
   };
 
-  // Plugin providers do not implement token streaming (their `complete` is
-  // arbitrary code); the stream path emits the answer in one chunk and
-  // returns the same accumulated text the builtin loop contract expects.
+  // Plugin providers are not required to implement token streaming, so the
+  // stream path calls `complete`, emits the whole answer in one chunk, and
+  // returns the same completion object the gateway returns. The object shape
+  // is the point: callers read `.text` off it, so a bare string here silently
+  // produced empty replies.
   const dispatchStream = async (cfg, modelId, messages, opts = {}) => {
     const { provider } = parseModelPrefix(modelId);
     const entry = isPluginProvider(provider) ? registry.get(provider) : null;
@@ -226,10 +230,15 @@ export function installPluginProviderDispatch({ base, registry, log = null }) {
       );
       const completion = normaliseCompletion(provider, modelId, res);
       if (typeof opts?.onToken === "function" && completion.text) opts.onToken(completion.text);
-      return completion.text;
+      // Return the completion object, not its text. The caller's contract is
+      // the gateway shape -- `chat.send` reads `.text` off this result -- and
+      // returning a bare string made every plugin-provider reply come back
+      // empty even though the tokens had been emitted correctly.
+      return { ...completion, streamed: true };
     } catch (error) {
       const wrapped = new Error(`plugin provider ${provider}: ${error?.message ?? String(error)}`);
-      wrapped.code = error?.code ?? "plugin_provider_error";
+      // Node errors carry `code`; the base Error type does not declare it.
+      /** @type {any} */ (wrapped).code = error?.code ?? "plugin_provider_error";
       throw wrapped;
     }
   };

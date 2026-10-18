@@ -49,7 +49,7 @@ export class PluginContextRegistry {
   /**
    * @param {string} pluginId
    * @param {{ name: string, description?: string, getContext: Function }} def
-   * @returns {{ ok: boolean, name?: string, error?: string }}
+   * @returns {{ ok: boolean, name?: string, error?: string, errors?: Array<string> }}
    */
   register(pluginId, def) {
     const errors = validateContextDef(def);
@@ -94,10 +94,10 @@ export class PluginContextRegistry {
    * @param {object} payload arbitrary enrichment input (task/query fields)
    * @param {{ tokenBudget?: number|null, timeoutMs?: number }} [opts]
    *   tokenBudget null means unbounded.
-   * @returns {{ ok: boolean, blocks: Array<{pluginId: string, name: string, tokenEstimate: number, text: string}>,
+   * @returns {Promise<{ ok: boolean, blocks: Array<{pluginId: string, name: string, tokenEstimate: number, text: string}>,
    *            skipped: Array<{pluginId: string, name: string, reason: string}>,
    *            errors: Array<{pluginId: string, message: string}>,
-   *            tokensUsed: number }}
+   *            tokensUsed: number }>}
    */
   async enrich(payload, { tokenBudget = null, timeoutMs = this.timeoutMs } = {}) {
     const blocks = [];

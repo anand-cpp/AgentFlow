@@ -347,7 +347,7 @@ async function runDoctor({ config, out, flags, deps = {} }) {
   checks.push(...checkOAuthClients());
   checks.push(await checkLanguageServers(deps.detectServers ?? detectInstalledServers));
   checks.push(await checkMcpServers(deps.mcpServers ?? (() => getMcpServers(process.cwd()))));
-  checks.push(await checkPlugins(deps.pluginReport ?? loadPluginReport));
+  checks.push(await checkPlugins(/** @type {any} */ (deps.pluginReport) ?? loadPluginReport));
   checks.push(checkRepoMap(/** @type {any} */ (deps.mapFresh) ?? mapFreshness));
 
   const probeGateway = deps.ping ?? ping;

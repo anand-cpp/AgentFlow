@@ -115,9 +115,9 @@ export class PluginHookRegistry {
    * @param {string} hookName
    * @param {object} payload hook-specific input
    * @param {{ timeoutMs?: number }} [opts]
-   * @returns {{ ok: boolean, values: Array<{pluginId: string, value: object}>,
+   * @returns {Promise<{ ok: boolean, values: Array<{pluginId: string, value: object}>,
    *            errors: Array<{pluginId: string, message: string}>,
-   *            timedOut: string[] }}
+   *            timedOut: string[] }>}
    *   Never throws. Subscriber values that are `undefined` are recorded as
    *   null so the values array is JSON-stable.
    */

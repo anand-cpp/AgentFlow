@@ -47,7 +47,7 @@ export class PluginCommandRegistry {
   /**
    * @param {string} pluginId
    * @param {{ name: string, description: string, handler: Function }} def
-   * @param {{ builtinNames?: string[] }} [opts] builtin names that must stay
+   * @param {{ builtinNames?: ReadonlyArray<string> }} [opts] builtin names that must stay
    *   reserved even before any registration.
    */
   register(pluginId, def, { builtinNames = [] } = {}) {
@@ -105,7 +105,7 @@ export class PluginCommandRegistry {
  * @param {string} name command name (no slash)
  * @param {string} arg everything after the slash command
  * @param {object} session the chat session handle given to the handler
- * @returns {{ ok: boolean, kind: "plugin", text: string, data?: object, isHelp?: boolean }}
+ * @returns {Promise<{ ok: boolean, kind: "plugin", text: string, data?: object, isHelp?: boolean }>}
  *   Never throws; handler errors become rendered text in `text`.
  */
 export async function runPluginCommand(registry, name, arg, session) {

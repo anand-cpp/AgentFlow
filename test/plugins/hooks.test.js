@@ -27,7 +27,7 @@ test("add validates hook names and subscriber types", () => {
   const reg = new PluginHookRegistry();
   assert.equal(reg.add("p", "bogus", () => {}).ok, false);
   assert.match(reg.add("p", "bogus", () => {}).error, /unknown hook/);
-  assert.equal(reg.add("p", "onInit", "notafunction").ok, false);
+  assert.equal(reg.add("p", "onInit", /** @type {any} */ ("notafunction")).ok, false);
   assert.equal(reg.add("p", "onInit", () => {}).ok, true);
   assert.equal(reg.count("onInit"), 1);
 });
