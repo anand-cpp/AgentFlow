@@ -79,6 +79,7 @@ These are the capabilities that are actually built today. Each is implemented in
 | **Git without leaving the loop** | `aflow git` and `/git` cover status, diff, log, branches, staging, commits (message generated from the staged diff), stash, and conflict resolution — plus ten `git.*` agent tools. Diffs are parsed from structured git output, paths and branch names are validated first, and a proposed write shows a git-aware diff before you approve it. |
 | **A language server in the loop** | When a language server is installed, `aflow lsp` and `/lsp` answer diagnostics, hover, and definition queries — and a file the agent writes is re-analysed, with the errors fed straight into the model's next prompt so it corrects itself in the same task (`src/core/lsp/`). |
 | **MCP servers as agent tools** | Point `mcp.json` (Claude Desktop / OpenCode-compatible) at any MCP server over stdio or SSE and its tools appear in the runtime as namespaced `mcp__server__tool` agent tools — discovered, permission-gated, and callable like built-ins, with a broken server degrading to isolation, never a failed run (`src/core/mcp/`). |
+| **A PageRank repository map** | The workspace is walked once, parsed for symbols and imports with regex extractors (JS/TS, Python, Go, Rust — no language servers), and ranked with a pure-JS PageRank over the import graph, Aider-style. The agent sees the map inside its context budget, and `repo-map`, `aflow map`, and `/map` let it pull keyword-re-ranked structure on demand (`src/core/map/`). |
 | **Zero runtime dependencies** | Nothing to audit, nothing to install for the tests to run, no transitive supply chain. |
 
 ## Quick start
@@ -218,6 +219,33 @@ servers (and the run) continue either way. Inside a session, `/mcp <subcommand>`
 shares the same dispatcher. Full reference in
 [`docs/MCP_INTEGRATION.md`](docs/MCP_INTEGRATION.md).
 
+## The repository map, in the loop
+
+Every agent run starts with a structural map of the workspace already in its
+context: which files exist, how they import each other, and — by PageRank over
+that import graph — which pieces of the codebase everything else depends on.
+Aider-style, the map is what the model should know about the repo before it
+reads a single file.
+
+```sh
+node bin/aflow.js map show                             # ranked files + symbols
+node bin/aflow.js map query "permission waterfall"     # re-ranked around a concern
+node bin/aflow.js map stats                            # cache vitals + top 10
+node bin/aflow.js map build                            # force a full rebuild
+```
+
+The pipeline is zero-dependency and local: a gitignore-honouring walk (caps,
+symlink/binary refusal) → regex symbol extraction (JS/TS, Python, Go, Rust) →
+import resolution against the real file set → a pure-JS PageRank pass. Files
+carry a token budget (default 2000) and are formatted as a compact list with
+symbols and reference counts — structure only, never file contents. The map is
+cached at `.agentflow/repo-map.json` and refreshed incrementally: untouched
+files keep their cached extraction, only changed files are re-read. Every
+failure path degrades to "no map" — a bad cache, an unreadable tree, or a
+disabled `mapEnabled` knob can never fail a run. Inside a session, `/map <sub>`
+shares the dispatcher, and the `repo-map` agent tool re-ranks around a query
+mid-task. Full reference in [`docs/REPO_MAP.md`](docs/REPO_MAP.md).
+
 ## Architecture
 
 <img src="docs/assets/readme/agentflow-architecture.svg" alt="AgentFlow architecture: the aflow CLI above a control plane of Configuration, Agent Runtime, and Tribunal, beside durable state; below them the Router and ProviderHealth feed an OpenAI-compatible gateway that reaches eleven hosted providers plus local Ollama." width="100%">
@@ -272,6 +300,18 @@ start-up and runtime failures per server, and tool/resource/prompt bridges that
 register discovered MCP tools as read-scoped `mcp__<server>__<tool>` agent
 tools. `aflow mcp` and `/mcp` share one dispatcher, and `doctor` reports MCP
 without ever failing on an unconfigured or offline server.
+
+**Repository map** — a zero-dependency Aider-style structural map
+(`src/core/map/`): a gitignore-aware workspace walker with file caps and
+symlink/binary refusal, regex symbol extractors for JS/TS, Python, Go, and
+Rust, an import resolver that builds a directed reference graph (external
+packages become negligible stub nodes), and a pure-JS PageRank (weighted
+edges, damping, personalization biases) that ranks files and symbols. `aflow
+map` and `/map` expose show/build/query/stats, the `repo-map` agent tool
+re-ranks around a query at runtime, a budgeted `## Repository map` section
+rides in the agent context packet, the cache at `.agentflow/repo-map.json`
+refreshes incrementally by mtime+size, and `doctor` reports the cache as
+ok/info without ever hard-failing.
 
 **Security** — allowlist permissions resolving
 `deny → scope approval → allow → ask → deny`, workspace path containment,
@@ -464,7 +504,7 @@ Licensed under the [MIT License](LICENSE).
 
 <div align="center">
 
-[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) · [Architecture](ARCHITECTURE.md) · [Tribunal](docs/TRIBUNAL.md) · [Providers](docs/PROVIDERS.md) · [Git](docs/GIT_INTEGRATION.md) · [LSP](docs/LSP_INTEGRATION.md) · [MCP](docs/MCP_INTEGRATION.md) · [Origin](PROJECT_ORIGIN.md) · [MIT License](LICENSE)
+[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) · [Architecture](ARCHITECTURE.md) · [Tribunal](docs/TRIBUNAL.md) · [Providers](docs/PROVIDERS.md) · [Git](docs/GIT_INTEGRATION.md) · [LSP](docs/LSP_INTEGRATION.md) · [Repo map](docs/REPO_MAP.md) · [MCP](docs/MCP_INTEGRATION.md) · [Origin](PROJECT_ORIGIN.md) · [MIT License](LICENSE)
 
 <br>
 
