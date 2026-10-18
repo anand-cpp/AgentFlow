@@ -281,11 +281,31 @@ function clamp(value, min, max) {
  * proposal; two P0s kill it; a pile of P2s barely dents it. That asymmetry is
  * the point: the score answers "did anything critical survive?", not "how many
  * nits were filed?".
+ *
+ * Every returned finding carries `executableProof: true` (a concrete
+ * falsifiable_proof.payload) and may carry `downgradedToP2: true` when its
+ * original severity was outside the blocking set (P0/P1/P2) and was lowered to
+ * P2_MINOR. `blockingFindingsCount` is the number of P0/P1 findings with
+ * executable proof -- these are the only findings that can force the Oracle
+ * gate to require closure on the merge. `downgradedCount` is the number of
+ * findings that were downgraded to P2.
  */
 export function aggregateCrucibleFindings(reports) {
   const list = Array.isArray(reports) ? reports : [];
   const seen = new Set();
   const findings = [];
+  let downgradedCount = 0;
+
+  // The executable-proof rule: an attack finding only counts toward blocking
+  // the Oracle gate when it carries both a blocking severity (P0/P1/P2) and a
+  // concrete failing-test payload. Findings with a non-blocking severity (P3)
+  // are downgraded to P2_MINOR -- they still count in the tally but cannot
+  // force a P0/P1-style closure requirement on the merge.
+  const BLOCKING_SEVERITIES = new Set([
+    CRUCIBLE_SEVERITY.P0_CRITICAL,
+    CRUCIBLE_SEVERITY.P1_MAJOR,
+    CRUCIBLE_SEVERITY.P2_MINOR,
+  ]);
 
   for (const report of list) {
     const { proven } = classifyAttackFindings(report);
@@ -293,7 +313,23 @@ export function aggregateCrucibleFindings(reports) {
       const signature = `${finding.severity}\u0000${finding.vector}\u0000${String(finding.title).trim().toLowerCase()}`;
       if (seen.has(signature)) continue;
       seen.add(signature);
-      findings.push(finding);
+
+      let severity = finding.severity;
+      let downgradedToP2 = false;
+      if (!BLOCKING_SEVERITIES.has(severity)) {
+        // Downgrade any non-blocking severity (e.g. P3_INFORMATIONAL) to P2 so
+        // it can never block the Oracle gate on its own.
+        severity = CRUCIBLE_SEVERITY.P2_MINOR;
+        downgradedToP2 = true;
+        downgradedCount += 1;
+      }
+
+      findings.push({
+        ...finding,
+        severity,
+        executableProof: true,
+        ...(downgradedToP2 ? { downgradedToP2: true } : {}),
+      });
     }
   }
 
@@ -319,7 +355,22 @@ export function aggregateCrucibleFindings(reports) {
     counts[CRUCIBLE_SEVERITY.P1_MAJOR] * 0.2 +
     counts[CRUCIBLE_SEVERITY.P2_MINOR] * 0.05;
 
-  return { findings, counts, survivalScore: clamp(1 - penalty, 0, 1) };
+  // Blocking findings = P0/P1 with executable proof. These are the only
+  // findings that can force the Oracle gate to require closure on the merge.
+  const blockingFindings = findings.filter(
+    (f) =>
+      f.executableProof &&
+      (f.severity === CRUCIBLE_SEVERITY.P0_CRITICAL ||
+        f.severity === CRUCIBLE_SEVERITY.P1_MAJOR)
+  );
+
+  return {
+    findings,
+    counts,
+    survivalScore: clamp(1 - penalty, 0, 1),
+    blockingFindingsCount: blockingFindings.length,
+    downgradedCount,
+  };
 }
 
 export default {

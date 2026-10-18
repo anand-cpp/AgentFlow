@@ -294,6 +294,61 @@ test("findings are sorted P0 first", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Executable-proof rule (Tribunal v2)
+// ---------------------------------------------------------------------------
+
+test("a P3 finding is downgraded to P2 and cannot block the Oracle gate", () => {
+  const reports = [
+    attack({
+      findings: [
+        finding({
+          id: "p3-info",
+          severity: CRUCIBLE_SEVERITY.P3_INFORMATIONAL,
+          title: "informational note",
+        }),
+      ],
+    }),
+  ];
+  const { findings, counts, downgradedCount, blockingFindingsCount } =
+    aggregateCrucibleFindings(reports);
+  assert.equal(downgradedCount, 1, "the P3 finding was downgraded");
+  assert.equal(findings[0].severity, CRUCIBLE_SEVERITY.P2_MINOR, "downgraded to P2");
+  assert.equal(findings[0].downgradedToP2, true, "downgrade flag is set");
+  assert.equal(findings[0].executableProof, true, "executable proof is present");
+  assert.equal(counts[CRUCIBLE_SEVERITY.P3_INFORMATIONAL], 0, "no P3 findings remain");
+  assert.equal(counts[CRUCIBLE_SEVERITY.P2_MINOR], 1, "counted as P2");
+  assert.equal(blockingFindingsCount, 0, "P2 does not block the Oracle gate");
+});
+
+test("P0 and P1 findings block the Oracle gate; P2 does not", () => {
+  const reports = [
+    attack({
+      findings: [
+        finding({ id: "p0", severity: CRUCIBLE_SEVERITY.P0_CRITICAL, title: "fatal" }),
+        finding({ id: "p1", severity: CRUCIBLE_SEVERITY.P1_MAJOR, title: "major" }),
+        finding({ id: "p2", severity: CRUCIBLE_SEVERITY.P2_MINOR, title: "minor" }),
+      ],
+    }),
+  ];
+  const { blockingFindingsCount, downgradedCount } = aggregateCrucibleFindings(reports);
+  assert.equal(blockingFindingsCount, 2, "P0 and P1 are blocking");
+  assert.equal(downgradedCount, 0, "no downgrades needed");
+});
+
+test("every proven finding carries executableProof", () => {
+  const reports = [
+    attack({
+      findings: [
+        finding({ id: "f1", severity: CRUCIBLE_SEVERITY.P0_CRITICAL, title: "fatal" }),
+        finding({ id: "f2", severity: CRUCIBLE_SEVERITY.P2_MINOR, title: "minor" }),
+      ],
+    }),
+  ];
+  const { findings } = aggregateCrucibleFindings(reports);
+  assert.ok(findings.every((f) => f.executableProof === true));
+});
+
+// ---------------------------------------------------------------------------
 // Stage
 // ---------------------------------------------------------------------------
 
