@@ -16,8 +16,9 @@ export function parseMcpToolName(name) {
   if (!isMcpToolName(name)) return null;
   const parts = name.slice("mcp__".length).split("__");
   if (parts.length < 2) return null;
-  const tool = parts.pop();
-  return { server: parts.join("__"), tool };
+  // The first segment is the server; the tool name may itself contain "__".
+  const server = parts.shift();
+  return { server, tool: parts.join("__") };
 }
 
 /** Map an MCP tools/call content array to readable text. */
@@ -73,7 +74,10 @@ export class McpAgentBridge {
 
   /** Discover tools from every running server, wrapped in the runtime schema. */
   async discoverTools() {
-    if (!this.manager) return new Map();
+    if (!this.manager) {
+      this._discovered = new Map();
+      return this._discovered;
+    }
     await this.manager.startAll();
     const map = new Map();
     for (const tool of this.manager.getAllTools()) {
@@ -81,6 +85,8 @@ export class McpAgentBridge {
       if (!server) continue;
       map.set(tool.fullName, adaptTool({ ...tool, bridge: server.tools }));
     }
+    // Cache the result so registerTools() can run synchronously right after.
+    this._discovered = map;
     return map;
   }
 
