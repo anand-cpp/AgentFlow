@@ -30,6 +30,7 @@ import { BlackboardStore } from "../core/blackboard.js";
 import { redactDeep } from "../core/redact.js";
 import { runFullTribunal } from "../core/tribunal/stage-oracle.js";
 import { isValidDepth } from "../core/tribunal/tribunal-depth.js";
+import { openAudit } from "../core/tribunal/tribunal-audit.js";
 import { renderFightCard, renderHistoryRow } from "../core/tribunal/formatter.js";
 import { createTribunalState, applyStageEvent, renderTribunalProgress } from "../tui/tribunal-view.js";
 import { bold, dim, heading } from "../cli/ui.js";
@@ -262,19 +263,33 @@ async function runSub({ rest, flags, config, out, deps }) {
   const models = await resolveModels({ flags, config, listModels });
   out.status(dim(`convening the tribunal: ${models.map((m) => m ?? "(default)").join(", ")} · domain ${domain} · depth ${depthName ?? "standard"}`));
 
+  // Open the JSONL audit stream for this run. A failure to open it never stops
+  // the tribunal -- the handle is a silent no-op.
+  const taskId = String(prompt).slice(0, 80);
+  const audit = openAudit(taskId, flags["state-dir"] ? path.resolve(String(flags["state-dir"])) : undefined);
+
   const live = newLiveBoard(out, { models, domain });
-  const { proposals, result } = await executeTribunal({
-    prompt,
-    models,
-    domain,
-    completeFn,
-    config,
-    options: {
-      maxRetries: parseCount(flags.retries, undefined),
-      onStage: live.onStage,
-      ...(depthName ? { depth: depthName } : {}),
-    },
-  });
+  let result;
+  let proposals;
+  try {
+    const execResult = await executeTribunal({
+      prompt,
+      models,
+      domain,
+      completeFn,
+      config,
+      options: {
+        maxRetries: parseCount(flags.retries, undefined),
+        onStage: live.onStage,
+        ...(depthName ? { depth: depthName } : {}),
+        audit: { append: audit.append },
+      },
+    });
+    proposals = execResult.proposals;
+    result = execResult.result;
+  } finally {
+    audit.close();
+  }
   live.finish(result);
 
   const sessionId = persistRun({ result, proposals, prompt, models, flags, out });

@@ -95,6 +95,16 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
   const config = options.config ?? null;
   const opts = options.opts ?? {};
   const depth = resolveDepth(options.depth);
+  const auditAppend = typeof options.audit?.append === "function" ? options.audit.append : null;
+
+  const auditEvent = (event, stage, payload = {}) => {
+    if (!auditAppend) return;
+    try {
+      auditAppend({ event, stage, ts: new Date().toISOString(), ...payload });
+    } catch {
+      // audit is a record, not a gate: a failed append never stops a run
+    }
+  };
 
   // The Forge keys each review off the candidate's own `model`; when a caller
   // hands a single pipeline-level modelId, stamp it onto candidates that lack one
@@ -124,6 +134,8 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
   };
 
   try {
+    auditEvent("TRIBUNAL_START", "tribunal", { tribunalId, domain, proposals: list.length });
+
     liveStage = "FORGE";
     liveRound = 1;
     notify("running");
@@ -136,6 +148,7 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
       depth,
     });
     notify("done", stage1);
+    auditEvent("FORGE_COMPLETE", "forge", { candidates: stage1Candidates.length, summary: stage1.summary });
 
     liveStage = "CRUCIBLE";
     liveRound = 2;
@@ -146,6 +159,7 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
       options: { domain, modelId, config, opts, vectors: options.vectors, completedAt: options.completedAt },
     });
     notify("done", stage2);
+    auditEvent("CRUCIBLE_COMPLETE", "crucible", { summary: stage2.summary });
 
     liveStage = "MERGE";
     liveRound = 3;
@@ -158,6 +172,7 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
       options: { domain, modelId, config, opts, minSurvivalScore: options.minSurvivalScore, completedAt: options.completedAt, depth },
     });
     notify("done", stage3);
+    auditEvent("MERGE_COMPLETE", "merge", { status: stage3.status, criticalFindings: stage3.criticalFindings?.length });
 
     liveStage = "TRIAL";
     liveRound = 4;
@@ -171,6 +186,7 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
       options: { domain, modelId, config, opts, maxRetries: options.maxRetries, completedAt: options.completedAt, depth },
     });
     notify("done", stage4);
+    auditEvent("TRIAL_COMPLETE", "trial", { status: stage4.status, outcome: stage4.outcome });
 
     liveStage = "ORACLE";
     liveRound = 5;
@@ -181,8 +197,10 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
       options: { crucibleFindings: stage3?.criticalFindings, completedAt: options.completedAt, depth },
     });
     notify("done", stage5);
+    auditEvent("ORACLE_COMPLETE", "oracle", { verdict: stage5?.oracleResult?.verdict, confidence: stage5?.oracleResult?.confidence });
   } catch (err) {
     notify("error");
+    auditEvent("TRIBUNAL_ABORTED", "tribunal", { error: err?.message || String(err) });
     // One complete ABORTED record beats a partial throw: whatever ran is kept,
     // and the Oracle result explains the failure.
     const oracleResult = runOracle({ domain });
@@ -190,6 +208,11 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
   }
 
   const completedAt = options.completedAt ?? new Date().toISOString();
+
+  auditEvent("TRIBUNAL_COMPLETE", "tribunal", {
+    verdict: stage5?.oracleResult?.verdict,
+    confidence: stage5?.oracleResult?.confidence,
+  });
 
   return {
     tribunal_id: tribunalId,
