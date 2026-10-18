@@ -25,6 +25,7 @@ import {
   buildMergePrompt,
   extractCriticalFindings,
   runMerge,
+  sanityCheckHybrid,
   shouldAttemptMerge,
 } from "../src/core/tribunal/merge.js";
 import { MERGE_STAGE, MERGE_STAGE_STATUS, runMergeStage } from "../src/core/tribunal/stage-merge.js";
@@ -505,6 +506,119 @@ test("extraction falls back to raw reports when aggregated findings are absent",
 test("empty findings extract to an empty array without crashing", () => {
   assert.deepEqual(extractCriticalFindings(crucibleResult([{ proposalId: "p1", aggregatedFindings: [] }])), []);
   assert.deepEqual(extractCriticalFindings(undefined), []);
+});
+
+test("stage timing is zero for a skipped merge", async () => {
+  const stage = await runMergeStage({
+    proposals: [{ id: "p1" }],
+    crucibleStageResult: crucibleResult([{ proposalId: "p1", survivalScore: 0.1 }]),
+    completeFn: async () => ({ text: "{}" }),
+  });
+  assert.equal(stage.elapsed_ms, 0);
+});
+
+// ---------------------------------------------------------------------------
+// 4.7 Anti-Frankenstein sanity check
+// ---------------------------------------------------------------------------
+
+test("sanityCheckHybrid accepts a well-formed hybrid", () => {
+  const result = sanityCheckHybrid({
+    content: '{"key": "value", "list": [1, 2, 3]}',
+    elements: [{ element_id: "e1", source_proposal_ids: ["p1"], rationale: "x", addresses_findings: [] }],
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.errors, []);
+});
+
+test("sanityCheckHybrid accepts non-JSON content with balanced delimiters", () => {
+  const result = sanityCheckHybrid({
+    content: "Take the parser from A and the retry policy from B.",
+    elements: [],
+  });
+  assert.equal(result.ok, true);
+});
+
+test("sanityCheckHybrid rejects unparsable JSON content", () => {
+  const result = sanityCheckHybrid({
+    content: "{ incomplete: true, missing brace",
+    elements: [],
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((e) => e.includes("does not parse")));
+});
+
+test("sanityCheckHybrid rejects unbalanced braces", () => {
+  const result = sanityCheckHybrid({
+    content: "function foo() { return { x: 1 };",
+    elements: [],
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((e) => e.includes("unbalanced")));
+});
+
+test("sanityCheckHybrid rejects truncated content", () => {
+  const result = sanityCheckHybrid({
+    content: "const config = {",
+    elements: [],
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((e) => e.includes("mid-construct")));
+});
+
+test("sanityCheckHybrid accepts null or missing hybrid", () => {
+  assert.equal(sanityCheckHybrid(null).ok, true);
+  assert.equal(sanityCheckHybrid(undefined).ok, true);
+  assert.equal(sanityCheckHybrid({}).ok, true);
+});
+
+test("runMerge refuses a Frankenstein hybrid with unparsable JSON content", async () => {
+  const report = mergeReport({
+    hybrid_solution: {
+      content: "{ broken: json, no closing brace",
+      elements: [element({ addresses_findings: [] })],
+    },
+  });
+  const { fn } = queueComplete([report]);
+  const result = await runMerge({
+    proposals: [{ id: "p1" }, { id: "p2" }],
+    crucibleFindings: [criticalFinding({ id: "f1" })],
+    completeFn: fn,
+  });
+  assert.equal(result.status, INVALID_MERGE);
+  assert.ok(result.errors.some((e) => e.includes("does not parse")));
+});
+
+test("runMerge refuses a Frankenstein hybrid with unbalanced braces", async () => {
+  const report = mergeReport({
+    hybrid_solution: {
+      content: "function foo() { return { x: 1 };",
+      elements: [element({ addresses_findings: [] })],
+    },
+  });
+  const { fn } = queueComplete([report]);
+  const result = await runMerge({
+    proposals: [{ id: "p1" }, { id: "p2" }],
+    crucibleFindings: [criticalFinding({ id: "f1" })],
+    completeFn: fn,
+  });
+  assert.equal(result.status, INVALID_MERGE);
+  assert.ok(result.errors.some((e) => e.includes("unbalanced")));
+});
+
+test("runMerge accepts a well-formed hybrid with valid JSON content", async () => {
+  const report = mergeReport({
+    hybrid_solution: {
+      content: '{"name": "hybrid", "version": 1}',
+      elements: [element({ addresses_findings: [] })],
+    },
+  });
+  const { fn } = queueComplete([report]);
+  const result = await runMerge({
+    proposals: [{ id: "p1" }, { id: "p2" }],
+    crucibleFindings: [criticalFinding({ id: "f1" })],
+    completeFn: fn,
+  });
+  assert.equal(result.status, "OK");
 });
 
 test("stage timing is zero for a skipped merge", async () => {

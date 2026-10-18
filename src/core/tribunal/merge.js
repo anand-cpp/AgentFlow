@@ -282,12 +282,88 @@ export async function runMerge({
 
   // Redact before the report leaves the module: a synthesizer quoting a secret
   // from a proposal must not carry it into downstream state.
+  const redacted = redactDeep(parsed.value);
+
+  // Anti-Frankenstein gate: the merged artifact must be syntactically coherent
+  // before it is handed to the Trial. A half-stitched hybrid -- valid JSON that
+  // doesn't parse, or text with unbalanced braces -- is refused rather than
+  // passed on to be prosecuted.
+  const sanity = sanityCheckHybrid(redacted.hybrid_solution);
+  if (!sanity.ok) return invalid(text, sanity.errors);
+
   return {
     status: "OK",
-    report: redactDeep(parsed.value),
+    report: redacted,
     modelId,
     elapsed_ms: Math.max(0, now() - began),
   };
+}
+
+/**
+ * Sanity-check a merged hybrid artifact for Frankenstein stitches: JSON that
+ * doesn't parse, unbalanced delimiters, or obvious truncation. Returns
+ * { ok: true } when the artifact is coherent, or { ok: false, errors } when it
+ * should be refused before Trial.
+ *
+ * @param {object|null} hybridSolution
+ * @returns {{ ok: boolean, errors: string[] }}
+ */
+export function sanityCheckHybrid(hybridSolution) {
+  const errors = [];
+  if (!hybridSolution || typeof hybridSolution !== "object") {
+    return { ok: true, errors: [] };
+  }
+  const content = hybridSolution.content;
+  if (!isNonEmptyString(content)) return { ok: true, errors: [] };
+
+  // JSON-shaped content must round-trip through JSON.parse.
+  const trimmed = content.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      JSON.parse(trimmed);
+    } catch {
+      errors.push("hybrid_solution.content is JSON-shaped but does not parse");
+    }
+  }
+
+  // Balanced delimiter check: braces, brackets, and parentheses must close.
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let lastSignificant = "";
+  for (const ch of content) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{" || ch === "[" || ch === "(") {
+      depth += 1;
+    } else if (ch === "}" || ch === "]" || ch === ")") {
+      depth -= 1;
+      if (depth < 0) {
+        errors.push("hybrid_solution.content has a closing delimiter without an opener");
+        break;
+      }
+    }
+    if (!/\s/.test(ch)) lastSignificant = ch;
+  }
+  if (depth !== 0) {
+    errors.push("hybrid_solution.content has unbalanced delimiters");
+  }
+
+  // Truncation heuristic: the content must not end mid-construct.
+  const truncationChars = new Set(["{", "[", "(", ",", ":", "-"]);
+  if (truncationChars.has(lastSignificant)) {
+    errors.push("hybrid_solution.content ends mid-construct (possible truncation)");
+  }
+
+  return { ok: errors.length === 0, errors };
 }
 
 function findingsOfResult(result) {
@@ -367,4 +443,5 @@ export default {
   runMerge,
   extractCriticalFindings,
   shouldAttemptMerge,
+  sanityCheckHybrid,
 };
