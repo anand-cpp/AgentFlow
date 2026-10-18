@@ -246,6 +246,48 @@ disabled `mapEnabled` knob can never fail a run. Inside a session, `/map <sub>`
 shares the dispatcher, and the `repo-map` agent tool re-ranks around a query
 mid-task. Full reference in [`docs/REPO_MAP.md`](docs/REPO_MAP.md).
 
+## Plugins, without forking AgentFlow
+
+A plugin is a directory with a manifest and an entry file. It can observe and
+veto agent runs, add tools, add model providers, add slash commands, and
+contribute context — without touching AgentFlow's source.
+
+```sh
+node bin/aflow.js plugin create todos     # scaffold .agentflow/plugins/todos
+node bin/aflow.js plugin list             # what each plugin adds
+node bin/aflow.js plugin inspect todos    # load it; show real registrations + log
+node bin/aflow.js plugin disable todos
+```
+
+Inside a chat, `/plugin <sub>` shares the same dispatcher.
+
+Five extension points, all fail-isolated:
+
+| Surface | Registers | Arrives as |
+| --- | --- | --- |
+| Hooks | `on`, six lifecycle events | `beforeAgentRun` can enrich or veto; `beforeToolExecute` can refuse; `afterToolExecute` can replace what the model sees |
+| Tools | `registerTool` | `plugin__<id>__<name>`, then the ordinary tool map and permission waterfall |
+| Providers | `registerProvider` | `plugin__<id>__<provider>/<model>` |
+| Commands | `registerSlashCommand` | `/<name>` |
+| Context | `registerContextProvider` | `plugin__<id>__<name>`, budget-admitted |
+
+Three properties make this safe to run against third-party code. **Nothing
+namespaces past you**: a plugin cannot shadow `/quit`, `/model`, or a builtin
+tool, so extension is additive by construction. **Discovery never evaluates
+code** — it reads manifests only; the one dangerous step (running the entry)
+happens once, in a `node:vm` sandbox whose `require` allows exactly
+`node:events`, and only for plugins you enabled. **Failure is contained**: a
+plugin that throws at activation, hangs in a hook, or floods `console` is
+recorded and skipped, and every other plugin keeps working.
+
+Context is budget-aware too — a block that exceeds the remaining 1000-token
+budget is skipped rather than truncated, because a chopped block still reads as
+valid text to the model.
+
+`aflow doctor` reports a non-blocking `plugins` row, and `aflow plugin inspect`
+shows what a plugin really registered. Full developer guide in
+[`docs/PLUGINS.md`](docs/PLUGINS.md).
+
 ## Architecture
 
 <img src="docs/assets/readme/agentflow-architecture.svg" alt="AgentFlow architecture: the aflow CLI above a control plane of Configuration, Agent Runtime, and Tribunal, beside durable state; below them the Router and ProviderHealth feed an OpenAI-compatible gateway that reaches eleven hosted providers plus local Ollama." width="100%">
@@ -300,6 +342,17 @@ start-up and runtime failures per server, and tool/resource/prompt bridges that
 register discovered MCP tools as read-scoped `mcp__<server>__<tool>` agent
 tools. `aflow mcp` and `/mcp` share one dispatcher, and `doctor` reports MCP
 without ever failing on an unconfigured or offline server.
+
+**Plugins** — a zero-dependency extension layer (`src/core/plugins/`) with five
+extension points: lifecycle hooks, tools, model providers, slash commands, and
+budget-admitted context blocks. Discovery reads manifests only across three
+install locations; activation runs CommonJS in a `node:vm` sandbox whose
+`require` allows `node:events`, and ESM through the trusted `import()` path.
+Every registration is namespaced `plugin__<id>__*` so a plugin can never shadow
+a builtin, every hook runs serially under a 3000 ms timeout, and every failure
+is recorded rather than propagated. `aflow plugin` and `/plugin` share one
+dispatcher; `doctor` reports plugin health without ever failing on a broken
+third-party plugin.
 
 **Repository map** — a zero-dependency Aider-style structural map
 (`src/core/map/`): a gitignore-aware workspace walker with file caps and
@@ -421,7 +474,8 @@ on macOS, `$XDG_STATE_HOME/agentflow` elsewhere), overridable with
 `AGENTFLOW_STATE_DIR`. Reference documentation is kept in the repo rather than
 duplicated here: [`ARCHITECTURE.md`](ARCHITECTURE.md),
 [`docs/PROVIDERS.md`](docs/PROVIDERS.md), [`docs/TRIBUNAL.md`](docs/TRIBUNAL.md),
-[`docs/GIT_INTEGRATION.md`](docs/GIT_INTEGRATION.md).
+[`docs/GIT_INTEGRATION.md`](docs/GIT_INTEGRATION.md),
+[`docs/PLUGINS.md`](docs/PLUGINS.md).
 
 ## Trust, safety, and verification
 
@@ -452,11 +506,11 @@ Not claimed: "secure", "zero vulnerabilities", or "safe". Read
 
 ## Quality
 
-- **1,492 tests** (`npm test`) across routing, continuity, the five tribunal
+- **1,827 tests** (`npm test`) across routing, continuity, the five tribunal
   stages, the gateway and its SSE translation, the session/Blackboard stores, the
-  agent runtime and tools, git integration, redaction, and every command —
-  **1,490 passing, 2 skipped, 0 failing** on Node v24.19.0 at the time of
-  writing. Run `npm test` for the current count;
+  agent runtime and tools, git integration, redaction, the plugin system, and
+  every command — **1,825 passing, 2 skipped, 0 failing** on Node v24.19.0 at the
+  time of writing. Run `npm test` for the current count;
   [CI](.github/workflows/test.yml) runs the suite on Node 20, 22, and 24.
 - **Zero runtime dependencies** — Node builtins only. Dev tooling (ESLint,
   TypeScript) is pinned via the lockfile.
@@ -484,8 +538,6 @@ and later is explicit:
 
 - A unified full-screen TUI workspace (the read-only `dashboard` status board
   exists; an interactive workspace does not)
-- Repository map / code-graph view
-- Plugin loader for third-party agents and tools
 - Agent orchestration (running several agents together)
 - SQLite persistence and OAuth provider flows (upstream components not imported)
 
@@ -504,7 +556,7 @@ Licensed under the [MIT License](LICENSE).
 
 <div align="center">
 
-[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) · [Architecture](ARCHITECTURE.md) · [Tribunal](docs/TRIBUNAL.md) · [Providers](docs/PROVIDERS.md) · [Git](docs/GIT_INTEGRATION.md) · [LSP](docs/LSP_INTEGRATION.md) · [Repo map](docs/REPO_MAP.md) · [MCP](docs/MCP_INTEGRATION.md) · [Origin](PROJECT_ORIGIN.md) · [MIT License](LICENSE)
+[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) · [Architecture](ARCHITECTURE.md) · [Tribunal](docs/TRIBUNAL.md) · [Providers](docs/PROVIDERS.md) · [Git](docs/GIT_INTEGRATION.md) · [LSP](docs/LSP_INTEGRATION.md) · [Repo map](docs/REPO_MAP.md) · [MCP](docs/MCP_INTEGRATION.md) · [Plugins](docs/PLUGINS.md) · [Origin](PROJECT_ORIGIN.md) · [MIT License](LICENSE)
 
 <br>
 
