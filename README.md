@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node: >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
 [![Runtime dependencies: 0](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen.svg)](THIRD_PARTY_NOTICES.md)
-[![Tests: 1492](https://img.shields.io/badge/tests-1492-blue.svg)](test)
+[![Tests: 1859](https://img.shields.io/badge/tests-1859-blue.svg)](test)
 
 [Quick start](#quick-start) · [Why AgentFlow](#why-agentflow) · [Architecture](#architecture) · [The Tribunal](#the-tribunal) · [Providers](#providers-and-local-models) · [Security](#trust-safety-and-verification)
 
@@ -62,6 +62,27 @@ failing silently or inventing success. The redaction chokepoint is visible too:
 provider credential and a running gateway — the next section gets you there. A
 clean `doctor` is a statement about your setup, not about model quality.
 
+## Installation
+
+AgentFlow is a Node CLI with no `npm install` required to run from source:
+
+```sh
+# 1. Clone and run immediately (no install step):
+git clone https://github.com/anand-cpp/AgentFlow.git
+cd AgentFlow
+node bin/aflow.js --version      # aflow 0.3.0 (becomes 1.0.0 with the v1 bump)
+node bin/aflow.js doctor         # environment + reachability check
+```
+
+There is no build step and nothing to install for the tests to run. The two
+published command names are `agentflow` and `aflow` (both point at
+`bin/agentflow.js`). If you install from npm (`npm install -g agentflow-cli`)
+or use the single-executable binary produced by `npm run build:sea`, the same
+`aflow` command is available on your PATH.
+
+Next, configure a provider — see [Configure a provider](#configure-a-provider)
+in Quick start.
+
 ## Why AgentFlow
 
 These are the capabilities that are actually built today. Each is implemented in
@@ -81,6 +102,29 @@ These are the capabilities that are actually built today. Each is implemented in
 | **MCP servers as agent tools** | Point `mcp.json` (Claude Desktop / OpenCode-compatible) at any MCP server over stdio or SSE and its tools appear in the runtime as namespaced `mcp__server__tool` agent tools — discovered, permission-gated, and callable like built-ins, with a broken server degrading to isolation, never a failed run (`src/core/mcp/`). |
 | **A PageRank repository map** | The workspace is walked once, parsed for symbols and imports with regex extractors (JS/TS, Python, Go, Rust — no language servers), and ranked with a pure-JS PageRank over the import graph, Aider-style. The agent sees the map inside its context budget, and `repo-map`, `aflow map`, and `/map` let it pull keyword-re-ranked structure on demand (`src/core/map/`). |
 | **Zero runtime dependencies** | Nothing to audit, nothing to install for the tests to run, no transitive supply chain. |
+
+## How AgentFlow compares
+
+AgentFlow is one of several terminal-first coding agents. The table below is a
+factual feature comparison, not an endorsement: each project makes different
+trade-offs, and the right choice depends on your workflow.
+
+| | AgentFlow | OpenCode | Cline | Aider |
+|---|---|---|---|---|
+| Runtime dependencies | 0 (Node stdlib only) | Node toolchain + deps | Extension for VS Code | Python + deps |
+| Installation | run from source, npm, or SEA binary | npm | VS Code extension | pip |
+| Self-adversarial review | five-stage tribunal (Forge→Oracle) | — | — | — |
+| Health-aware model routing | observed-health ordering + circuit breaker | fallback | fallback | fallback |
+| Local repo map | PageRank over import graph | grep-based map | — | repo map |
+| Language server client | stdio JSON-RPC, zero-dependency | — | — | — |
+| MCP client | stdio + SSE, namespaced tools | — | — | — |
+| Single-executable binary | `npm run build:sea` (SEA) | — | — | — |
+| Plugin sandbox | `node:vm`, `require` limited to `node:events` | — | — | — |
+| Fail-closed approvals | no TTY → deny | — | — | — |
+
+These are the capabilities that ship in `src/` today, each covered by the test
+suite. Where something is partial or planned, the
+[roadmap](#roadmap) says so.
 
 ## Quick start
 
@@ -291,6 +335,43 @@ shows what a plugin really registered. Full developer guide in
 ## Architecture
 
 <img src="docs/assets/readme/agentflow-architecture.svg" alt="AgentFlow architecture: the aflow CLI above a control plane of Configuration, Agent Runtime, and Tribunal, beside durable state; below them the Router and ProviderHealth feed an OpenAI-compatible gateway that reaches eleven hosted providers plus local Ollama." width="100%">
+
+```text
+                              aflow CLI / aflow chat
+                                      │
+                                      ▼
+                    ┌─────────────────────────────┐
+                    │   Agent Runtime             │
+                    │  (model ↔ tool loop,        │
+                    │   approvals, redaction)     │
+                    └──────────────┬──────────────┘
+                                   │
+                                   ▼
+                    ┌─────────────────────────────┐
+                    │   Router + ProviderHealth   │
+                    │  (health-aware ordering,    │
+                    │   fallback cascade)         │
+                    └──────────────┬──────────────┘
+                                   │
+                                   ▼
+                    ┌─────────────────────────────┐
+                    │   Gateway (OpenAI /v1)      │
+                    │  in-repo (`aflow server`)   │
+                    │  or external endpoint       │
+                    └──────────────┬──────────────┘
+                                   │
+               ┌───────────────────┼───────────────────┐
+               ▼                   ▼                   ▼
+        ┌──────────┐      ┌──────────┐      ┌──────────┐
+        │ hosted   │      │  Ollama  │      │ external │
+        │ providers│      │  (local) │      │ gateway  │
+        │ (11,     │      │          │      │          │
+        │  free tier│     │          │      │          │
+        └──────────┘      └──────────┘      └──────────┘
+
+Tribunal (5 stages) and plugins hang off the runtime.
+Every write passes through one redaction chokepoint first.
+```
 
 A single request flows **CLI → runtime → router → gateway → provider**. The
 runtime drives the model↔tool loop for an agent; the router walks quality tiers
