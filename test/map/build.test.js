@@ -126,7 +126,7 @@ test("mapFreshness reports missing, stale, and fresh caches", (t) => {
   assert.equal(fresh.reason, "src/a.js");
 });
 
-test("a build after a gitignore change respects the new rules", (t) => {
+test("a gitignore change respects the new rules", (t) => {
   const root = repo(t, { "src/a.js": UTIL, "vendor/x.js": "ignore me" });
   const before = buildMap(root);
   assert.equal(before.stats.files, 2);
@@ -135,6 +135,34 @@ test("a build after a gitignore change respects the new rules", (t) => {
   assert.equal(rebuilt, false);
   assert.ok(!snapshot.files.some((f) => f.rel.startsWith("vendor/")));
   assert.deepEqual(changed.filter((c) => c === "vendor/x.js"), [], "the file left the walk");
+});
+
+test("the mapLanguages knob narrows extraction to the requested families", (t) => {
+  const root = repo(t, {
+    "src/a.js": 'import os\n' /* actually python-ish content in a js file is noise; use real files */,
+    "src/mod.py": "import os\ndef pub(): pass\n",
+    "src/other.go": "package main\nfunc main() {}\n",
+  });
+  // Fix content: a.js as JS.
+  fs.writeFileSync(path.join(root, "src", "a.js"), UTIL);
+  const onlyPython = buildMap(root, { write: false, languages: ["python"] });
+  assert.ok(onlyPython.units.every((u) => u.language === "python"), onlyPython.units.map((u) => u.file).join(","));
+  assert.ok(onlyPython.units.some((u) => u.file === "src/mod.py"));
+  const all = buildMap(root, { write: false, languages: null });
+  assert.equal(all.units.length, 3, "null allowlist means every known family");
+});
+
+test("symbol and file nodes survive cyclic imports without rank blowup", (t) => {
+  const root = repo(t, {
+    "src/x.js": 'import { y } from "./y.js";\nexport function x() {}\n',
+    "src/y.js": 'import { x } from "./x.js";\nexport function y() {}\n',
+  });
+  const snapshot = buildMap(root, { write: false });
+  const total = snapshot.scores.reduce((s, e) => s + e.score, 0);
+  assert.ok(Math.abs(total - 1) < 1e-9, `rank mass conserved: ${total}`);
+  for (const e of snapshot.scores) {
+    assert.ok(Number.isFinite(e.score) && e.score > 0, "finite, positive rank everywhere");
+  }
 });
 
 test("map build is Windows/Unix path-stable and uses forward slashes", (t) => {
