@@ -40,7 +40,7 @@ import {
   formatExport,
   PROVIDER_TEST_TIMEOUT_MS,
 } from "../core/keys.js";
-import { bold, dim, red, green, yellow, cyan, symbol } from "../cli/ui.js";
+import { bold, dim, red, green, yellow, cyan, symbol, table } from "../cli/ui.js";
 
 const USAGE_ERROR = 2;
 
@@ -372,11 +372,22 @@ async function runCheck({ out, deps, keysFile, fetchImpl, timeoutMs, flags, conf
 
   await out.init(payload, (r) => {
     const lines = [bold("aflow setup --check"), "", `keys file: ${dim(r.keysFile)}`];
-    for (const row of r.rows) {
+    const rows = r.rows.map((row) => {
       const mark = row.status === "reachable" ? green(symbol("ok")) : row.status === "unconfigured" ? dim(symbol("pending")) : red(symbol("fail"));
-      lines.push(`  ${mark} ${row.name.padEnd(22)} ${dim(row.detail || row.status)}`);
+      return {
+        name: row.name,
+        status: `${mark} ${row.status}`,
+        detail: row.detail || row.status,
+      };
+    });
+    if (rows.length) {
+      lines.push("", table(rows, [
+        { key: "name", label: "Provider" },
+        { key: "status", label: "Status" },
+        { key: "detail", label: "Detail" },
+      ]));
     }
-    if (!tested) lines.push("", dim("No hosted providers are configured yet — run `aflow setup`."));
+    if (!r.tested) lines.push("", dim("No hosted providers are configured yet — run `aflow setup`."));
     return lines.join("\n");
   });
 
@@ -440,13 +451,13 @@ export async function runSetup({ flags = {}, config = {}, out, deps = {} }) {
   const timeoutMs = deps.timeoutMs ?? PROVIDER_TEST_TIMEOUT_MS;
 
   try {
-    const modes = ["check", "export", "reset"].filter((name) => flags[name]);
-    if (modes.length > 1) {
-      throw usage(`--${modes.join(" and --")} cannot be combined; pick one mode.`);
+    const modeFlags = ["check", "test", "export", "reset"].filter((name) => flags[name]);
+    if (modeFlags.length > 1) {
+      throw usage(`--${modeFlags.join(" and --")} cannot be combined; pick one mode.`);
     }
     if (flags.reset) return await runReset({ out, io, flags, keysFile });
     if (flags.export) return await runExport({ out, flags, keysFile });
-    if (flags.check) return await runCheck({ out, deps, keysFile, fetchImpl, timeoutMs, flags, config });
+    if (flags.check || flags.test) return await runCheck({ out, deps, keysFile, fetchImpl, timeoutMs, flags, config });
     return await runWizard({ flags, config, out, deps, io, keysFile, fetchImpl, timeoutMs });
   } catch (err) {
     if (err.usage) {
@@ -467,6 +478,7 @@ single keys.env file under your state directory, so they are never committed.
 
   aflow setup                 full interactive wizard (default)
   aflow setup --check         test the keys you have, changing nothing
+  aflow setup --test          alias for --check
   aflow setup --export        print shell export commands for the saved keys
   aflow setup --reset         delete the saved keys (asks to confirm)
 
