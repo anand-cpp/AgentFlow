@@ -70,7 +70,7 @@ AgentFlow is a Node CLI with no `npm install` required to run from source:
 # 1. Clone and run immediately (no install step):
 git clone https://github.com/anand-cpp/AgentFlow.git
 cd AgentFlow
-node bin/aflow.js --version      # aflow 0.3.0 (becomes 1.0.0 with the v1 bump)
+node bin/aflow.js --version      # aflow 1.0.0
 node bin/aflow.js doctor         # environment + reachability check
 ```
 

@@ -1,6 +1,6 @@
 {
   "name": "agentflow-cli",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "description": "A terminal-first CLI that routes work across many models — and tells you which of them actually answer.",
   "license": "MIT",
   "type": "module",
