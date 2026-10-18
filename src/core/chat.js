@@ -45,6 +45,7 @@ import { AgentRegistry } from "./agents/registry.js";
 import { builtinSpecs } from "./agents/definitions.js";
 import { AgentRuntime } from "./agents/runtime.js";
 import { createRealTools } from "./agents/real-tools.js";
+import { createRepoMapBridge } from "./map/agent-bridge.js";
 import { EVENTS } from "./events.js";
 
 const DEFAULT_CONTEXT_BUDGET_CHARS = 24_000;
@@ -324,6 +325,11 @@ export class ChatSession {
         workspaceRoot: this.workspaceRoot,
         approver: this.approver,
       });
+      // The repository map rides on the runtime as one more tool, exactly the
+      // way MCP tools do, and is injected into run context by runAgent(). A
+      // bridge that fails to build loses the map, not the runtime.
+      this.mapBridge = createRepoMapBridge(this.workspaceRoot, this.config);
+      if (this.mapBridge) this.mapBridge.registerTools(this.runtime);
     } catch {
       this.runtime = null;
     }
@@ -630,10 +636,22 @@ export class ChatSession {
    */
   async runAgent(task) {
     if (!this.runtime) return { ok: false, text: "agent runtime unavailable" };
+    // Warm the map best-effort and inline its section into the context packet.
+    // query picks up the task's own words so task-relevant files rank first.
+    let extra;
+    try {
+      await this.mapBridge?.ensureWarm?.();
+      if (this.mapBridge) {
+        extra = this.mapBridge.extraFor({ query: typeof task === "string" ? task : (task?.text ?? "") });
+      }
+    } catch {
+      extra = undefined; // the map is an optimisation, never a run gate
+    }
     const result = await this.runtime.run({
       agentId: this.agentId,
       task,
       sessionId: this.session?.id ?? null,
+      ...(extra ? { extra } : {}),
     });
     const raw = result?.output?.summary ?? result?.output ?? (result?.completed ? "completed" : "failed");
     const summary = typeof raw === "string" ? raw : JSON.stringify(raw);
