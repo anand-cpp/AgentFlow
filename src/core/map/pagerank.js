@@ -119,7 +119,11 @@ export function pagerank(graph, options = {}) {
   let sum = 0;
   for (let i = 0; i < n; i += 1) sum += rank[i];
   const norm = sum > 0 ? 1 / sum : 1;
-  for (let i = 0; i < n; i += 1) out.set(ids[i], rank[i] * norm);
+  /** @type {Array<[string, number]>} */
+  const entries = ids.map((id, i) => [id, rank[i] * norm]);
+  // Descending by score: callers iterate to take "the top of the map".
+  entries.sort((a, b) => b[1] - a[1]);
+  for (const [id, score] of entries) out.set(id, score);
   return out;
 }
 
