@@ -49,3 +49,7 @@ docs/audits/
 
 .gitattributes
 
+
+# Repository map cache (derived data, rebuilt on demand; config like
+# .agentflow/mcp.json is still committed)
+.agentflow/repo-map.json
