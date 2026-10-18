@@ -12,6 +12,7 @@ import "../commands/dashboard.js";
 import "../commands/logs.js";
 import "../commands/lsp.js";
 import "../commands/mcp.js";
+import "../commands/map.js";
 import "../commands/route.js";
 import "../commands/sessions.js";
 import "../commands/blackboard.js";

@@ -57,6 +57,7 @@ import { buildSwarmGraph, renderSwarmGraph } from "../tui/swarm.js";
 import { gitSlash } from "./git.js";
 import { lspSlash } from "./lsp.js";
 import { mcpSlash } from "./mcp.js";
+import { mapSlash } from "./map.js";
 
 const USAGE_ERROR = 2;
 const FAILURE = 1;
@@ -465,6 +466,13 @@ async function conversationLoop(session, io, workspace) {
         io.output.write(`${await mcpSlash(parsed.arg, { root: workspace.root })}\n`);
         continue;
       }
+      // `/map` shares the `aflow map` dispatcher: a pure read over the cached
+      // structural map (with an explicit opt-in rebuild), so it renders the
+      // same on a TTY and a pipe.
+      if (parsed.name === "map") {
+        io.output.write(`${await mapSlash(parsed.arg, { root: workspace.root })}\n`);
+        continue;
+      }
       const result = await session.command(parsed);
       if (result.exit) break;
       if (result.text) io.output.write(`${result.text}\n`);
@@ -655,6 +663,7 @@ export const chatCommand = defineCommand("chat", {
     /git [sub]           repository status, log, diff, branch, stage, commit, stash
     /lsp [sub]           language-server status, diagnostics, hover, definition
     /mcp [sub]           MCP servers: status, tools, call, read
+    /map [sub]           repository map: show, build, query, stats
 
   Responses stream token by token. Ctrl+C cancels the current response;
   Ctrl+C again, or Ctrl+D (EOF), exits. Every exchange is saved to the

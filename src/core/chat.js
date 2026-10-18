@@ -119,6 +119,7 @@ export const SLASH_HELP = [
   "  /git [sub]           repository status, log, diff, branch, stage, commit, stash",
   "  /lsp [sub]           language-server status, diagnostics, hover, definition",
   "  /mcp [sub]           MCP servers: status, tools, call, read",
+  "  /map [sub]           repository map: show, build, query, stats",
   "",
   "Anything without a leading / is sent to the model.",
 ].join("\n");
