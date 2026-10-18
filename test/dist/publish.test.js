@@ -43,7 +43,8 @@ test("--json reports checks with no error status", { timeout: 60000 }, async () 
 
 test("the command is registered so --help lists it", async () => {
   await import("../../src/commands/index.js");
-  const { getCommand } = await import("../../src/cli/registry.js");
+  const { getCommand, loadCommand } = await import("../../src/cli/registry.js");
+  await loadCommand("publish");
   const cmd = getCommand("publish");
   assert.ok(cmd, "publish command must be registered");
   assert.ok(cmd.usage.includes("never publishes"), "usage must state that it never publishes");
