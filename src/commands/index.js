@@ -98,7 +98,7 @@ defineCommandMeta("status", {
 });
 defineCommandMeta("tribunal", {
   summary: "run the five-stage self-adversarial tribunal on a proposal",
-  valueFlags: ["prompt", "domain", "models", "model", "limit", "retries", "state-dir", "project", "record", "tribunal"],
+  valueFlags: ["prompt", "domain", "models", "model", "limit", "retries", "state-dir", "project", "record", "tribunal", "depth"],
 });
 defineCommandMeta("fight", {
   summary: "alias for: aflow tribunal run",

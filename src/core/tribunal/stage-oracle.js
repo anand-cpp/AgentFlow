@@ -14,6 +14,7 @@
 
 import { randomUUID } from "node:crypto";
 
+import { resolveDepth } from "./tribunal-depth.js";
 import { runSelfAdversarialStage } from "./stage.js";
 import { runCrucibleStage } from "./stage-crucible.js";
 import { runMergeStage } from "./stage-merge.js";
@@ -93,10 +94,12 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
   const list = Array.isArray(proposals) ? proposals : [];
   const config = options.config ?? null;
   const opts = options.opts ?? {};
+  const depth = resolveDepth(options.depth);
 
   // The Forge keys each review off the candidate's own `model`; when a caller
   // hands a single pipeline-level modelId, stamp it onto candidates that lack one
-  // so the stage is runnable in a single-model configuration.
+  // so the stage is runnable in a single-model configuration. Depth caps how many
+  // candidates Forge reviews (quick = 2, standard = 3, deep = 5) inside stage.js.
   const stage1Candidates = list.map((proposal) => (proposal && proposal.model ? proposal : { ...(proposal ?? {}), model: modelId }));
 
   let stage1 = null;
@@ -130,6 +133,7 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
       config,
       maxRevisions: options.maxRevisions ?? 1,
       opts,
+      depth,
     });
     notify("done", stage1);
 
@@ -151,7 +155,7 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
       crucibleStageResult: stage2,
       completeFn,
       modelId,
-      options: { domain, modelId, config, opts, minSurvivalScore: options.minSurvivalScore, completedAt: options.completedAt },
+      options: { domain, modelId, config, opts, minSurvivalScore: options.minSurvivalScore, completedAt: options.completedAt, depth },
     });
     notify("done", stage3);
 
@@ -164,7 +168,7 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
       originalProposals: list,
       completeFn,
       modelId,
-      options: { domain, modelId, config, opts, maxRetries: options.maxRetries, completedAt: options.completedAt },
+      options: { domain, modelId, config, opts, maxRetries: options.maxRetries, completedAt: options.completedAt, depth },
     });
     notify("done", stage4);
 
@@ -174,7 +178,7 @@ export async function runFullTribunal({ proposals = [], completeFn, modelId = nu
     stage5 = await runOracleStage({
       allStageResults: { stage1, stage2, stage3, stage4 },
       domain,
-      options: { crucibleFindings: stage3?.criticalFindings, completedAt: options.completedAt },
+      options: { crucibleFindings: stage3?.criticalFindings, completedAt: options.completedAt, depth },
     });
     notify("done", stage5);
   } catch (err) {

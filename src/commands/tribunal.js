@@ -29,6 +29,7 @@ import { SessionStore, ENTRY_KIND } from "../core/sessions.js";
 import { BlackboardStore } from "../core/blackboard.js";
 import { redactDeep } from "../core/redact.js";
 import { runFullTribunal } from "../core/tribunal/stage-oracle.js";
+import { isValidDepth } from "../core/tribunal/tribunal-depth.js";
 import { renderFightCard, renderHistoryRow } from "../core/tribunal/formatter.js";
 import { createTribunalState, applyStageEvent, renderTribunalProgress } from "../tui/tribunal-view.js";
 import { bold, dim, heading } from "../cli/ui.js";
@@ -247,12 +248,19 @@ async function runSub({ rest, flags, config, out, deps }) {
     throw usage('nothing to try: aflow tribunal run "the proposal to test", or pass --prompt');
   }
   const domain = flags.domain ? String(flags.domain) : "code";
+  // Depth comes from --depth, or from --tribunal=<quick|standard|deep|inquisition>.
+  // When --tribunal carries a depth name, the prompt is taken from positional args
+  // (or --prompt) instead, so `--tribunal=quick "the proposal"` works.
+  let depthName = flags.depth;
+  if (!depthName && typeof flags.tribunal === "string" && isValidDepth(flags.tribunal)) {
+    depthName = flags.tribunal;
+  }
   const completeFn =
     deps.complete ?? ((cfg, modelId, text, opts) => gatewayComplete(cfg, modelId, text, opts));
   const listModels = deps.listModels ?? ((cfg) => gatewayListModels(cfg));
 
   const models = await resolveModels({ flags, config, listModels });
-  out.status(dim(`convening the tribunal: ${models.map((m) => m ?? "(default)").join(", ")} · domain ${domain}`));
+  out.status(dim(`convening the tribunal: ${models.map((m) => m ?? "(default)").join(", ")} · domain ${domain} · depth ${depthName ?? "standard"}`));
 
   const live = newLiveBoard(out, { models, domain });
   const { proposals, result } = await executeTribunal({
@@ -261,7 +269,11 @@ async function runSub({ rest, flags, config, out, deps }) {
     domain,
     completeFn,
     config,
-    options: { maxRetries: parseCount(flags.retries, undefined), onStage: live.onStage },
+    options: {
+      maxRetries: parseCount(flags.retries, undefined),
+      onStage: live.onStage,
+      ...(depthName ? { depth: depthName } : {}),
+    },
   });
   live.finish(result);
 
@@ -347,6 +359,7 @@ const VALUE_FLAGS = [
   "project",
   "record",
   "tribunal",
+  "depth",
 ];
 
 const USAGE = `aflow tribunal run "<proposal>" [--domain DOMAIN] [--model ID[,ID]]
@@ -367,6 +380,7 @@ by default, a record in the session store.
                   the gateway catalogue
   --limit N       cap the number of models drawn from the gateway catalogue
   --retries N     re-merge attempts in the Trial (default 3)
+  --depth D       tribunal depth: quick | standard | deep | inquisition (default standard)
   --project PATH  scope the session and any blackboard to a directory
   --state-dir P   override the state directory (sessions, blackboard)
   --record        record the verdict on the blackboard, creating one if needed

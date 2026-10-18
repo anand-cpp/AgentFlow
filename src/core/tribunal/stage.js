@@ -40,19 +40,35 @@ export const STAGE_OUTCOME = {
  * @param {number} [input.maxRevisions=1]  how many REVISE rounds a candidate may take
  * @param {object} [input.opts]       { timeoutMs, maxTokens, temperature, system }
  */
+/**
+ * Review a list of candidates.
+ *
+ * @param {object} [input]
+ * @param {Array}  [input.candidates]   [{ id, model, approach, rationale, ... }]
+ * @param {Function} [input.complete]   gateway complete()
+ * @param {object} [input.config]     passed through to complete
+ * @param {number} [input.maxRevisions=1]  how many REVISE rounds a candidate may take
+ * @param {object} [input.opts]       { timeoutMs, maxTokens, temperature, system }
+ * @param {{ models: number|null }|null} [input.depth] resolved depth preset (models cap, etc.)
+ */
 export async function runSelfAdversarialStage({
   candidates = [],
   complete,
   config = null,
   maxRevisions = 1,
   opts = {},
+  depth = null,
 } = {}) {
   const list = Array.isArray(candidates) ? candidates : [];
+  // Depth caps how many candidates Forge reviews (quick = 2, standard = 3,
+  // deep = 5; inquisition null = no cap).
+  const depthModels = depth?.models;
+  const capped = depthModels !== null ? list.slice(0, depthModels) : list;
   const results = [];
 
-  for (let index = 0; index < list.length; index += 1) {
+  for (let index = 0; index < capped.length; index += 1) {
     results.push(
-      await reviewCandidate({ candidate: list[index], index, complete, config, maxRevisions, opts }),
+      await reviewCandidate({ candidate: capped[index], index, complete, config, maxRevisions, opts }),
     );
   }
 

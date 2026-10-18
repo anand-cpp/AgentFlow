@@ -153,3 +153,40 @@ test("an empty candidate list is a clean no-op", async () => {
   assert.equal(result.candidates.length, 0);
   assert.equal(result.summary.total, 0);
 });
+
+test("depth caps the number of candidates Forge reviews", async () => {
+  const responses = [review(), review(), review(), review()];
+  const { fn, calls } = queueComplete(responses);
+  const depth = { models: 2, rounds: 1, oracleMode: "lite", earlyTermination: false, hardTimeoutMs: null };
+  const result = await runSelfAdversarialStage({
+    candidates: [
+      { id: "c1", model: "m1", approach: "one" },
+      { id: "c2", model: "m2", approach: "two" },
+      { id: "c3", model: "m3", approach: "three" },
+      { id: "c4", model: "m4", approach: "four" },
+    ],
+    complete: fn,
+    depth,
+  });
+  assert.equal(calls.length, 2, "depth.models=2 caps Forge to two candidates");
+  assert.equal(result.summary.total, 2);
+});
+
+test("depth models null means no cap", async () => {
+  const responses = [review(), review(), review(), review()];
+  const { fn, calls } = queueComplete(responses);
+  const depth = { models: null, rounds: 3, oracleMode: "full", earlyTermination: false, hardTimeoutMs: null };
+  const result = await runSelfAdversarialStage({
+    candidates: [
+      { id: "c1", model: "m1", approach: "one" },
+      { id: "c2", model: "m2", approach: "two" },
+      { id: "c3", model: "m3", approach: "three" },
+      { id: "c4", model: "m4", approach: "four" },
+    ],
+    complete: fn,
+    depth,
+  });
+  assert.equal(calls.length, 4, "depth.models=null reviews every candidate");
+  assert.equal(result.summary.total, 4);
+});
+
