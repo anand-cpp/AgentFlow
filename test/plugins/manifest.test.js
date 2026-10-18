@@ -160,7 +160,13 @@ test("loadPluginSpec normalizes fields and defaults main to index.js", (t) => {
   assert.equal(spec.main, "index.js");
   assert.deepEqual(
     Object.entries(spec.permissions).map(([k, v]) => [k, v]),
-    [["tools", true], ["providers", false], ["hooks", false], ["commands", false]]
+    [
+      ["tools", true],
+      ["providers", false],
+      ["hooks", false],
+      ["commands", false],
+      ["context", false],
+    ]
   );
 });
 

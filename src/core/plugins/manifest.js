@@ -27,10 +27,12 @@ const ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 // minimum they actually tested against.
 const VERSION_RE = /^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/;
 
-// The four permission domains a plugin may declare. Unknown keys in
+// The five permission domains a plugin may declare. Unknown keys in
 // `permissions` are rejected rather than ignored: a typo like `provders`
 // silently granting nothing is a worse failure than a load-time error.
-export const PERMISSION_KEYS = ["tools", "providers", "hooks", "commands"];
+// `context` governs context-provider registration; it is enforced as an
+// active gate in PluginManager, not just declared metadata.
+export const PERMISSION_KEYS = ["tools", "providers", "hooks", "commands", "context"];
 
 /** Read a JSON file, tolerating BOM and absent files. Returns null on any problem. */
 export function readManifestJson(file) {

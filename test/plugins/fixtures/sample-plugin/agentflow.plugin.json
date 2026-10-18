@@ -9,6 +9,7 @@
     "hooks": true,
     "tools": true,
     "commands": true,
+    "context": true,
     "providers": false
   }
 }

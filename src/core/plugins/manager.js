@@ -66,6 +66,8 @@ export class PluginManager {
     this.loaded = new Map();
     /** @type {Map<string, string[]>} attribution -> registration/load problems */
     this.problems = new Map();
+    /** @type {Map<string, object>} plugin id -> normalized manifest permissions */
+    this.#permissions = new Map();
     this.discovered = [];
     this.initialised = false;
 
@@ -79,31 +81,62 @@ export class PluginManager {
     };
     this.#loaderDeps = {
       onHook: (pluginId, hookName, fn) => {
+        if (!this.#granted(pluginId, "hooks")) {
+          refuse(pluginId, `Plugin ${pluginId} attempted to register hook "${hookName}" without manifest permission 'hooks'`);
+          return;
+        }
         const res = this.hooks.add(pluginId, hookName, fn);
         if (!res.ok) refuse(pluginId, `hook "${hookName}" refused: ${res.error}`);
       },
       onRegisterTool: (pluginId, def) => {
+        if (!this.#granted(pluginId, "tools")) {
+          refuse(pluginId, `Plugin ${pluginId} attempted to register tool "${def?.name ?? "?"}" without manifest permission 'tools'`);
+          return;
+        }
         const res = this.tools.register(pluginId, def);
         if (!res.ok) refuse(pluginId, `tool "${def?.name ?? "?"}" refused: ${res.error}`);
       },
       onRegisterProvider: (pluginId, def) => {
+        if (!this.#granted(pluginId, "providers")) {
+          refuse(pluginId, `Plugin ${pluginId} attempted to register provider "${def?.id ?? "?"}" without manifest permission 'providers'`);
+          return;
+        }
         const res = this.providers.register(pluginId, def);
         if (!res.ok) refuse(pluginId, `provider "${def?.id ?? "?"}" refused: ${res.error}`);
       },
       onRegisterSlashCommand: (pluginId, def) => {
+        if (!this.#granted(pluginId, "commands")) {
+          refuse(pluginId, `Plugin ${pluginId} attempted to register command "/${def?.name ?? "?"}" without manifest permission 'commands'`);
+          return;
+        }
         const res = this.commands.register(pluginId, def, { builtinNames: this.#builtinCommands });
         if (!res.ok) refuse(pluginId, `command "/${def?.name ?? "?"}" refused: ${res.error}`);
       },
       onRegisterContextProvider: (pluginId, def) => {
+        if (!this.#granted(pluginId, "context")) {
+          refuse(pluginId, `Plugin ${pluginId} attempted to register context provider "${def?.name ?? "?"}" without manifest permission 'context'`);
+          return;
+        }
         const res = this.contexts.register(pluginId, def);
         if (!res.ok) refuse(pluginId, `context provider "${def?.name ?? "?"}" refused: ${res.error}`);
       },
     };
   }
 
+  /**
+   * True only when the plugin's manifest explicitly grants `domain` (`true`).
+   * Declared permissions default to `false`, so an undeclared domain is never
+   * granted -- a plugin cannot register capabilities it did not ask for.
+   */
+  #granted(pluginId, domain) {
+    const perms = this.#permissions.get(pluginId);
+    return perms && perms[domain] === true;
+  }
+
   // Reserved builtin names are provided after construction, so capture order matters.
   #builtinCommands;
   #loaderDeps;
+  #permissions;
 
   /**
    * Discover and load every enabled plugin, then fire onInit. Never throws;
@@ -115,6 +148,14 @@ export class PluginManager {
       currentVersion: this.currentVersion,
     });
     this.discovered = plugins;
+
+    // Capture each enabled plugin's declared permissions before loading, so the
+    // registrar strip can enforce them as active gates during activation.
+    this.#permissions.clear();
+    for (const spec of plugins) {
+      this.#permissions.set(spec.id, spec.permissions);
+    }
+
     if (diagnostics.length > 0) {
       const list = this.problems.get("discovery") ?? [];
       list.push(...diagnostics);

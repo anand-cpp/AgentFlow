@@ -80,7 +80,7 @@ async function managerFor(t, opts = {}) {
 
 test("plugin beforeAgentRun extra text reaches the model prompt", async (t) => {
   const root = makeWorkspace(t, {
-    [path.join(".agentflow", "plugins", "notetaker", MANIFEST_FILE)]: JSON.stringify({ id: "notetaker" }),
+    [path.join(".agentflow", "plugins", "notetaker", MANIFEST_FILE)]: JSON.stringify({ id: "notetaker", permissions: { hooks: true, tools: true } }),
     [path.join(".agentflow", "plugins", "notetaker", "index.js")]: NOTETAKER_INDEX,
   });
   const mgr = await managerFor(t, { workspaceRoot: root });
@@ -107,7 +107,7 @@ test("plugin beforeAgentRun extra text reaches the model prompt", async (t) => {
 
 test("a plugin can veto a run outright", async (t) => {
   const root = makeWorkspace(t, {
-    [path.join(".agentflow", "plugins", "notetaker", MANIFEST_FILE)]: JSON.stringify({ id: "notetaker" }),
+    [path.join(".agentflow", "plugins", "notetaker", MANIFEST_FILE)]: JSON.stringify({ id: "notetaker", permissions: { hooks: true, tools: true } }),
     [path.join(".agentflow", "plugins", "notetaker", "index.js")]: NOTETAKER_INDEX,
   });
   const mgr = await managerFor(t, { workspaceRoot: root });
@@ -133,7 +133,7 @@ test("a plugin can veto a run outright", async (t) => {
 
 test("a plugin tool runs through the runtime tool map and reaches the transcript", async (t) => {
   const root = makeWorkspace(t, {
-    [path.join(".agentflow", "plugins", "notetaker", MANIFEST_FILE)]: JSON.stringify({ id: "notetaker" }),
+    [path.join(".agentflow", "plugins", "notetaker", MANIFEST_FILE)]: JSON.stringify({ id: "notetaker", permissions: { hooks: true, tools: true } }),
     [path.join(".agentflow", "plugins", "notetaker", "index.js")]: NOTETAKER_INDEX,
   });
   const mgr = await managerFor(t, { workspaceRoot: root });
@@ -171,7 +171,7 @@ test("a plugin tool runs through the runtime tool map and reaches the transcript
 
 test("beforeToolExecute denial stops the loop like a permission denial", async (t) => {
   const root = makeWorkspace(t, {
-    [path.join(".agentflow", "plugins", "notetaker", MANIFEST_FILE)]: JSON.stringify({ id: "notetaker" }),
+    [path.join(".agentflow", "plugins", "notetaker", MANIFEST_FILE)]: JSON.stringify({ id: "notetaker", permissions: { hooks: true, tools: true } }),
     [path.join(".agentflow", "plugins", "notetaker", "index.js")]: NOTETAKER_INDEX,
   });
   const mgr = await managerFor(t, { workspaceRoot: root });
@@ -205,7 +205,7 @@ test("beforeToolExecute denial stops the loop like a permission denial", async (
 
 test("afterToolExecute substitutes the output the second prompt sees", async (t) => {
   const root = makeWorkspace(t, {
-    [path.join(".agentflow", "plugins", "notetaker", MANIFEST_FILE)]: JSON.stringify({ id: "notetaker" }),
+    [path.join(".agentflow", "plugins", "notetaker", MANIFEST_FILE)]: JSON.stringify({ id: "notetaker", permissions: { hooks: true, tools: true } }),
     [path.join(".agentflow", "plugins", "notetaker", "index.js")]: NOTETAKER_INDEX,
   });
   const mgr = await managerFor(t, { workspaceRoot: root });
@@ -241,7 +241,7 @@ test("afterToolExecute substitutes the output the second prompt sees", async (t)
 
 test("afterAgentRun observes completed runs without blocking them", async (t) => {
   const root = makeWorkspace(t, {
-    [path.join(".agentflow", "plugins", "notetaker", MANIFEST_FILE)]: JSON.stringify({ id: "notetaker" }),
+    [path.join(".agentflow", "plugins", "notetaker", MANIFEST_FILE)]: JSON.stringify({ id: "notetaker", permissions: { hooks: true, tools: true } }),
     [path.join(".agentflow", "plugins", "notetaker", "index.js")]: NOTETAKER_INDEX,
   });
   const mgr = await managerFor(t, { workspaceRoot: root });
