@@ -30,6 +30,7 @@ export class McpClient {
     this._nextId = 1;
     this._pending = new Map();
     this._connected = false;
+    this._wired = false;
     this._initialized = false;
     this._capabilities = null;
     this._serverInfo = null;
@@ -59,20 +60,52 @@ export class McpClient {
     return new StdioTransport({ command: this.command, args: this.args, cwd: this.cwd, env: this.env });
   }
 
-  async connect() {
-    if (this._connected) return;
-    this.transport = this._createTransport();
+  /**
+   * Attach listeners and start the transport exactly once.
+   *
+   * Requests must never go out before the client is listening: a reply that
+   * arrives before the message wiring is attached would be silently lost. So
+   * both connect() and request() funnel through here.
+   */
+  _wire() {
+    if (this._wired) return;
+    this.transport ??= this._createTransport();
     this.transport.on("message", (msg) => this._handleMessage(msg));
     this.transport.on("error", (err) => this._emit("error", err));
     this.transport.on("exit", (detail) => this._emit("exit", detail));
     this.transport.on("open", (detail) => this._emit("open", detail));
     this.transport.connect();
+    this._wired = true;
     this._connected = true;
+  }
+
+  connect() {
+    this._wire();
+  }
+
+  /** True while the transport exists and has been connected. */
+  get connected() {
+    return this._connected;
+  }
+
+  /** True once the initialize handshake has completed. */
+  get initialized() {
+    return this._initialized;
+  }
+
+  /** Server capabilities from the initialize response. */
+  get capabilities() {
+    return this._capabilities;
+  }
+
+  /** Server info from the initialize response. */
+  get serverInfo() {
+    return this._serverInfo;
   }
 
   async initialize() {
     if (this._initialized) return { capabilities: this._capabilities, serverInfo: this._serverInfo };
-    await this.connect();
+    this._wire();
     const result = await this.request("initialize", {
       protocolVersion: this.protocolVersion,
       clientInfo: { name: "AgentFlow", version: "0.3.0" },
@@ -93,6 +126,11 @@ export class McpClient {
   }
 
   request(method, params = null, { timeoutMs = this.requestTimeoutMs } = {}) {
+    if (!this._wired) {
+      // A request without a handshake is legal for a caller that only pings or
+      // lists; wire (and for stdio, spawn) here so replies cannot be lost.
+      this._wire();
+    }
     const id = this._nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
