@@ -122,6 +122,7 @@ export const SLASH_HELP = [
   "  /lsp [sub]           language-server status, diagnostics, hover, definition",
   "  /mcp [sub]           MCP servers: status, tools, call, read",
   "  /map [sub]           repository map: show, build, query, stats",
+  "  /plugin [sub]        plugins: list, inspect, enable, disable, create",
   "",
   "Anything without a leading / is sent to the model.",
 ].join("\n");

@@ -57,6 +57,7 @@ import { buildSwarmGraph, renderSwarmGraph } from "../tui/swarm.js";
 import { gitSlash } from "./git.js";
 import { lspSlash } from "./lsp.js";
 import { mcpSlash } from "./mcp.js";
+import { pluginSlash } from "./plugin.js";
 import { mapSlash } from "./map.js";
 
 const USAGE_ERROR = 2;
@@ -466,6 +467,13 @@ async function conversationLoop(session, io, workspace) {
         io.output.write(`${await mcpSlash(parsed.arg, { root: workspace.root })}\n`);
         continue;
       }
+      // `/plugin` shares the `aflow plugin` dispatcher. It loads plugins so the
+      // report matches what this session actually got, which means it is not
+      // read-only in the strict sense -- but it never mutates plugin code.
+      if (parsed.name === "plugin") {
+        io.output.write(`${await pluginSlash(parsed.arg, { root: workspace.root })}\n`);
+        continue;
+      }
       // `/map` shares the `aflow map` dispatcher: a pure read over the cached
       // structural map (with an explicit opt-in rebuild), so it renders the
       // same on a TTY and a pipe.
@@ -664,6 +672,7 @@ export const chatCommand = defineCommand("chat", {
     /lsp [sub]           language-server status, diagnostics, hover, definition
     /mcp [sub]           MCP servers: status, tools, call, read
     /map [sub]           repository map: show, build, query, stats
+    /plugin [sub]        plugins: list, inspect, enable, disable, create
 
   Responses stream token by token. Ctrl+C cancels the current response;
   Ctrl+C again, or Ctrl+D (EOF), exits. Every exchange is saved to the
