@@ -62,6 +62,17 @@ export function width(str) {
   return String(str).replace(/\u001b\[[0-9;]*m/g, "").length;
 }
 
+/** Terminal width in columns, with a sane floor for piped/non-TTY output. */
+export function terminalWidth() {
+  const columns =
+    typeof process.stdout.columns === "number" && process.stdout.columns > 0
+      ? process.stdout.columns
+      : process.env.COLUMNS
+        ? Number(process.env.COLUMNS)
+        : 80;
+  return Math.max(40, columns);
+}
+
 export function pad(str, target, align = "left") {
   const w = width(str);
   if (w >= target) return str;
@@ -125,6 +136,23 @@ export function table(rows, columns) {
   const widths = columns.map((c, i) =>
     Math.max(width(c.label), ...cells.map((row) => width(row[i])))
   );
+
+  // Cap total rendered width to the terminal so wide tables (e.g. provider
+  // checks with long detail text) never overflow a narrow Windows console.
+  // Trim the last column first, since it usually carries free-form text.
+  const limit = terminalWidth();
+  let total = widths.reduce((a, b) => a + b, 0) + 2 * (columns.length - 1);
+  // Trim the last column first, since it usually carries free-form text.
+  const detailIdx = columns.length - 1;
+  while (total > limit && detailIdx > 0 && widths[detailIdx] > 10) {
+    const over = total - limit;
+    widths[detailIdx] = Math.max(10, widths[detailIdx] - over);
+    cells.forEach((row) => {
+      row[detailIdx] = truncate(row[detailIdx], widths[detailIdx]);
+    });
+    total = widths.reduce((a, b) => a + b, 0) + 2 * (columns.length - 1);
+  }
+
   const header = columns
     .map((c, i) => bold(pad(c.label, widths[i], c.align)))
     .join("  ");
@@ -144,4 +172,4 @@ export function heading(text) {
   return `\n${bold(text)}\n`;
 }
 
-export default { paint, bold, dim, red, green, yellow, cyan, gray, bgRed, bgGreen, bgYellow, table, heading, symbol, statusColor, pad, truncate, setColor, isColorEnabled };
+export default { paint, bold, dim, red, green, yellow, cyan, gray, bgRed, bgGreen, bgYellow, table, heading, symbol, statusColor, pad, truncate, width, terminalWidth, setColor, isColorEnabled };
