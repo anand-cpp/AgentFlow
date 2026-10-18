@@ -328,3 +328,85 @@ test("renderTribunalProgress never throws on malformed input", () => {
   const noRounds = v.renderTribunalProgress({ rounds: [] });
   assert.match(noRounds, /no rounds recorded/);
 });
+
+test("renderColosseum returns empty when stdout is not a TTY", () => {
+  const s = v.createTribunalState({ tribunalId: "trib_1" });
+  assert.equal(v.renderColosseum(s, { isTTY: false }), "");
+});
+
+test("renderColosseum draws attack tallies and round progress", () => {
+  const s = v.createTribunalState({ tribunalId: "trib_9", domain: "code" });
+  // Complete Forge and Crucible with findings
+  v.applyStageEvent(s, {
+    stage: "FORGE",
+    status: "done",
+    result: {},
+  });
+  v.applyStageEvent(s, {
+    stage: "CRUCIBLE",
+    status: "done",
+    result: {
+      results: [
+        {
+          aggregatedFindings: [
+            { severity: "P0_CRITICAL", vector: "SECURITY", title: "injection" },
+            { severity: "P2_MINOR", vector: "STYLE", title: "naming" },
+          ],
+        },
+      ],
+    },
+  });
+  // Oracle complete with VERIFIED
+  v.applyStageEvent(s, {
+    stage: "ORACLE",
+    status: "done",
+    result: {
+      oracleResult: { verdict: "VERIFIED", confidence: 0.97 },
+    },
+  });
+
+  const out = v.renderColosseum(s, { isTTY: true });
+  assert.ok(out.includes("COLOSSIUM"));
+  assert.ok(out.includes("trib_9"));
+  assert.ok(out.includes("VERIFIED"));
+  assert.ok(out.includes("0.97"));
+  assert.ok(out.includes("P0"));
+  assert.ok(out.includes("P2"));
+  assert.ok(out.includes("1"), "one P0 tallied");
+  assert.ok(out.includes("3/5"), "three rounds done of five");
+  assert.ok(out.includes("next action"));
+  assert.ok(!out.includes("\u001b"), "colour disabled → no escapes");
+});
+
+test("renderColosseum shows the Oracle gate status", () => {
+  const s = v.createTribunalState({ tribunalId: "trib_10" });
+  v.applyStageEvent(s, {
+    stage: "ORACLE",
+    status: "done",
+    result: {
+      oracleResult: { verdict: "INSUFFICIENT_CONFIDENCE", confidence: 0.5 },
+    },
+  });
+  const out = v.renderColosseum(s, { isTTY: true });
+  assert.ok(out.includes("INSUFFICIENT_CONFIDENCE"));
+  assert.ok(out.includes("0.50"));
+  assert.ok(out.includes("below"), "below the gate when under 0.95");
+});
+
+test("renderColosseum shows next action for an incomplete run", () => {
+  const s = v.createTribunalState({ tribunalId: "trib_11" });
+  v.applyStageEvent(s, { stage: "FORGE", status: "done", result: {} });
+  v.applyStageEvent(s, { stage: "CRUCIBLE", status: "running", result: {} });
+  const out = v.renderColosseum(s, { isTTY: true });
+  assert.ok(out.includes("round 2 (CRUCIBLE)"), "next action is the running round");
+});
+
+test("renderColosseum shows tribunal complete when all rounds done", () => {
+  const s = v.createTribunalState({ tribunalId: "trib_12" });
+  for (const stage of ["FORGE", "CRUCIBLE", "MERGE", "TRIAL", "ORACLE"]) {
+    v.applyStageEvent(s, { stage, status: "done", result: {} });
+  }
+  const out = v.renderColosseum(s, { isTTY: true });
+  assert.ok(out.includes("tribunal complete"), "next action is complete when all rounds done");
+  assert.ok(out.includes("5/5"), "all five rounds done");
+});

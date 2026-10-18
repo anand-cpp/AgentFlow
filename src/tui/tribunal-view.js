@@ -421,6 +421,109 @@ export function renderTribunalProgress(tribunalState = {}, options = {}) {
   return lines.join("\n");
 }
 
+/**
+ * Colosseum view: TTY-only summary of a tribunal run as it finishes or after it
+ * completes. Shows attack tallies by severity, round progress, the verdict and
+ * confidence against the Oracle gate, and the next action. Returns an empty
+ * string when stdout is not a TTY (piped output stays plain / JSON via the
+ * fight card instead).
+ *
+ * @param {TribunalState|object} [tribunalState]
+ * @param {object} [options]
+ * @param {boolean} [options.isTTY] override; defaults to process.stdout.isTTY
+ * @returns {string}
+ */
+export function renderColosseum(tribunalState = {}, options = {}) {
+  const isTTY = options.isTTY !== undefined ? Boolean(options.isTTY) : Boolean(process.stdout.isTTY);
+  if (!isTTY) return "";
+
+  const state = isObject(tribunalState) ? tribunalState : {};
+  const rounds = Array.isArray(state.rounds) ? state.rounds : [];
+  const oracle = isObject(state.oracle) ? state.oracle : {};
+  const verdict = String(oracle.verdict ?? "UNKNOWN");
+  const confidence =
+    typeof oracle.confidence === "number" && Number.isFinite(oracle.confidence) ? oracle.confidence : null;
+
+  // Attack tallies by severity across all finished rounds.
+  const tallies = {
+    [CRUCIBLE_SEVERITY.P0_CRITICAL]: 0,
+    [CRUCIBLE_SEVERITY.P1_MAJOR]: 0,
+    [CRUCIBLE_SEVERITY.P2_MINOR]: 0,
+    [CRUCIBLE_SEVERITY.P3_INFORMATIONAL]: 0,
+  };
+  for (const round of rounds) {
+    if (statusWord(round.status) !== "done") continue;
+    for (const finding of Array.isArray(round.findings) ? round.findings : []) {
+      if (isObject(finding) && tallies[finding.severity] !== undefined) tallies[finding.severity] += 1;
+    }
+  }
+
+  const roundsDone = rounds.filter((r) => statusWord(r.status) === "done").length;
+  const roundsTotal = rounds.length || TOTAL_ROUNDS;
+  const complete = state.complete === true;
+
+  const paint = VERDICT_PAINT[verdict] ?? ((t) => bold(t));
+  const number = confidence === null ? "-" : confidence.toFixed(2);
+  const gateMark = confidence === null ? "?" : confidence >= CONFIDENCE_THRESHOLD ? "\u2713" : "\u2717";
+  const gatePaint = confidence === null ? dim : confidence >= CONFIDENCE_THRESHOLD ? green : red;
+
+  const boxWidth = 58;
+
+  const hline = "\u2501".repeat(boxWidth - 2);
+  const vline = "\u2503";
+  const padRight = (s) => String(s) + " ".repeat(Math.max(0, boxWidth - 4 - uiWidth(s)));
+
+  const lines = [];
+  lines.push(bold(`\u250c${hline}\u2510`));
+  lines.push(`${vline} ${bold("COLOSSIUM")} ${padRight(` tribunal ${state.tribunalId ?? "-"}`)}${vline}`);
+  lines.push(`${vline} ${hline} ${vline}`);
+  lines.push(`${vline}  ${dim("domain")}  ${String(state.domain ?? "code")}${padRight("")}${vline}`);
+  lines.push(`${vline} ${vline}`);
+  lines.push(
+    `${vline}  ${bold("verdict")}  ${paint(` ${verdict} `)}${padRight("")}${vline}`,
+  );
+  lines.push(
+    `${vline}  ${dim("confidence")}  ${bold(number)}  ${gatePaint(gateMark)} ${dim(
+      confidence === null ? "-" : confidence >= CONFIDENCE_THRESHOLD ? "clears" : "below",
+    )} ${CONFIDENCE_THRESHOLD.toFixed(2)}${padRight("")}${vline}`,
+  );
+  lines.push(`${vline} ${vline}`);
+  lines.push(`${vline}  ${bold("attacks by severity")}${padRight("")}${vline}`);
+  lines.push(
+    `${vline}    ${SEVERITY_PAINT[CRUCIBLE_SEVERITY.P0_CRITICAL](pad("P0", 4))} ${tallies[CRUCIBLE_SEVERITY.P0_CRITICAL]}${padRight("")}${vline}`,
+  );
+  lines.push(
+    `${vline}    ${SEVERITY_PAINT[CRUCIBLE_SEVERITY.P1_MAJOR](pad("P1", 4))} ${tallies[CRUCIBLE_SEVERITY.P1_MAJOR]}${padRight("")}${vline}`,
+  );
+  lines.push(
+    `${vline}    ${SEVERITY_PAINT[CRUCIBLE_SEVERITY.P2_MINOR](pad("P2", 4))} ${tallies[CRUCIBLE_SEVERITY.P2_MINOR]}${padRight("")}${vline}`,
+  );
+  lines.push(
+    `${vline}    ${SEVERITY_PAINT[CRUCIBLE_SEVERITY.P3_INFORMATIONAL](pad("P3", 4))} ${tallies[CRUCIBLE_SEVERITY.P3_INFORMATIONAL]}${padRight("")}${vline}`,
+  );
+  lines.push(`${vline} ${vline}`);
+  lines.push(`${vline}  ${bold("rounds")}  ${roundsDone}/${roundsTotal}${padRight("")}${vline}`);
+
+  const inFlight = rounds.find((r) => statusWord(r.status) === "running");
+  const lastDone = rounds
+    .slice()
+    .reverse()
+    .find((r) => statusWord(r.status) === "done");
+  const nextLine =
+    complete
+      ? "tribunal complete"
+      : inFlight
+        ? `round ${inFlight.round} (${inFlight.stage})`
+        : lastDone
+          ? `round ${lastDone.round + 1}`
+          : "round 1";
+  lines.push(`${vline}  ${bold("next action")}  ${nextLine}${padRight("")}${vline}`);
+  lines.push(`${vline} ${hline} ${vline}`);
+  lines.push(bold(`\u2514${hline}\u2518`));
+
+  return lines.join("\n");
+}
+
 export default {
   TRIBUNAL_ROUNDS,
   TOTAL_ROUNDS,
@@ -432,4 +535,5 @@ export default {
   renderOracleVerdict,
   renderBattleReport,
   renderTribunalProgress,
+  renderColosseum,
 };
