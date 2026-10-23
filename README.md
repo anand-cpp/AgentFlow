@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node: >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
 [![Runtime dependencies: 0](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen.svg)](THIRD_PARTY_NOTICES.md)
-[![Tests: 2050](https://img.shields.io/badge/tests-2050-blue.svg)](test)
+[![Tests: 2051](https://img.shields.io/badge/tests-2051-blue.svg)](test)
 
 [Quick start](#quick-start) · [Why AgentFlow](#why-agentflow) · [Architecture](#architecture) · [The Tribunal](#the-tribunal) · [Providers](#providers-and-local-models) · [Security](#trust-safety-and-verification)
 
@@ -598,10 +598,10 @@ Not claimed: "secure", "zero vulnerabilities", or "safe". Read
 
 ## Quality
 
-- **2,050 tests** (`npm test`) across routing, continuity, the five tribunal
+- **2,051 tests** (`npm test`) across routing, continuity, the five tribunal
   stages, the gateway and its SSE translation, the session/Blackboard stores, the
   agent runtime and tools, git integration, redaction, the plugin system, and
-  every command — **2,048 passing, 2 skipped, 0 failing** on Node v24.19.0 at the
+  every command — **2,049 passing, 2 skipped, 0 failing** on Node v24.19.0 at the
   time of writing. Run `npm test` for the current count;
   [CI](.github/workflows/test.yml) runs the suite on Node 20, 22, and 24.
 - **Zero runtime dependencies** — Node builtins only. Dev tooling (ESLint,

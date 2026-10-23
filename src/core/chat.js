@@ -216,7 +216,11 @@ export class ChatSession {
     this.router = router || null;
     this.limiter = limiter;
     this.usage = usage || new UsageLedger({ now });
-    this._usagePersisted = 0;
+    // ID of the last usage record persisted to the session. Tracking by ID
+    // (not index) survives bounded-ledger eviction: when old records are dropped
+    // from the front, an index cursor would point past the end and silently stop
+    // persisting new usage observations.
+    this._usagePersistedId = null;
     this.config = config || {};
     // Validated once here so a malformed `modelHints` value cannot throw inside
     // routing, and so the chat runtime sees the same hints as the candidate list.
@@ -1065,8 +1069,18 @@ export class ChatSession {
   #persistUsage() {
     if (!this.session || typeof this.sessions?.append !== "function") return;
     const all = this.usage.records();
-    if (all.length <= this._usagePersisted) return;
-    const fresh = all.slice(this._usagePersisted);
+    if (all.length === 0) return;
+
+    // Skip records up to and including the last persisted one. If that record
+    // was evicted from the bounded ledger, start from 0 -- every remaining
+    // record is newer than the last persisted ID.
+    let start = 0;
+    if (this._usagePersistedId) {
+      const idx = all.findIndex((r) => r.id === this._usagePersistedId);
+      if (idx !== -1) start = idx + 1;
+    }
+    if (start >= all.length) return;
+    const fresh = all.slice(start);
     try {
       const last = fresh[fresh.length - 1];
       this.sessions.append(this.session.id, ENTRY_KIND.USAGE, {
@@ -1076,7 +1090,7 @@ export class ChatSession {
       });
       // Advance only after a successful write. If the store refuses, the next
       // turn retries the same bounded batch instead of losing the observation.
-      this._usagePersisted = all.length;
+      this._usagePersistedId = last.id;
     } catch {
       /* best-effort: usage telemetry must not break the chat */
     }

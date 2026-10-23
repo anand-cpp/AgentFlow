@@ -23,6 +23,7 @@ import { Readable, Writable } from "node:stream";
 
 import { ChatSession, parseSlash, canonicalCommand, SLASH_HELP } from "../src/core/chat.js";
 import { SessionStore } from "../src/core/sessions.js";
+import { UsageLedger } from "../src/core/usage-ledger.js";
 import { chatCommand } from "../src/commands/chat.js";
 
 function scratch(prefix) {
@@ -323,6 +324,24 @@ test("each turn persists one usage entry with observed tokens", async () => {
   assert.deepEqual(usage[0].requests[0].tokens, { prompt: null, completion: null, total: 5 });
   assert.equal(usage[0].requests[0].usageSource, "provider");
   assert.equal(usage[1].requests.length, 1);
+});
+
+test("usage persistence continues after bounded ledger evicts old records", async () => {
+  const sessions = new SessionStore({ dir: scratch("aflow-chat-") });
+  // A tiny ledger so eviction happens quickly: after 3 records, the oldest is dropped.
+  const usage = new UsageLedger({ now: () => 1_000, maxRecords: 3 });
+  const chat = new ChatSession({ sessions, config: {}, modelId: "a/one", stream: mockStream("Hello"), usage });
+  await chat.init({ forceNew: true });
+
+  // Send 5 turns -- enough to evict the first 2 usage records from the ledger.
+  for (let i = 0; i < 5; i++) await chat.send(`turn ${i}`);
+
+  const persisted = sessions.read(chat.getInfo().sessionId);
+  const usageEntries = persisted.entries.filter((e) => e.kind === "usage");
+  // Every turn should have persisted its usage, even after eviction.
+  assert.equal(usageEntries.length, 5, "one usage entry per turn despite ledger eviction");
+  const totalRequests = usageEntries.reduce((sum, e) => sum + e.requests.length, 0);
+  assert.equal(totalRequests, 5, "all 5 usage requests persisted, none lost to eviction");
 });
 
 // ---------------------------------------------------------------------------
