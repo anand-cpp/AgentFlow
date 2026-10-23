@@ -33,6 +33,7 @@ import {
 } from "../src/core/gateway-server.js";
 
 import { VERSION } from "../src/core/version.js";
+import { complete, GatewayError } from "../src/core/gateway.js";
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -483,6 +484,91 @@ test("a remote error body is sanitized before it reaches the client", async () =
     assert.ok(!message.includes(leakedToken), "token patterns must be masked");
     assert.ok(!message.includes("topsecret123"), "query secrets must be masked");
     assert.match(message, /\*\*\*/, "something must visibly be redacted");
+  } finally {
+    await gateway.close();
+    await closeServer(mock.server);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// integration: provider rate-limit feedback
+// ---------------------------------------------------------------------------
+
+test("a provider Retry-After is forwarded and parsed into the GatewayError", async () => {
+  const mock = await startMockProvider({
+    "POST /chat/completions": (_req, res) => {
+      res.writeHead(429, {
+        "Content-Type": "application/json",
+        "Retry-After": "7",
+      });
+      res.end(JSON.stringify({ error: { message: "slow down" } }));
+    },
+  });
+  const gateway = new GatewayServer({
+    port: 0,
+    ollamaUrl: null,
+    env: { GROQ_API_KEY: "mock-groq-key" },
+    providers: { groq: { baseUrl: mock.url } },
+  });
+  await gateway.start();
+  try {
+    const res = await fetch(`${gateway.url()}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "groq/llama-3.3-70b-versatile", messages: [] }),
+    });
+    assert.equal(res.status, 429, "the upstream status must be preserved");
+    assert.equal(res.headers.get("retry-after"), "7", "the header must reach the client");
+
+    await assert.rejects(
+      complete({ baseUrl: gateway.url(), apiKey: null, probeTimeoutMs: 2000 }, "groq/llama-3.3-70b-versatile", "hi"),
+      (err) => {
+        assert.ok(err instanceof GatewayError);
+        assert.equal(err.status, 429);
+        assert.equal(err.retryAfter, "7");
+        assert.equal(err.retryAfterMs, 7_000);
+        assert.equal(err.retryAfterSource, "seconds");
+        return true;
+      }
+    );
+  } finally {
+    await gateway.close();
+    await closeServer(mock.server);
+  }
+});
+
+test("a 429 without Retry-After stays unknown rather than inventing a delay", async () => {
+  const mock = await startMockProvider({
+    "POST /chat/completions": (_req, res) => {
+      res.writeHead(429, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "slow down" } }));
+    },
+  });
+  const gateway = new GatewayServer({
+    port: 0,
+    ollamaUrl: null,
+    env: { GROQ_API_KEY: "mock-groq-key" },
+    providers: { groq: { baseUrl: mock.url } },
+  });
+  await gateway.start();
+  try {
+    const res = await fetch(`${gateway.url()}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "groq/llama-3.3-70b-versatile", messages: [] }),
+    });
+    assert.equal(res.status, 429);
+    assert.equal(res.headers.get("retry-after"), null);
+
+    await assert.rejects(
+      complete({ baseUrl: gateway.url(), apiKey: null, probeTimeoutMs: 2000 }, "groq/llama-3.3-70b-versatile", "hi"),
+      (err) => {
+        assert.equal(err.retryAfter, null);
+        assert.equal(err.retryAfterMs, null);
+        assert.equal(err.retryAfterSource, null);
+        return true;
+      }
+    );
   } finally {
     await gateway.close();
     await closeServer(mock.server);

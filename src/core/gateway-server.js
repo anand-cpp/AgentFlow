@@ -684,6 +684,21 @@ function sanitizeUpstreamText(value, apiKey) {
   return s.length > 2000 ? `${s.slice(0, 2000)}…` : s;
 }
 
+/**
+ * Forward a provider's Retry-After header, if it sent one.
+ *
+ * The gateway does not interpret the value: seconds and HTTP-date are both
+ * legal, and the client owns the clock. Only CR/LF are stripped, so an upstream
+ * cannot inject a second header. A missing header stays missing -- fabricating
+ * a delay would turn "unknown" into a policy the provider never stated.
+ */
+function upstreamRetryAfter(headers) {
+  const raw = headers?.get?.("retry-after");
+  if (raw == null) return null;
+  const value = String(raw).replace(/[\r\n]+/g, " ").trim();
+  return value || null;
+}
+
 export class GatewayServer {
   /**
    * @param {object}  [opts]
@@ -1137,13 +1152,19 @@ export class GatewayServer {
         /* unreadable error body */
       }
       const status = upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502;
-      return this._json(res, status, {
-        error: {
-          message: sanitizeUpstreamText(extractUpstreamError(raw), target.apiKey),
-          type: "upstream_error",
-          code: "upstream_error",
+      const retryAfter = upstreamRetryAfter(upstream.headers);
+      return this._json(
+        res,
+        status,
+        {
+          error: {
+            message: sanitizeUpstreamText(extractUpstreamError(raw), target.apiKey),
+            type: "upstream_error",
+            code: "upstream_error",
+          },
         },
-      });
+        retryAfter ? { "Retry-After": retryAfter } : null
+      );
     }
 
     return stream ? this._remoteStream(res, upstream) : this._remoteOnce(res, upstream);
@@ -1241,12 +1262,17 @@ export class GatewayServer {
     return timingSafeEqualString(match[1].trim(), this.apiKey);
   }
 
-  _json(res, status, body) {
+  _json(res, status, body, headers = null) {
     if (res.writableEnded) return;
     const text = JSON.stringify(body);
     res.statusCode = status;
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader("Content-Length", Buffer.byteLength(text));
+    if (headers && typeof headers === "object") {
+      for (const [key, value] of Object.entries(headers)) {
+        if (value != null) res.setHeader(key, value);
+      }
+    }
     res.end(text);
   }
 
