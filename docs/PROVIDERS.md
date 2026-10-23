@@ -98,6 +98,68 @@ Disable the policy with `"preferFree": false` or
 `cost.preference` and the class of every candidate, so `aflow logs` and
 `aflow agent run --json` can explain why a model was tried before another.
 
+Paid models are not used as anonymous fallbacks by default. Set
+`"allowPaidFallback": true` (or `AGENTFLOW_ALLOW_PAID_FALLBACK=1`) to permit
+them. This only governs candidates nobody named: an explicit model, a pinned
+agent model, an agent's `prefer` list, and a `--fallback` order still win.
+
+## Request limits, cooldowns, and quota
+
+Three different facts are deliberately kept separate:
+
+| Fact | Source | What it means |
+|---|---|---|
+| Request-rate limit | `ratePerMin` in the provider registry | At most N requests per rolling 60s window, locally |
+| Provider cooldown | A provider's `Retry-After` header | Do not send this provider another request until the stated time |
+| Account quota | Not modelled | Unknown unless a provider says so in an error |
+
+`ratePerMin` is **request-rate metadata only**. It is not a daily quota, a token
+budget, or a billing limit. Only providers with a confirmed value are limited
+locally:
+
+| Provider | `ratePerMin` |
+|---|---|
+| Groq | 30 |
+| Cerebras | 30 |
+| Gemini | 15 |
+| All others | `null` — no local limit is invented |
+
+A provider with no declared limit is unlimited *locally*. That is not a claim
+that the provider has quota left: unknown stays unknown. The rolling window is
+process-local and is not persisted across invocations; it exists to stop one
+process from oversubscribing a rate it can see. A permit is reserved before a
+request is dispatched. A request that provably never left the process releases
+its permit; a request that may have reached the provider stays counted even if
+it failed. Waiting for a slot is bounded (`maxRateLimitWaitMs`, default 5s) and
+cancellable, so routing moves to another candidate instead of hanging.
+
+`Retry-After` is honored in both RFC 9110 forms — delay-seconds and HTTP-date.
+Missing, malformed, negative, and already-past values do not create a cooldown.
+A value beyond 24 hours is clamped rather than trusted forever. The cooldown is
+provider-scoped: after `groq` answers 429 with `Retry-After: 30`, the rest of the
+Groq models are skipped for 30 seconds, not just the model that failed. Cooldown
+state lives in `ProviderHealth` and survives `toJSON()`/`fromJSON()`; the local
+rolling-window state does not.
+
+Failures are classified before fallback:
+
+- `rate_limited` tries another candidate; the provider is not penalised.
+- `quota`, `auth`, and `no_credentials` are permanent for the run and skip the
+  rest of that provider.
+- `invalid_request` is permanent for the run but does not skip the provider,
+  because the next model may accept the request.
+- `timeout`, `network`, `server`, and `empty` are transient and fall through.
+
+When no candidate is permitted, the error names the evidence it has — local
+rate limit, cooldown, open circuit, auth, quota — and the earliest retry time
+when a `Retry-After` established one.
+
+Usage observations are recorded without inventing numbers. Token counts come
+only from a provider-supplied `usage` object; a missing field stays unknown. A
+cost is stored only when the caller supplies both a finite amount and a named
+pricing source. The ledger never reports a remaining free-tier balance, because
+no provider here exposes one reliably.
+
 ## Missing credentials fail loudly, not silently
 
 A request for a remote provider whose key is absent throws

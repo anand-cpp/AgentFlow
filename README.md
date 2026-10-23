@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node: >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
 [![Runtime dependencies: 0](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen.svg)](THIRD_PARTY_NOTICES.md)
-[![Tests: 1859](https://img.shields.io/badge/tests-1859-blue.svg)](test)
+[![Tests: 2050](https://img.shields.io/badge/tests-2050-blue.svg)](test)
 
 [Quick start](#quick-start) · [Why AgentFlow](#why-agentflow) · [Architecture](#architecture) · [The Tribunal](#the-tribunal) · [Providers](#providers-and-local-models) · [Security](#trust-safety-and-verification)
 
@@ -524,6 +524,16 @@ provider can serve it. `process.env` always overrides the keys file. A missing
 remote credential fails loudly — the error names the exact variable — and
 `/v1/models` only advertises a provider once its credential is present.
 
+**Request limits are not quota balances.** The registry's `ratePerMin` is used
+only as confirmed request-rate metadata (currently Groq, Cerebras, and Gemini);
+providers without it keep no local limit, because unknown is not the same as
+exhausted. A provider that sends `Retry-After` is cooled down for that long, and
+the cooldown is provider-scoped. Paid models are never anonymous fallbacks
+unless `allowPaidFallback` is explicitly enabled; an explicitly named model,
+pin, agent preference, or fallback list still wins. `aflow models --detail`
+shows the cost class, local request limit, tool-calling hint, and cooldown state
+alongside static catalogue metadata.
+
 > **Local-only operation.** Point AgentFlow at a local Ollama and no hosted key
 > is configured; requests resolve to `ollama/`. This is a configuration property,
 > not a verified network egress guarantee — review the provider resolution in
@@ -540,6 +550,7 @@ node bin/aflow.js config                 # effective config, with origin per key
 node bin/aflow.js config --json          # machine-readable; apiKey renders as ***
 node bin/aflow.js models                 # list models by provider (needs a gateway)
 node bin/aflow.js models --probe         # additionally probe reachability
+node bin/aflow.js models --detail        # cost class, request limit, tools, eligibility
 ```
 
 ```sh
@@ -587,10 +598,10 @@ Not claimed: "secure", "zero vulnerabilities", or "safe". Read
 
 ## Quality
 
-- **1,827 tests** (`npm test`) across routing, continuity, the five tribunal
+- **2,050 tests** (`npm test`) across routing, continuity, the five tribunal
   stages, the gateway and its SSE translation, the session/Blackboard stores, the
   agent runtime and tools, git integration, redaction, the plugin system, and
-  every command — **1,825 passing, 2 skipped, 0 failing** on Node v24.19.0 at the
+  every command — **2,048 passing, 2 skipped, 0 failing** on Node v24.19.0 at the
   time of writing. Run `npm test` for the current count;
   [CI](.github/workflows/test.yml) runs the suite on Node 20, 22, and 24.
 - **Zero runtime dependencies** — Node builtins only. Dev tooling (ESLint,
