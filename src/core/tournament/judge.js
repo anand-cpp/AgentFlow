@@ -123,6 +123,31 @@ export const JUDGE_RESPONSE_SCHEMA = Object.freeze({
   rubric_version: RUBRIC_VERSION,
 });
 
+/**
+ * The shape of a parsed judge report, used after the runtime shape checks in
+ * validateJudgeResponse().
+ *
+ * @typedef {object} JudgeReport
+ * @property {number} schema_version
+ * @property {string} match_id
+ * @property {object} scores
+ * @property {object} scores.candidate_a
+ * @property {object} scores.candidate_b
+ * @property {object} unresolved_objections
+ * @property {object} unresolved_objections.candidate_a
+ * @property {object} unresolved_objections.candidate_b
+ * @property {object|null} fatal_flaw
+ * @property {string} fatal_flaw.candidate
+ * @property {string} fatal_flaw.criterion
+ * @property {string} fatal_flaw.claim
+ * @property {object} fatal_flaw.evidence
+ * @property {string} fatal_flaw.evidence.kind
+ * @property {string} fatal_flaw.evidence.payload
+ * @property {"A_WINS"|"B_WINS"|"TIE"} verdict
+ * @property {string} rationale
+ * @property {string|null} judge_model
+ */
+
 export const JUDGE_SYSTEM_PROMPT = [
   "You are an independent judge in a competitive evaluation.",
   "Score the two candidates against the rubric. Do not be polite: use the whole 0-10 scale, and do not reward length, confidence, or self-praise.",
@@ -201,78 +226,77 @@ function addObjections(errors, objections, label) {
 export function validateJudgeResponse(report, { matchId = null } = {}) {
   const errors = [];
   if (!isPlainObject(report)) return { valid: false, errors: ["judge report must be an object"] };
+  /** @type {JudgeReport} */
+  const r = /** @type {any} */ (report);
+  addUnknownFields(errors, r, REPORT_FIELD_SET, "");
 
-  addUnknownFields(errors, report, REPORT_FIELD_SET, "");
-
-  if (report.schema_version !== JUDGE_SCHEMA_VERSION) {
+  if (r.schema_version !== JUDGE_SCHEMA_VERSION) {
     errors.push(`schema_version must be ${JUDGE_SCHEMA_VERSION}`);
   }
-  if (!isNonEmptyString(report.match_id)) {
+  if (!isNonEmptyString(r.match_id)) {
     errors.push("match_id must be a non-empty string");
-  } else if (matchId && report.match_id !== matchId) {
-    errors.push(`match_id "${report.match_id}" does not match "${matchId}"`);
+  } else if (matchId && r.match_id !== matchId) {
+    errors.push(`match_id "${r.match_id}" does not match "${matchId}"`);
   }
 
-  if (!isPlainObject(report.scores)) {
+  if (!isPlainObject(r.scores)) {
     errors.push("scores must be an object with candidate_a and candidate_b");
   } else {
     for (const label of CANDIDATE_LABELS) {
-      if (!(label in report.scores)) errors.push(`scores is missing "${label}"`);
+      if (!(label in r.scores)) errors.push(`scores is missing "${label}"`);
     }
-    for (const key of Object.keys(report.scores)) {
+    for (const key of Object.keys(r.scores)) {
       if (!LABEL_SET.has(key)) errors.push(`scores has unknown candidate "${key}"`);
     }
     for (const label of CANDIDATE_LABELS) {
-      if (!(label in report.scores)) continue;
-      // scoreCandidate reports missing/unknown/out-of-range criteria in one
-      // place so the rubric contract has exactly one implementation.
-      const check = scoreCandidate(report.scores[label], RUBRIC_WEIGHTS);
+      if (!(label in r.scores)) continue;
+      const check = scoreCandidate(r.scores[label], RUBRIC_WEIGHTS);
       for (const error of check.errors) errors.push(`scores.${label}: ${error}`);
     }
   }
 
-  if (!isPlainObject(report.unresolved_objections)) {
+  if (!isPlainObject(r.unresolved_objections)) {
     errors.push("unresolved_objections must be an object with candidate_a and candidate_b");
   } else {
     for (const label of CANDIDATE_LABELS) {
-      if (!(label in report.unresolved_objections)) {
+      if (!(label in r.unresolved_objections)) {
         errors.push(`unresolved_objections is missing "${label}"`);
       } else {
-        addObjections(errors, report.unresolved_objections[label], label);
+        addObjections(errors, r.unresolved_objections[label], label);
       }
     }
-    for (const key of Object.keys(report.unresolved_objections)) {
+    for (const key of Object.keys(r.unresolved_objections)) {
       if (!LABEL_SET.has(key)) errors.push(`unresolved_objections has unknown candidate "${key}"`);
     }
   }
 
-  if (report.fatal_flaw !== null) {
-    if (!isPlainObject(report.fatal_flaw)) {
+  if (r.fatal_flaw !== null) {
+    if (!isPlainObject(r.fatal_flaw)) {
       errors.push("fatal_flaw must be null or an object");
     } else {
-      addUnknownFields(errors, report.fatal_flaw, FATAL_FLAW_FIELD_SET, "fatal_flaw.");
-      if (!LABEL_SET.has(report.fatal_flaw.candidate)) {
+      addUnknownFields(errors, r.fatal_flaw, FATAL_FLAW_FIELD_SET, "fatal_flaw.");
+      if (!LABEL_SET.has(r.fatal_flaw.candidate)) {
         errors.push('fatal_flaw.candidate must be "candidate_a" or "candidate_b"');
       }
-      if (!CRITERION_SET.has(report.fatal_flaw.criterion)) {
+      if (!CRITERION_SET.has(r.fatal_flaw.criterion)) {
         errors.push(`fatal_flaw.criterion must be one of ${[...CRITERION_SET].join(", ")}`);
       }
-      if (!isNonEmptyString(report.fatal_flaw.claim)) {
+      if (!isNonEmptyString(r.fatal_flaw.claim)) {
         errors.push("fatal_flaw.claim must be a non-empty string");
       }
-      addEvidence(errors, report.fatal_flaw.evidence, "fatal_flaw.", { allowAllegation: true });
+      addEvidence(errors, r.fatal_flaw.evidence, "fatal_flaw.", { allowAllegation: true });
     }
-  } else if (!("fatal_flaw" in report)) {
+  } else if (!("fatal_flaw" in r)) {
     errors.push("fatal_flaw is required and must be null when there is no fatal flaw");
   }
 
-  if (!VERDICT_SET.has(report.verdict)) {
+  if (!VERDICT_SET.has(r.verdict)) {
     errors.push(`verdict must be one of ${[...VERDICT_SET].join(", ")}`);
   }
-  if (!isNonEmptyString(report.rationale)) {
+  if (!isNonEmptyString(r.rationale)) {
     errors.push("rationale must be a non-empty string");
   }
-  if ("judge_model" in report && report.judge_model !== null && typeof report.judge_model !== "string") {
+  if ("judge_model" in r && r.judge_model !== null && typeof r.judge_model !== "string") {
     errors.push("judge_model must be a string or null");
   }
 
@@ -303,9 +327,9 @@ function publicScore(id, score) {
  *
  * @param {object} report
  * @param {object} input
- * @param {string} input.matchId
- * @param {string|object} input.candidateA
- * @param {string|object} input.candidateB
+ * @param {string} [input.matchId]
+ * @param {string|object} [input.candidateA]
+ * @param {string|object} [input.candidateB]
  * @param {number} [input.now]
  */
 export function decideMatch(report, { matchId, candidateA, candidateB, now = Date.now() } = {}) {
@@ -318,8 +342,10 @@ export function decideMatch(report, { matchId, candidateA, candidateB, now = Dat
   const check = validateJudgeResponse(report, { matchId });
   if (!check.valid) return { ok: false, decision: null, errors: check.errors };
 
-  const a = scoreCandidate(report.scores.candidate_a);
-  const b = scoreCandidate(report.scores.candidate_b);
+  /** @type {JudgeReport} */
+  const r = /** @type {any} */ (report);
+  const a = scoreCandidate(r.scores.candidate_a);
+  const b = scoreCandidate(r.scores.candidate_b);
   if (!a.ok || !b.ok) {
     return { ok: false, decision: null, errors: [...a.errors, ...b.errors] };
   }
@@ -330,7 +356,7 @@ export function decideMatch(report, { matchId, candidateA, candidateB, now = Dat
 
   // Rule 1: a serious score must be backed by a concrete unresolved objection.
   for (const label of CANDIDATE_LABELS) {
-    const objections = report.unresolved_objections[label];
+    const objections = r.unresolved_objections[label];
     for (const criterion of CRITERIA) {
       const value = scoresByLabel[label].criteria[criterion.id];
       if (value > SERIOUS_DEFECT_SCORE) continue;
@@ -348,7 +374,7 @@ export function decideMatch(report, { matchId, candidateA, candidateB, now = Dat
     }
   }
 
-  const fatal = report.fatal_flaw;
+  const fatal = r.fatal_flaw;
   let fatalFlaw = null;
   if (fatal) {
     const verified =
@@ -407,8 +433,8 @@ export function decideMatch(report, { matchId, candidateA, candidateB, now = Dat
     }
 
     if (!winnerLabel) {
-      const objectionsA = report.unresolved_objections.candidate_a.length;
-      const objectionsB = report.unresolved_objections.candidate_b.length;
+      const objectionsA = r.unresolved_objections.candidate_a.length;
+      const objectionsB = r.unresolved_objections.candidate_b.length;
       if (objectionsA !== objectionsB) {
         winnerLabel = objectionsA < objectionsB ? "candidate_a" : "candidate_b";
         reason = DECISION_REASON.OBJECTIONS;
@@ -421,21 +447,21 @@ export function decideMatch(report, { matchId, candidateA, candidateB, now = Dat
 
   // Cross-check: a declared winner that disagrees with the computed result is a
   // contradiction, not a hint. TIE never contradicts -- it is an admission.
-  if (report.verdict !== DECLARED_VERDICT.TIE) {
+  if (r.verdict !== DECLARED_VERDICT.TIE) {
     if (!winnerLabel) {
       return {
         ok: false,
         decision: null,
-        errors: [`contradictory verdict: declared ${report.verdict} but the rubric is level`],
+        errors: [`contradictory verdict: declared ${r.verdict} but the rubric is level`],
       };
     }
-    const declared = report.verdict === DECLARED_VERDICT.A_WINS ? "candidate_a" : "candidate_b";
+    const declared = r.verdict === DECLARED_VERDICT.A_WINS ? "candidate_a" : "candidate_b";
     if (declared !== winnerLabel) {
       return {
         ok: false,
         decision: null,
         errors: [
-          `contradictory verdict: declared ${report.verdict} but the scores favour ${winnerLabel}`,
+          `contradictory verdict: declared ${r.verdict} but the scores favour ${winnerLabel}`,
         ],
       };
     }
@@ -455,7 +481,7 @@ export function decideMatch(report, { matchId, candidateA, candidateB, now = Dat
       candidates: { candidate_a: idA, candidate_b: idB },
       outcome,
       verdict: winnerLabel ? (winnerLabel === "candidate_a" ? "A_WINS" : "B_WINS") : "UNRESOLVED",
-      declaredVerdict: report.verdict,
+      declaredVerdict: r.verdict,
       winnerId,
       loserId,
       reason,
@@ -466,11 +492,11 @@ export function decideMatch(report, { matchId, candidateA, candidateB, now = Dat
       fatalFlaw,
       tieBreak,
       unresolvedObjections: {
-        candidate_a: report.unresolved_objections.candidate_a.length,
-        candidate_b: report.unresolved_objections.candidate_b.length,
+        candidate_a: r.unresolved_objections.candidate_a.length,
+        candidate_b: r.unresolved_objections.candidate_b.length,
       },
-      rationale: report.rationale,
-      judgeModel: report.judge_model ?? null,
+      rationale: r.rationale,
+      judgeModel: r.judge_model ?? null,
       decidedAt: new Date(now).toISOString(),
     },
   };
@@ -481,7 +507,7 @@ export function decideMatch(report, { matchId, candidateA, candidateB, now = Dat
  * caller can persist it without inflating the tournament state.
  *
  * @param {object} input
- * @param {string} input.text        raw judge output
+ * @param {string} [input.text]        raw judge output
  * @param {object} [input.match]     bracket match ({ id, a, b })
  * @param {string} [input.matchId]
  * @param {string|object} [input.candidateA]
@@ -494,7 +520,10 @@ export function judgeMatch({ text, match, matchId, candidateA, candidateB, now =
   const b = candidateB ?? match?.b;
 
   const parsed = parseJudgeJson(text);
-  if (!parsed.ok) return { ok: false, decision: null, raw: null, errors: [parsed.error] };
+  if (!parsed.ok) {
+    const failed = /** @type {{ ok: false; error: string }} */ (parsed);
+    return { ok: false, decision: null, raw: null, errors: [failed.error] };
+  }
 
   const decided = decideMatch(parsed.value, { matchId: id, candidateA: a, candidateB: b, now });
   return { ok: decided.ok, decision: decided.decision, raw: parsed.value, errors: decided.errors };
@@ -532,10 +561,10 @@ function renderCandidate(candidate) {
  * judge ends up scoring a different candidate than the one that competed.
  *
  * @param {object} input
- * @param {string} input.task
- * @param {string} input.matchId
- * @param {object|string} input.candidateA  { id, proposal, cardId? } or id
- * @param {object|string} input.candidateB
+ * @param {string} [input.task]
+ * @param {string} [input.matchId]
+ * @param {object|string} [input.candidateA]  { id, proposal, cardId? } or id
+ * @param {object|string} [input.candidateB]
  */
 export function buildJudgePrompt({ task, matchId, candidateA, candidateB } = {}) {
   return [

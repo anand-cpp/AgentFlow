@@ -183,10 +183,15 @@ test("a match decision applies cleanly to the tournament state machine", async (
   });
   assert.equal(result.ok, true);
 
-  tournament = state.applyMatchResult(tournament, result.matchResult, { now: NOW });
+  tournament = state.applyMatchResult(tournament, { ...result.matchResult, now: NOW });
   assert.equal(tournament.rounds[0].matches[0].status, "completed");
   assert.equal(tournament.rounds[0].matches[0].winner, result.matchResult.winnerId);
-  assert.equal(tournament.rounds[0].matches[0].verdict.verdict, "A_WINS");
+  assert.equal(
+    /** @type {{ verdict: { verdict: string; } } } */ (
+      /** @type {unknown} */ (tournament.rounds[0].matches[0])
+    ).verdict.verdict,
+    "A_WINS",
+  );
 
   tournament = state.closeRound(tournament, { now: NOW });
   assert.equal(tournament.status, state.TOURNAMENT_STATUS.COMPLETED);
@@ -477,8 +482,8 @@ test("calls are estimated from candidates left alive, not from paired rounds", (
     calls: 49,
   });
 
-  tournament.candidates[0].status = state.CANDIDATE_STATUS.ELIMINATED;
-  tournament.candidates[1].status = state.CANDIDATE_STATUS.ELIMINATED;
+  /** @type {object} */ (tournament.candidates[0]).status = state.CANDIDATE_STATUS.ELIMINATED;
+  /** @type {object} */ (tournament.candidates[1]).status = state.CANDIDATE_STATUS.ELIMINATED;
   assert.deepEqual(matchModule.estimateTournamentCalls(tournament), {
     alive: 6,
     matches: 5,

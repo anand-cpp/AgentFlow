@@ -418,7 +418,7 @@ export function parseArenaParams(flags = {}) {
     throw usage("choose either --quick or --mode <quick|standard|intensive>, not both");
   }
   const mode = flags.quick ? TOURNAMENT_MODES.QUICK : String(flags.mode ?? TOURNAMENT_MODES.QUICK);
-  if (!Object.values(TOURNAMENT_MODES).includes(mode)) {
+  if (!Object.values(TOURNAMENT_MODES).includes(/** @type {"quick"|"standard"|"intensive"} */ (mode))) {
     throw usage(`unknown arena mode: ${mode} (expected ${Object.values(TOURNAMENT_MODES).join(", ")})`);
   }
   const preset = MODE_PRESETS[mode];
@@ -437,7 +437,9 @@ export function parseArenaParams(flags = {}) {
   };
 }
 
-/** One candidate per slot, cycling the model pool; cards are dealt by state. */
+/** One candidate per slot, cycling the model pool; cards are dealt by state. *
+ * @param {{ agents?: number, models?: Array<string> }} input
+ */
 export function buildArenaCandidates({ agents, models = [] } = {}) {
   const pool = (Array.isArray(models) ? models : []).filter(
     (model) => typeof model === "string" && model.trim(),
@@ -645,6 +647,11 @@ function recordArenaDecision({ state, run, validation, flags, sessionId, out }) 
   }
 }
 
+/**
+ * Run the arena sub-command: resolve models, build candidates, run the tournament.
+ *
+ * @param {{ rest: string[], flags: object, config: object, out: object, deps?: { complete?: (cfg: any, modelId: string, text: string, opts?: any) => Promise<any>, listModels?: (cfg: any) => Promise<(string | { id?: string; })[]> } }} input
+ */
 async function runArenaSub({ rest, flags, config, out, deps = {} }) {
   const store = arenaStore(flags);
   const completeFn =
@@ -801,7 +808,7 @@ async function runArenaSub({ rest, flags, config, out, deps = {} }) {
     state = createTournamentState({
       task: taskArg,
       candidates,
-      mode: params.mode,
+      mode: /** @type {"quick"|"standard"|"intensive"} */ (params.mode),
       seed: params.seed,
       now: Date.now(),
       config: { concurrency: params.concurrency, paidAllowed: true, judgeModel },
@@ -889,7 +896,7 @@ async function runArenaSub({ rest, flags, config, out, deps = {} }) {
 
   const run = await runTournament({
     state,
-    proposals,
+    proposals: /** @type {Record<string, string>} */ (proposals),
     completeFn,
     judgeModel,
     config,

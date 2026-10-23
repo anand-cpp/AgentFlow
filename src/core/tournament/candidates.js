@@ -32,7 +32,7 @@ function renderCard(card) {
  * differentiates two candidates on the same model, so it is stated plainly
  * rather than left as a label.
  *
- * @param {{ task: string, candidateId: string, card?: object }} input
+ * @param {{ task?: string, candidateId?: string, card?: object }} input
  */
 export function buildGenerationPrompt({ task, candidateId, card = null } = {}) {
   return [
@@ -54,7 +54,9 @@ export const GENERATION_SYSTEM_PROMPT = [
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function abortError(reason) {
-  const err = new Error(typeof reason === "string" && reason ? reason : "arena generation cancelled");
+  const err = /** @type {Error & { cancelled: boolean }} */ (
+    new Error(typeof reason === "string" && reason ? reason : "arena generation cancelled")
+  );
   err.name = "AbortError";
   err.cancelled = true;
   return err;
@@ -94,9 +96,9 @@ async function withAbort(promise, signal) {
  * proposal, because a tournament between placeholder answers decides nothing.
  *
  * @param {object} input
- * @param {string} input.task
- * @param {Array<{ id: string, model: string, card?: object }>} input.candidates
- * @param {Function} input.completeFn
+ * @param {string} [input.task]
+ * @param {Array<{ id: string, model: string, card?: object }>} [input.candidates]
+ * @param {Function} [input.completeFn]
  * @param {object} [input.config]
  * @param {number} [input.maxRetries]
  * @param {number} [input.retryDelayMs]

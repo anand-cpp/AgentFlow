@@ -181,6 +181,7 @@ export function scoreCandidate(scores, weights = RUBRIC_WEIGHTS) {
     if (!CRITERION_SET.has(key)) errors.push(`unknown score "${key}"`);
   }
 
+  /** @type {Record<string, number>} */
   const criteria = {};
   let weighted = 0;
   for (const id of CRITERION_IDS) {

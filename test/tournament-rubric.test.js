@@ -34,7 +34,9 @@ test("weight validation rejects missing, extra, non-numeric, and non-normalised 
   const extra = { ...r.RUBRIC_WEIGHTS, style: 0.1 };
   assert.match(r.validateWeights(extra).errors.join(" "), /unknown weight "style"/);
 
-  const wrongType = { ...r.RUBRIC_WEIGHTS, clarity: "0.1" };
+  const wrongType = /** @type {Record<string, number>} */ (
+    /** @type {unknown} */ ({ ...r.RUBRIC_WEIGHTS, clarity: "0.1" })
+  );
   assert.match(r.validateWeights(wrongType).errors.join(" "), /must be a finite number/);
 
   const negative = { ...r.RUBRIC_WEIGHTS, clarity: -0.1, correctness: 0.5 };
@@ -100,7 +102,7 @@ test("missing, unknown, non-numeric, and out-of-range criteria are rejected", ()
 
   for (const bad of ["8", null, undefined, NaN, Infinity]) {
     assert.equal(
-      r.scoreCandidate({ ...valid, correctness: bad }).ok,
+      r.scoreCandidate({ ...valid, correctness: /** @type {number} */ (bad) }).ok,
       false,
       `expected ${String(bad)} to be rejected`,
     );

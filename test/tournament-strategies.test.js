@@ -79,7 +79,7 @@ test("dealing more cards than the deck holds fails with an actionable error", ()
 
 test("invalid counts are rejected", () => {
   for (const bad of [0, -1, 1.5, "many", null, undefined]) {
-    assert.throws(() => s.dealCards(bad), /positive integer/);
+    assert.throws(() => s.dealCards(/** @type {number} */ (bad)), /positive integer/);
   }
 });
 

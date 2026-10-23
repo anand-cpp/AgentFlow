@@ -34,6 +34,12 @@ function report(overrides = {}) {
   };
 }
 
+/**
+ * Build an evidence fixture.
+ *
+ * @param {keyof typeof j.EVIDENCE_KIND} [kind]
+ * @param {string} [payload]
+ */
 function evidence(kind = j.EVIDENCE_KIND.TEST_CASE, payload = "test/retry.test.js fails at line 42") {
   return { kind, payload };
 }
@@ -360,7 +366,12 @@ test("a decision applies cleanly to the tournament state machine", () => {
 
   tournament = state.applyMatchResult(tournament, applied);
   assert.equal(tournament.rounds[0].matches[0].status, "completed");
-  assert.equal(tournament.rounds[0].matches[0].verdict.verdict, "A_WINS");
+  assert.equal(
+    /** @type {{ verdict: { verdict: string; } } } */ (
+      /** @type {unknown} */ (tournament.rounds[0].matches[0])
+    ).verdict.verdict,
+    "A_WINS",
+  );
 
   tournament = state.closeRound(tournament);
   assert.equal(tournament.status, state.TOURNAMENT_STATUS.COMPLETED);

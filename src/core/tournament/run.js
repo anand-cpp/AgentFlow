@@ -64,10 +64,10 @@ function matchResultRecord(result, now) {
  * explicit unresolved outcome.
  *
  * @param {object} input
- * @param {object} input.state                     validated or serialized tournament state
- * @param {Record<string, string>} input.proposals  candidate id -> proposal text
- * @param {Function} input.completeFn
- * @param {string} input.judgeModel
+ * @param {object} [input.state]                     validated or serialized tournament state
+ * @param {Record<string, string>} [input.proposals]  candidate id -> proposal text
+ * @param {Function} [input.completeFn]
+ * @param {string} [input.judgeModel]
  * @param {object} [input.config]
  * @param {Function} [input.judgeCompleteFn]
  * @param {number} [input.concurrency]

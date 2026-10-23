@@ -186,11 +186,11 @@ test("an eight-candidate tournament runs to a single champion", () => {
   const champion = state.candidates.find((c) => c.id === state.champion);
   assert.equal(champion.status, t.CANDIDATE_STATUS.CHAMPION);
   assert.equal(
-    state.candidates.filter((c) => c.status === t.CANDIDATE_STATUS.CHAMPION).length,
+    state.candidates.filter((c) => String(c.status) === t.CANDIDATE_STATUS.CHAMPION).length,
     1,
   );
   assert.equal(
-    state.candidates.filter((c) => c.status === t.CANDIDATE_STATUS.ELIMINATED).length,
+    state.candidates.filter((c) => String(c.status) === t.CANDIDATE_STATUS.ELIMINATED).length,
     7,
   );
   assert.equal(t.validateTournamentState(state).ok, true);
@@ -293,7 +293,7 @@ test("validation reports broken references instead of repairing them", () => {
     ),
   );
 
-  const completedWithoutChampion = structuredClone(state);
+  const completedWithoutChampion = /** @type {object} */ (structuredClone(state));
   completedWithoutChampion.status = t.TOURNAMENT_STATUS.COMPLETED;
   assert.ok(
     t.validateTournamentState(completedWithoutChampion).errors.some((e) =>

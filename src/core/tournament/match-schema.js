@@ -77,6 +77,42 @@ const DEFENSE_REPORT_FIELD_SET = new Set(DEFENSE_REPORT_FIELDS);
 const REVISION_REPORT_FIELD_SET = new Set(REVISION_REPORT_FIELDS);
 const EVIDENCE_FIELD_SET = new Set(EVIDENCE_FIELDS);
 
+/**
+ * The shape of a parsed attack report, used after the runtime shape checks in
+ * validateAttackResponse().
+ *
+ * @typedef {object} AttackReport
+ * @property {number} schema_version
+ * @property {string} match_id
+ * @property {string} attacker
+ * @property {string} target
+ * @property {string} summary
+ * @property {Array<object>} attacks
+ */
+
+/**
+ * The shape of a parsed defense report, used after the runtime shape checks in
+ * validateDefenseResponse().
+ *
+ * @typedef {object} DefenseReport
+ * @property {number} schema_version
+ * @property {string} match_id
+ * @property {string} defender
+ * @property {Array<object>} responses
+ */
+
+/**
+ * The shape of a parsed revision report, used after the runtime shape checks in
+ * validateRevisionResponse().
+ *
+ * @typedef {object} RevisionReport
+ * @property {number} schema_version
+ * @property {string} match_id
+ * @property {string} candidate
+ * @property {string} proposal
+ * @property {Array<string>} changes
+ */
+
 /** An attack matters as evidence only when it can be checked. */
 export function isVerifiedEvidence(evidence) {
   return Boolean(
@@ -113,32 +149,34 @@ export function validateAttackResponse(
 ) {
   const errors = [];
   if (!isPlainObject(report)) return { valid: false, errors: ["attack report must be an object"] };
-  addUnknownFields(errors, report, ATTACK_REPORT_FIELD_SET, "");
+  /** @type {AttackReport} */
+  const r = /** @type {any} */ (report);
+  addUnknownFields(errors, r, ATTACK_REPORT_FIELD_SET, "");
 
-  if (report.schema_version !== MATCH_SCHEMA_VERSION) {
+  if (r.schema_version !== MATCH_SCHEMA_VERSION) {
     errors.push(`schema_version must be ${MATCH_SCHEMA_VERSION}`);
   }
-  if (!isNonEmptyString(report.match_id)) errors.push("match_id must be a non-empty string");
-  else if (matchId && report.match_id !== matchId) {
-    errors.push(`match_id "${report.match_id}" does not match "${matchId}"`);
+  if (!isNonEmptyString(r.match_id)) errors.push("match_id must be a non-empty string");
+  else if (matchId && r.match_id !== matchId) {
+    errors.push(`match_id "${r.match_id}" does not match "${matchId}"`);
   }
-  if (attacker && report.attacker !== attacker) {
+  if (attacker && r.attacker !== attacker) {
     errors.push(`attacker must be "${attacker}"`);
   }
-  if (target && report.target !== target) {
+  if (target && r.target !== target) {
     errors.push(`target must be "${target}"`);
   }
-  if (!isNonEmptyString(report.summary)) errors.push("summary must be a non-empty string");
+  if (!isNonEmptyString(r.summary)) errors.push("summary must be a non-empty string");
 
-  if (!Array.isArray(report.attacks)) {
+  if (!Array.isArray(r.attacks)) {
     errors.push("attacks must be an array (empty when there is nothing to attack)");
     return { valid: errors.length === 0, errors };
   }
-  if (report.attacks.length > maxAttacks) {
-    errors.push(`attacks must contain at most ${maxAttacks} entries, got ${report.attacks.length}`);
+  if (r.attacks.length > maxAttacks) {
+    errors.push(`attacks must contain at most ${maxAttacks} entries, got ${r.attacks.length}`);
   }
 
-  report.attacks.forEach((attack, index) => {
+  r.attacks.forEach((attack, index) => {
     const at = `attacks[${index}].`;
     if (!isPlainObject(attack)) {
       errors.push(`attacks[${index}] must be an object`);
@@ -173,29 +211,31 @@ export function validateDefenseResponse(
 ) {
   const errors = [];
   if (!isPlainObject(report)) return { valid: false, errors: ["defense report must be an object"] };
-  addUnknownFields(errors, report, DEFENSE_REPORT_FIELD_SET, "");
+  /** @type {DefenseReport} */
+  const r = /** @type {any} */ (report);
+  addUnknownFields(errors, r, DEFENSE_REPORT_FIELD_SET, "");
 
-  if (report.schema_version !== MATCH_SCHEMA_VERSION) {
+  if (r.schema_version !== MATCH_SCHEMA_VERSION) {
     errors.push(`schema_version must be ${MATCH_SCHEMA_VERSION}`);
   }
-  if (!isNonEmptyString(report.match_id)) errors.push("match_id must be a non-empty string");
-  else if (matchId && report.match_id !== matchId) {
-    errors.push(`match_id "${report.match_id}" does not match "${matchId}"`);
+  if (!isNonEmptyString(r.match_id)) errors.push("match_id must be a non-empty string");
+  else if (matchId && r.match_id !== matchId) {
+    errors.push(`match_id "${r.match_id}" does not match "${matchId}"`);
   }
-  if (defender && report.defender !== defender) {
+  if (defender && r.defender !== defender) {
     errors.push(`defender must be "${defender}"`);
   }
 
-  if (!Array.isArray(report.responses)) {
+  if (!Array.isArray(r.responses)) {
     errors.push("responses must be an array");
     return { valid: errors.length === 0, errors };
   }
-  if (report.responses.length !== attackCount) {
-    errors.push(`responses must contain exactly ${attackCount} entries, got ${report.responses.length}`);
+  if (r.responses.length !== attackCount) {
+    errors.push(`responses must contain exactly ${attackCount} entries, got ${r.responses.length}`);
   }
 
   const seen = new Set();
-  report.responses.forEach((response, index) => {
+  r.responses.forEach((response, index) => {
     const at = `responses[${index}].`;
     if (!isPlainObject(response)) {
       errors.push(`responses[${index}] must be an object`);
@@ -219,7 +259,7 @@ export function validateDefenseResponse(
     }
   });
 
-  if (attackCount > 0 && seen.size !== report.responses.length) {
+  if (attackCount > 0 && seen.size !== r.responses.length) {
     const missing = [];
     for (let i = 0; i < attackCount; i += 1) if (!seen.has(i)) missing.push(i);
     if (missing.length) errors.push(`responses are missing attack_index ${missing.join(", ")}`);
@@ -240,25 +280,27 @@ export function validateDefenseResponse(
 export function validateRevisionResponse(report, { matchId = null, candidate = null } = {}) {
   const errors = [];
   if (!isPlainObject(report)) return { valid: false, errors: ["revision report must be an object"] };
-  addUnknownFields(errors, report, REVISION_REPORT_FIELD_SET, "");
+  /** @type {RevisionReport} */
+  const r = /** @type {any} */ (report);
+  addUnknownFields(errors, r, REVISION_REPORT_FIELD_SET, "");
 
-  if (report.schema_version !== MATCH_SCHEMA_VERSION) {
+  if (r.schema_version !== MATCH_SCHEMA_VERSION) {
     errors.push(`schema_version must be ${MATCH_SCHEMA_VERSION}`);
   }
-  if (!isNonEmptyString(report.match_id)) errors.push("match_id must be a non-empty string");
-  else if (matchId && report.match_id !== matchId) {
-    errors.push(`match_id "${report.match_id}" does not match "${matchId}"`);
+  if (!isNonEmptyString(r.match_id)) errors.push("match_id must be a non-empty string");
+  else if (matchId && r.match_id !== matchId) {
+    errors.push(`match_id "${r.match_id}" does not match "${matchId}"`);
   }
-  if (candidate && report.candidate !== candidate) {
+  if (candidate && r.candidate !== candidate) {
     errors.push(`candidate must be "${candidate}"`);
   }
-  if (!isNonEmptyString(report.proposal)) {
+  if (!isNonEmptyString(r.proposal)) {
     errors.push("proposal must be the complete revised proposal");
   }
-  if (!Array.isArray(report.changes)) {
+  if (!Array.isArray(r.changes)) {
     errors.push("changes must be an array (empty when nothing changed)");
   } else {
-    report.changes.forEach((change, index) => {
+    r.changes.forEach((change, index) => {
       if (!isNonEmptyString(change)) errors.push(`changes[${index}] must be a non-empty string`);
     });
   }
@@ -301,11 +343,12 @@ function renderCard(card) {
  * Prompt for the attack call.
  *
  * @param {object} input
- * @param {string} input.task
- * @param {string} input.matchId
- * @param {string} input.attacker      candidate_a | candidate_b
- * @param {string} input.target        the other label
- * @param {string} input.targetProposal
+ * @param {string} [input.task]
+ * @param {string} [input.matchId]
+ * @param {string} [input.attacker]      candidate_a | candidate_b
+ * @param {string} [input.target]        the other label
+ * @param {string} [input.targetProposal]
+ * @param {string} [input.attackerLabel]
  * @param {object} [input.attackerCard]
  * @param {number} [input.maxAttacks]
  */
@@ -355,11 +398,12 @@ export function buildAttackPrompt({
  * response can be matched up mechanically rather than by string comparison.
  *
  * @param {object} input
- * @param {string} input.task
- * @param {string} input.matchId
- * @param {string} input.defender
- * @param {string} input.ownProposal
- * @param {Array<{criterion: string, severity: string, claim: string, evidence: object}>} input.attacks
+ * @param {string} [input.task]
+ * @param {string} [input.matchId]
+ * @param {string} [input.defender]
+ * @param {string} [input.defenderLabel]
+ * @param {string} [input.ownProposal]
+ * @param {Array<{criterion: string, severity: string, claim: string, evidence: object}>} [input.attacks]
  */
 export function buildDefensePrompt({
   task,
@@ -407,12 +451,13 @@ export function buildDefensePrompt({
  * Prompt for the revision call.
  *
  * @param {object} input
- * @param {string} input.task
- * @param {string} input.matchId
- * @param {string} input.candidate
- * @param {string} input.ownProposal
- * @param {Array<object>} input.attacks
- * @param {Array<object>} input.defenses
+ * @param {string} [input.task]
+ * @param {string} [input.matchId]
+ * @param {string} [input.candidate]
+ * @param {string} [input.candidateLabel]
+ * @param {string} [input.ownProposal]
+ * @param {Array<object>} [input.attacks]
+ * @param {Array<object>} [input.defenses]
  */
 export function buildRevisionPrompt({
   task,

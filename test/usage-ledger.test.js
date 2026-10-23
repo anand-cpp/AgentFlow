@@ -64,14 +64,14 @@ test("cost without a named pricing source is discarded", () => {
 
 test("the ledger records no prompt, response, header, or credential fields", () => {
   const ledger = new UsageLedger({ now: () => 1_000 });
-  const record = ledger.record({
+  const record = ledger.record(/** @type {object} */ ({
     provider: "p",
     model: "p/m",
     outcome: "ok",
     prompt: "SECRET_PROMPT",
     response: "SECRET_RESPONSE",
     headers: { authorization: "Bearer SECRET" },
-  });
+  }));
   const text = JSON.stringify(record);
   assert.doesNotMatch(text, /SECRET/);
 });

@@ -106,7 +106,7 @@ test("a round needs at least two entrants", () => {
 
 test("a round needs a real round number", () => {
   assert.throws(() => p.pairRound(ids(4), { round: 0 }), /positive integer/);
-  assert.throws(() => p.pairRound(ids(4), { round: "two" }), /positive integer/);
+  assert.throws(() => p.pairRound(ids(4), { round: /** @type {number} */ (/** @type {unknown} */ ("two")) }), /positive integer/);
 });
 
 test("isRoundComplete waits for every match, byes included", () => {

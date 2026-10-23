@@ -69,12 +69,38 @@ export class TournamentStateError extends Error {
   }
 }
 
+/**
+ * The shape of a persisted tournament bracket, used to type state objects
+ * after the runtime shape checks in validateTournamentState().
+ *
+ * @typedef {object} TournamentState
+ * @property {number} version
+ * @property {string} id
+ * @property {"pending"|"running"|"completed"|"cancelled"|"failed"} status
+ * @property {string} task
+ * @property {string} createdAt
+ * @property {string} updatedAt
+ * @property {object} config
+ * @property {"quick"|"standard"|"intensive"} config.mode
+ * @property {string|number} config.seed
+ * @property {number} config.agentCount
+ * @property {number} config.maxRounds
+ * @property {number} config.maxAttacks
+ * @property {number} config.concurrency
+ * @property {boolean} config.paidAllowed
+ * @property {string|null} config.judgeModel
+ * @property {number} config.cardVersion
+ * @property {number} config.pairingVersion
+ * @property {Array<object>} candidates
+ * @property {Array<object>} rounds
+ * @property {string|null} champion
+ * @property {string|null} [cancelledAt]
+ * @property {string|null} [cancelReason]
+ * @property {object|null} progress
+ */
+
 function clone(state) {
   return structuredClone(state);
-}
-
-function candidateIds(state) {
-  return new Set((state?.candidates ?? []).map((c) => c.id));
 }
 
 function currentRound(state) {
@@ -119,9 +145,9 @@ function refreshProgress(state) {
  * two competitors share a card is not a competition, it is a duplicate run.
  *
  * @param {object} input
- * @param {string} input.task
- * @param {Array<string|object>} input.candidates
- * @param {string} [input.mode]
+ * @param {string} [input.task]
+ * @param {Array<string|object>} [input.candidates]
+ * @param {typeof TOURNAMENT_MODES.QUICK | typeof TOURNAMENT_MODES.STANDARD | typeof TOURNAMENT_MODES.INTENSIVE} [input.mode]
  * @param {number|string} [input.seed]
  * @param {string} [input.id]
  * @param {number} [input.now]
@@ -258,28 +284,30 @@ export function validateTournamentState(state) {
   if (!state || typeof state !== "object" || Array.isArray(state)) {
     return { ok: false, errors: ["state must be an object"] };
   }
-  if (state.version !== TOURNAMENT_VERSION) {
-    push(`unsupported state version ${String(state.version)} (expected ${TOURNAMENT_VERSION})`);
+  /** @type {TournamentState} */
+  const s = /** @type {any} */ (state);
+  if (s.version !== TOURNAMENT_VERSION) {
+    push(`unsupported state version ${String(s.version)} (expected ${TOURNAMENT_VERSION})`);
   }
-  if (!state.id || typeof state.id !== "string") push("state.id must be a non-empty string");
-  if (!STATUS_VALUES.has(state.status)) push(`unknown status: ${String(state.status)}`);
-  if (!String(state.task ?? "").trim()) push("state.task must be non-empty");
-  if (!state.config || typeof state.config !== "object") push("state.config must be an object");
+  if (!s.id || typeof s.id !== "string") push("state.id must be a non-empty string");
+  if (!STATUS_VALUES.has(s.status)) push(`unknown status: ${String(s.status)}`);
+  if (!String(s.task ?? "").trim()) push("state.task must be non-empty");
+  if (!s.config || typeof s.config !== "object") push("state.config must be an object");
   else {
-    if (!MODE_VALUES.has(state.config.mode)) push(`unknown mode: ${String(state.config.mode)}`);
-    if (!Number.isInteger(state.config.agentCount)) push("config.agentCount must be an integer");
+    if (!MODE_VALUES.has(s.config.mode)) push(`unknown mode: ${String(s.config.mode)}`);
+    if (!Number.isInteger(s.config.agentCount)) push("config.agentCount must be an integer");
     // Optional for records written before the judge was recorded; when present
     // it must be usable, because a resume depends on it.
     if (
-      state.config.judgeModel !== undefined &&
-      state.config.judgeModel !== null &&
-      (typeof state.config.judgeModel !== "string" || !state.config.judgeModel.trim())
+      s.config.judgeModel !== undefined &&
+      s.config.judgeModel !== null &&
+      (typeof s.config.judgeModel !== "string" || !s.config.judgeModel.trim())
     ) {
       push("config.judgeModel must be a non-empty string or null");
     }
   }
 
-  const candidates = Array.isArray(state.candidates) ? state.candidates : [];
+  const candidates = Array.isArray(s.candidates) ? s.candidates : [];
   if (candidates.length < 2) push("state.candidates must contain at least two candidates");
   const ids = new Set();
   for (const candidate of candidates) {
@@ -298,11 +326,11 @@ export function validateTournamentState(state) {
   if (candidates.length > 0 && !cardsAreUnique(candidates.map((c) => c.card ?? {}).filter((c) => c.id))) {
     push("strategy cards repeat within the tournament");
   }
-  if (Array.isArray(state.candidates) && state.config?.agentCount !== state.candidates.length) {
+  if (Array.isArray(s.candidates) && s.config?.agentCount !== s.candidates.length) {
     push("config.agentCount does not match the candidate list");
   }
 
-  const rounds = Array.isArray(state.rounds) ? state.rounds : [];
+  const rounds = Array.isArray(s.rounds) ? s.rounds : [];
   if (!rounds.length) push("state.rounds must contain at least the first round");
 
   const matchIds = new Set();
@@ -364,10 +392,10 @@ export function validateTournamentState(state) {
     }
   });
 
-  if (state.status === TOURNAMENT_STATUS.COMPLETED) {
-    if (!state.champion) push("a completed tournament must have a champion");
-    else if (!ids.has(state.champion)) push(`champion ${state.champion} is not a candidate`);
-  } else if (state.champion) {
+  if (s.status === TOURNAMENT_STATUS.COMPLETED) {
+    if (!s.champion) push("a completed tournament must have a champion");
+    else if (!ids.has(s.champion)) push(`champion ${s.champion} is not a candidate`);
+  } else if (s.champion) {
     push("only a completed tournament may have a champion");
   }
   // A decided final match with status "running" is a legitimate crash point:
@@ -385,8 +413,8 @@ export function validateTournamentState(state) {
  * silent coin-flip here is exactly the "orchestrator chose the winner" failure
  * the tournament is meant to prevent.
  *
- * @param {object} state
- * @param {{ matchId: string, winnerId: string, verdict?: object|null, now?: number }} input
+ * @param {TournamentState} state
+ * @param {{ matchId?: string, winnerId?: string, verdict?: object|null, now?: number }} input
  */
 export function applyMatchResult(state, { matchId, winnerId, verdict = null, now = Date.now() } = {}) {
   if (state?.status !== TOURNAMENT_STATUS.RUNNING) {
@@ -432,7 +460,7 @@ export function applyMatchResult(state, { matchId, winnerId, verdict = null, now
  * programming: advancing early would let a model-free code path invent a
  * winner, which is the one thing the bracket must never do.
  *
- * @param {object} state
+ * @param {TournamentState} state
  * @param {{ now?: number }} [options]
  */
 export function closeRound(state, { now = Date.now() } = {}) {
@@ -488,8 +516,8 @@ export function closeRound(state, { now = Date.now() } = {}) {
  * Attach a reference to a large artifact held elsewhere (session entry, file).
  * The state deliberately stores the pointer, never the payload.
  *
- * @param {object} state
- * @param {{ candidateId: string, kind: string, ref: string, now?: number }} input
+ * @param {TournamentState} state
+ * @param {{ candidateId?: string, kind?: string, ref?: string, now?: number }} input
  */
 export function recordArtifact(state, { candidateId, kind, ref, now = Date.now() } = {}) {
   const candidate = (state?.candidates ?? []).find((c) => c.id === candidateId);

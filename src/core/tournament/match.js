@@ -88,7 +88,9 @@ function otherSide(side) {
 }
 
 function abortError(reason) {
-  const err = new Error(typeof reason === "string" && reason ? reason : "arena match cancelled");
+  const err = /** @type {Error & { cancelled: boolean }} */ (
+    new Error(typeof reason === "string" && reason ? reason : "arena match cancelled")
+  );
   err.name = "AbortError";
   err.cancelled = true;
   return err;
@@ -284,10 +286,11 @@ async function runStructuredStage({
     attempts += 1;
 
     if (!called.ok) {
-      lastKind = called.kind;
-      lastError = called.message;
+      const failed = /** @type {{ kind: string; message: string; cancelled?: boolean }} */ (called);
+      lastKind = failed.kind;
+      lastError = failed.message;
       const retryable =
-        called.kind === STAGE_FAILURE.BUDGET ? false : dispositionFor(called.kind).retryable;
+        failed.kind === STAGE_FAILURE.BUDGET ? false : dispositionFor(failed.kind).retryable;
       if (retryable && attempts <= maxRetries) {
         await sleep(retryDelayMs * 2 ** (attempts - 1));
         continue;
@@ -296,16 +299,17 @@ async function runStructuredStage({
         ok: false,
         stage: label,
         side,
-        kind: called.kind,
-        errors: [`${label}${side ? `/${side}` : ""}: ${called.message}`],
+        kind: failed.kind,
+        errors: [`${label}${side ? `/${side}` : ""}: ${failed.message}`],
         attempts,
       };
     }
 
     const parsed = parse(called.text);
     if (!parsed.ok) {
+      const failed = /** @type {{ ok: false; error: string }} */ (parsed);
       lastKind = STAGE_FAILURE.INVALID;
-      lastError = parsed.error;
+      lastError = failed.error;
       if (attempts <= maxRetries) {
         await sleep(retryDelayMs * 2 ** (attempts - 1));
         continue;
@@ -315,7 +319,7 @@ async function runStructuredStage({
         stage: label,
         side,
         kind: lastKind,
-        errors: [`${label}${side ? `/${side}` : ""}: ${parsed.error}`],
+        errors: [`${label}${side ? `/${side}` : ""}: ${failed.error}`],
         attempts,
       };
     }
@@ -415,11 +419,11 @@ function readResumed(resume, stage, side) {
  * Run one match end to end.
  *
  * @param {object} input
- * @param {string} input.task
- * @param {{ id: string, a: string, b: string }} input.match
- * @param {{ a: object, b: object }} input.candidates  { id, model, proposal, card? }
- * @param {Function} input.completeFn                 gateway complete(config, modelId, prompt, opts)
- * @param {string} input.judgeModel                   model used for the independent judge
+ * @param {string} [input.task]
+ * @param {{ id: string, a: string, b: string }} [input.match]
+ * @param {{ a: object, b: object }} [input.candidates]  { id, model, proposal, card? }
+ * @param {Function} [input.completeFn]                 gateway complete(config, modelId, prompt, opts)
+ * @param {string} [input.judgeModel]                   model used for the independent judge
  * @param {object} [input.config]
  * @param {Function} [input.judgeCompleteFn]          defaults to completeFn
  * @param {number} [input.maxAttacks]

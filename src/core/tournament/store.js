@@ -70,9 +70,10 @@ function assertMatchId(id) {
 function readRecord(file, { id, what }) {
   const read = readJsonFile(file);
   if (!read.ok) {
-    if (read.reason === "missing") return null;
+    const failed = /** @type {{ ok: false, reason: "missing" | "unparseable", error?: Error }} */ (read);
+    if (failed.reason === "missing") return null;
     throw new TournamentStateError(
-      `${what} ${String(id)} is unreadable: ${read.error?.message ?? "invalid JSON"}`,
+      `${what} ${String(id)} is unreadable: ${failed.error?.message ?? "invalid JSON"}`,
       "corrupt_record",
     );
   }

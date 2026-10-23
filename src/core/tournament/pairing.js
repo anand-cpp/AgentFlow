@@ -41,7 +41,7 @@ export function matchId(round, index) {
  *   matches: Array<{
  *     id: string, round: number, index: number,
  *     a: string, b: string|null, bye: boolean,
- *     status: "pending"|"completed", winner: string|null
+ *     status: string, winner: string|null
  *   }>
  * }}
  */
@@ -95,7 +95,9 @@ export function pairRound(entrantIds, { round = 1, seed = 0 } = {}) {
     });
   }
 
-  return { round: roundNumber, seed, entrants: order, bye, matches };
+  /** @type {Array<{ id: string, round: number, index: number, a: string, b: string|null, bye: boolean, status: string, winner: string|null }>} */
+  const typedMatches = matches;
+  return { round: roundNumber, seed, entrants: order, bye, matches: typedMatches };
 }
 
 /**

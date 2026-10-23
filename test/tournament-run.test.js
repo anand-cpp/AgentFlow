@@ -10,7 +10,6 @@ import os from "node:os";
 import path from "node:path";
 
 const runModule = await import("../src/core/tournament/run.js");
-const matchModule = await import("../src/core/tournament/match.js");
 const schema = await import("../src/core/tournament/match-schema.js");
 const judge = await import("../src/core/tournament/judge.js");
 const stateModule = await import("../src/core/tournament/tournament-state.js");
@@ -165,7 +164,7 @@ function proposalsFor(state) {
 }
 
 function run(state, proposals, provider, extra = {}) {
-  return runModule.runTournament({
+  return runModule.runTournament(/** @type {object} */ ({
     state,
     proposals,
     completeFn: provider.completeFn,
@@ -174,7 +173,7 @@ function run(state, proposals, provider, extra = {}) {
     sleep: async () => {},
     retryDelayMs: 0,
     ...extra,
-  });
+  }));
 }
 
 test("a four-agent quick tournament runs three matches and crowns a champion", async () => {
