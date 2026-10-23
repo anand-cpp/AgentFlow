@@ -321,6 +321,28 @@ test("artifacts are stored as references, not payloads", () => {
   assert.throws(() => t.recordArtifact(state, { candidateId: "cand-1", kind: "proposal" }), /ref is required/);
 });
 
+test("the judge model is part of the persisted tournament contract", () => {
+  const state = make(4, { config: { judgeModel: "judge-model" } });
+  assert.equal(state.config.judgeModel, "judge-model");
+  assert.equal(t.validateTournamentState(state).ok, true);
+
+  // Records written before the field existed remain valid; the CLI fills it in
+  // on the next resume rather than failing the load.
+  const legacy = make(4);
+  assert.equal(legacy.config.judgeModel, null);
+  assert.equal(t.validateTournamentState(legacy).ok, true);
+});
+
+test("a recorded judge that is not a usable model id is rejected", () => {
+  const state = make(4, { config: { judgeModel: "judge-model" } });
+  const broken = structuredClone(state);
+  broken.config.judgeModel = "   ";
+
+  const check = t.validateTournamentState(broken);
+  assert.equal(check.ok, false);
+  assert.match(check.errors.join(" "), /config\.judgeModel/);
+});
+
 test("cancellation is recorded and stops further matches", () => {
   const state = make(4);
   const cancelled = t.cancelTournament(state, { reason: "user pressed ctrl-c" });

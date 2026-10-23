@@ -211,6 +211,13 @@ export function createTournamentState({
       maxAttacks: Number(config.maxAttacks ?? MODE_PRESETS[mode].maxAttacks),
       concurrency: Number(config.concurrency ?? 1),
       paidAllowed: config.paidAllowed === true,
+      // The judge is part of the tournament's identity. A resume that silently
+      // picked a different judge would make the early and late matches
+      // incomparable, so the model is recorded here rather than re-derived.
+      judgeModel:
+        typeof config.judgeModel === "string" && config.judgeModel.trim()
+          ? config.judgeModel.trim()
+          : null,
       cardVersion: STRATEGY_CARD_VERSION,
       pairingVersion: PAIRING_VERSION,
     },
@@ -261,6 +268,15 @@ export function validateTournamentState(state) {
   else {
     if (!MODE_VALUES.has(state.config.mode)) push(`unknown mode: ${String(state.config.mode)}`);
     if (!Number.isInteger(state.config.agentCount)) push("config.agentCount must be an integer");
+    // Optional for records written before the judge was recorded; when present
+    // it must be usable, because a resume depends on it.
+    if (
+      state.config.judgeModel !== undefined &&
+      state.config.judgeModel !== null &&
+      (typeof state.config.judgeModel !== "string" || !state.config.judgeModel.trim())
+    ) {
+      push("config.judgeModel must be a non-empty string or null");
+    }
   }
 
   const candidates = Array.isArray(state.candidates) ? state.candidates : [];
