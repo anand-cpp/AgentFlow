@@ -268,18 +268,31 @@ export class LspClient {
     }
     const id = this.#nextId++;
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const safeResolve = (value) => {
+        if (!settled) {
+          settled = true;
+          resolve(value);
+        }
+      };
+      const safeReject = (reason) => {
+        if (!settled) {
+          settled = true;
+          reject(reason);
+        }
+      };
       const timer = setTimeout(() => {
         this.#pending.delete(id);
-        reject(new LspRequestError(`${method} timed out after ${timeoutMs}ms`, { code: "lsp_timeout", method }));
+        safeReject(new LspRequestError(`${method} timed out after ${timeoutMs}ms`, { code: "lsp_timeout", method }));
       }, timeoutMs);
       if (typeof timer.unref === "function") timer.unref();
-      this.#pending.set(id, { resolve, reject, method, timer });
+      this.#pending.set(id, { resolve: safeResolve, reject: safeReject, method, timer });
       try {
         this.#proc.send({ jsonrpc: "2.0", id, method, params });
       } catch (err) {
         clearTimeout(timer);
         this.#pending.delete(id);
-        reject(err);
+        safeReject(err);
       }
     });
   }

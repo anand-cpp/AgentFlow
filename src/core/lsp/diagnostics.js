@@ -126,9 +126,16 @@ export class LspDiagnosticsManager {
     }
     return new Promise((resolve) => {
       let off = () => {};
+      let settled = false;
+      const safeResolve = (value) => {
+        if (!settled) {
+          settled = true;
+          resolve(value);
+        }
+      };
       const timer = setTimeout(() => {
         off();
-        resolve(this.diagnosticsForUri(uri));
+        safeResolve(this.diagnosticsForUri(uri));
       }, timeoutMs);
       if (typeof timer.unref === "function") timer.unref();
       off = this.#client.on("diagnostics", (detail) => {
@@ -136,7 +143,7 @@ export class LspDiagnosticsManager {
         if (this.revisionOf(uri) <= sinceRevision) return;
         clearTimeout(timer);
         off();
-        resolve(this.diagnosticsForUri(uri));
+        safeResolve(this.diagnosticsForUri(uri));
       });
     });
   }
