@@ -220,6 +220,57 @@ test("a failed user turn stays in the session and surfaces an error", async () =
 });
 
 // ---------------------------------------------------------------------------
+// engine: free-first ordering
+// ---------------------------------------------------------------------------
+
+test("chat tries free candidates first when no model was chosen explicitly", async () => {
+  const sessions = new SessionStore({ dir: scratch("aflow-chat-") });
+  const stream = mockStream("free answer");
+  const chat = new ChatSession({
+    sessions,
+    config: { preferFree: true, modelHints: { "acme/paid": { costClass: "paid" } } },
+    catalogue: ["acme/paid", "openrouter/free:free", "groq/fast"],
+    stream,
+  });
+  await chat.init({ forceNew: true });
+
+  const result = await chat.send("ping");
+  assert.equal(result.ok, true);
+  assert.deepEqual(stream.calls.map((c) => c.modelId), ["openrouter/free:free"]);
+});
+
+test("an explicitly chosen model is not displaced by a cheaper one", async () => {
+  const sessions = new SessionStore({ dir: scratch("aflow-chat-") });
+  const stream = mockStream("explicit answer");
+  const chat = new ChatSession({
+    sessions,
+    config: { preferFree: true, modelHints: { "acme/paid": { costClass: "paid" } } },
+    modelId: "acme/paid",
+    catalogue: ["openrouter/free:free", "acme/paid"],
+    stream,
+  });
+  await chat.init({ forceNew: true });
+
+  await chat.send("ping");
+  assert.deepEqual(stream.calls.map((c) => c.modelId), ["acme/paid"]);
+});
+
+test("chat preserves catalogue order when free-first is disabled", async () => {
+  const sessions = new SessionStore({ dir: scratch("aflow-chat-") });
+  const stream = mockStream("catalogue answer");
+  const chat = new ChatSession({
+    sessions,
+    config: { preferFree: false, modelHints: { "acme/paid": { costClass: "paid" } } },
+    catalogue: ["acme/paid", "openrouter/free:free"],
+    stream,
+  });
+  await chat.init({ forceNew: true });
+
+  await chat.send("ping");
+  assert.deepEqual(stream.calls.map((c) => c.modelId), ["acme/paid"]);
+});
+
+// ---------------------------------------------------------------------------
 // engine: slash commands
 // ---------------------------------------------------------------------------
 

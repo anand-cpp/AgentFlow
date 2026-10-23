@@ -39,6 +39,7 @@ import path from "node:path";
 
 import { ROLE, complete as gatewayComplete, streamComplete as gatewayStream } from "./gateway.js";
 import { Router, tiersFromList, parseModelId } from "./routing.js";
+import { orderByCost } from "./model-cost.js";
 import { ProviderHealth, PROVIDER_STATUS } from "./provider-health.js";
 import { ENTRY_KIND } from "./sessions.js";
 import { AgentRegistry } from "./agents/registry.js";
@@ -210,6 +211,12 @@ export class ChatSession {
     this.health = health || new ProviderHealth({ now });
     this.router = router || null;
     this.config = config || {};
+    // Validated once here so a malformed `modelHints` value cannot throw inside
+    // routing, and so the chat runtime sees the same hints as the candidate list.
+    this.hints =
+      this.config.modelHints && typeof this.config.modelHints === "object" && !Array.isArray(this.config.modelHints)
+        ? this.config.modelHints
+        : {};
     this.agentId = agentId;
     this.modelId = modelId || this.config.defaultModel || null;
     this.log = log;
@@ -342,6 +349,7 @@ export class ChatSession {
         tools: createRealTools(),
         complete: (cfg, modelId, prompt, opts) => this.complete(cfg, modelId, prompt, opts),
         catalogue: this.catalogue,
+        hints: this.hints,
         log: this.log,
         config: this.config,
         providerHealth: this.health,
@@ -496,7 +504,14 @@ export class ChatSession {
     return total;
   }
 
-  /** The ordered candidate models: the chosen one first, then the agent's preferences. */
+  /**
+   * The ordered candidate models: the chosen one first, then the agent's
+   * preferences, then the catalogue ordered free-first.
+   *
+   * An explicit model, a pin, or an agent preference is intent and is never
+   * re-ordered. Only the anonymous remainder is subject to the cost policy, so
+   * enabling free-first cannot override a choice the user actually made.
+   */
   #candidates() {
     const list = [];
     const push = (m) => {
@@ -506,7 +521,13 @@ export class ChatSession {
     push(this.modelId);
     if (this.agent?.model?.pinModel) push(this.agent.model.pinModel);
     for (const m of this.agent?.model?.prefer || []) push(m.prefer ? m.prefer : m);
-    for (const m of this.catalogue) push(m);
+    for (const id of orderByCost(this.catalogue, {
+      hints: this.hints,
+      catalogue: this.catalogue,
+      preferFree: this.config?.preferFree !== false,
+    })) {
+      push(id);
+    }
     push(this.config.defaultModel);
     return list;
   }

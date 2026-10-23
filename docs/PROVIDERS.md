@@ -61,6 +61,43 @@ aflow setup --export        # print shell exports for the saved keys
 3. **Anything unmatched, or a shaped id with no key present, falls back to
    Ollama** (local).
 
+## Free-first routing
+
+Candidate lists are ordered **free → free-tier → unknown → paid**. The sort is
+stable, so within a class the catalogue's own order is preserved. Explicit
+intent always wins: a model named on the command line, a pinned agent model, an
+agent's `prefer` list, and a `--fallback` order are never re-ordered.
+
+The classification is deliberately evidence-based:
+
+| Class | Evidence |
+|---|---|
+| `free` | A local provider (`ollama/`), an OpenRouter-style `:free` id, or a declared hint |
+| `free-tier` | The provider advertises a no-card free tier, but the quota is rate-limited (Groq, Cerebras, Mistral, Gemini, Cloudflare, HuggingFace, DeepInfra, SambaNova) |
+| `unknown` | No direct evidence. Includes OpenRouter `auto`, signup-credit providers, and bare ids |
+| `paid` | Only a declared hint or catalogue metadata can say this for certain |
+
+A provider advertising a free tier is **not** the same as a specific model being
+free forever, which is why it gets its own class rather than `free`. Nothing is
+silently labelled free because a provider's marketing page says so.
+
+Declare an override in `.agentflow.json` when you know better:
+
+```json
+{
+  "preferFree": true,
+  "modelHints": {
+    "acme/enterprise-model": { "costClass": "paid" },
+    "openrouter/auto": { "costClass": "paid" }
+  }
+}
+```
+
+Disable the policy with `"preferFree": false` or
+`AGENTFLOW_PREFER_FREE=0`. The resolved agent plan records
+`cost.preference` and the class of every candidate, so `aflow logs` and
+`aflow agent run --json` can explain why a model was tried before another.
+
 ## Missing credentials fail loudly, not silently
 
 A request for a remote provider whose key is absent throws
