@@ -363,8 +363,11 @@ export class Router {
           try {
             reservation = await this.limiter.acquire(provider, { signal, maxWaitMs: this.limiterWaitMs });
           } catch (err) {
-            if (err?.code === "rate_limit_cancelled" || signal?.aborted) {
-              const cancelled = new Error("routing cancelled while waiting for a provider");
+            const e = /** @type {Error & { code?: string; retryAfterMs?: number|null }} */ (err);
+            if (e.code === "rate_limit_cancelled" || signal?.aborted) {
+              const cancelled = /** @type {Error & { code: string }} */ (
+                new Error("routing cancelled while waiting for a provider")
+              );
               cancelled.name = "AbortError";
               cancelled.code = "cancelled";
               return {

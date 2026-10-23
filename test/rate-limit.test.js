@@ -167,8 +167,9 @@ test("waiting is bounded by maxWaitMs and reports the next slot", async () => {
   (await limiter.acquire("p")).dispatch();
 
   await assert.rejects(limiter.acquire("p"), (err) => {
-    assert.equal(err.code, "rate_limit_wait_exceeded");
-    assert.equal(err.retryAfterMs, 60_000);
+    const e = /** @type {Error & { code?: string; retryAfterMs?: number|null }} */ (err);
+    assert.equal(e.code, "rate_limit_wait_exceeded");
+    assert.equal(e.retryAfterMs, 60_000);
     return true;
   });
 });
@@ -194,7 +195,8 @@ test("cancellation during a wait rejects distinctly and leaves no reservation", 
   const controller = new AbortController();
   controller.abort();
   await assert.rejects(limiter.acquire("p", { signal: controller.signal }), (err) => {
-    assert.equal(err.code, "rate_limit_cancelled");
+    const e = /** @type {Error & { code?: string }} */ (err);
+    assert.equal(e.code, "rate_limit_cancelled");
     return true;
   });
   assert.equal(limiter.snapshot("p").pending, 0);

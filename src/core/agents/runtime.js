@@ -1048,6 +1048,7 @@ export class AgentRuntime {
       attempts: receipt.attempts,
       skippedProviders: receipt.skippedProviders ?? [],
       blockedProviders: receipt.blockedProviders ?? [],
+      cooldownProviders: receipt.cooldownProviders ?? [],
       failureKinds: receipt.failureKinds,
       value: { text: continuation.outcome.text ?? null },
       continued: true,

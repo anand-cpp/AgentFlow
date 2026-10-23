@@ -222,7 +222,10 @@ export class RollingWindowLimiter {
   setLimit(provider, limit, { windowMs = this.windowMs, source = "configured" } = {}) {
     const key = normaliseProvider(provider);
     if (!key) return null;
-    const spec = limit && typeof limit === "object" ? limit : { limit };
+    const spec =
+      /** @type {{ limit: number, windowMs?: number, source?: string }} */ (
+        limit && typeof limit === "object" ? limit : { limit }
+      );
     const n = Number(spec.limit);
     if (!Number.isFinite(n) || n <= 0) {
       this._providers.delete(key);

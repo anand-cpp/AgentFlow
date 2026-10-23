@@ -57,7 +57,9 @@ test("Router honors Retry-After and skips the rest of the provider", async () =>
     execute: async (id) => {
       seen.push(id);
       if (id === "p/a") {
-        const err = new Error("429 too many requests");
+        const err = /** @type {Error & { status?: number; retryAfterMs?: number; retryAfterSource?: string }} */ (
+          new Error("429 too many requests")
+        );
         err.status = 429;
         err.retryAfterMs = 30_000;
         err.retryAfterSource = "seconds";
@@ -90,7 +92,9 @@ test("an exhausted quota is permanent for the run and is not retried", async () 
     execute: async (id) => {
       seen.push(id);
       if (id.startsWith("p/")) {
-        const err = new Error("insufficient_quota: free credits exhausted");
+        const err = /** @type {Error & { status?: number }} */ (
+          new Error("insufficient_quota: free credits exhausted")
+        );
         err.status = 429;
         throw err;
       }
@@ -111,7 +115,9 @@ test("invalid-request and auth failures are classified as permanent", async () =
     tiers: tiers(["p/a", "q/ok"]),
     execute: async (id) => {
       if (id === "p/a") {
-        const err = new Error("400 invalid request: unknown parameter");
+        const err = /** @type {Error & { status?: number }} */ (
+          new Error("400 invalid request: unknown parameter")
+        );
         err.status = 400;
         throw err;
       }
@@ -126,7 +132,9 @@ test("invalid-request and auth failures are classified as permanent", async () =
     tiers: tiers(["p/a", "q/ok"]),
     execute: async (id) => {
       if (id === "p/a") {
-        const err = new Error("403 forbidden");
+        const err = /** @type {Error & { status?: number }} */ (
+          new Error("403 forbidden")
+        );
         err.status = 403;
         throw err;
       }
@@ -210,7 +218,9 @@ test("Router records one ledger row per dispatched attempt", async () => {
     tiers: tiers(["p/a", "q/ok"]),
     execute: async (id) => {
       if (id === "p/a") {
-        const err = new Error("500 server error");
+        const err = /** @type {Error & { status?: number }} */ (
+          new Error("500 server error")
+        );
         err.status = 500;
         throw err;
       }
@@ -238,7 +248,9 @@ test("a pre-dispatch failure is recorded as not dispatched", async () => {
     tiers: tiers(["p/a", "q/ok"]),
     execute: async (id) => {
       if (id === "p/a") {
-        const err = new Error("no such model");
+        const err = /** @type {Error & { code?: string; dispatched?: boolean }} */ (
+          new Error("no such model")
+        );
         err.code = "not_dispatched";
         err.dispatched = false;
         throw err;

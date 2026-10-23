@@ -563,9 +563,10 @@ test("a 429 without Retry-After stays unknown rather than inventing a delay", as
     await assert.rejects(
       complete({ baseUrl: gateway.url(), apiKey: null, probeTimeoutMs: 2000 }, "groq/llama-3.3-70b-versatile", "hi"),
       (err) => {
-        assert.equal(err.retryAfter, null);
-        assert.equal(err.retryAfterMs, null);
-        assert.equal(err.retryAfterSource, null);
+        const e = /** @type {Error & { retryAfter?: string|null; retryAfterMs?: number|null; retryAfterSource?: string|null }} */ (err);
+        assert.equal(e.retryAfter, null);
+        assert.equal(e.retryAfterMs, null);
+        assert.equal(e.retryAfterSource, null);
         return true;
       }
     );

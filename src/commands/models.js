@@ -20,7 +20,10 @@ function groupByProvider(models) {
   return [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
 }
 
-async function runModels({ config, out, flags, deps = {} }) {
+/**
+ * @param {{ config?: object, out?: object, flags?: object, deps?: { health?: { getProviderStatus(provider: string): object | null } | null } }} opts
+ */
+async function runModels({ config, out, flags, deps = {} } = {}) {
   const all = await listModels(config);
   const filter = args0(flags);
   const selected = filter ? all.filter((m) => m.id.includes(filter)) : all;
