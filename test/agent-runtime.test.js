@@ -15,6 +15,7 @@ import {
   renderSystemPrompt,
   buildPrompt,
 } from "../src/core/agents/runtime.js";
+import { UsageLedger } from "../src/core/usage-ledger.js";
 
 const CATALOGUE = ["oc/muse", "gem/gemini-2.5-pro"];
 
@@ -449,10 +450,37 @@ test("a session entry is appended for the agent", async () => {
     },
   });
   await rt.run({ agentId: "planner", task: "x", sessionId: "ses-7" });
-  assert.equal(appended.length, 1);
-  assert.equal(appended[0].id, "ses-7");
-  assert.equal(appended[0].kind, "agent");
-  assert.equal(appended[0].opts.agent, "planner");
+  // One agent entry plus one usage batch (the Router records one dispatch attempt).
+  assert.equal(appended.length, 2);
+  const agentEntry = appended.find((e) => e.kind === "agent");
+  const usageEntry = appended.find((e) => e.kind === "usage");
+  assert.ok(agentEntry, "agent entry present");
+  assert.ok(usageEntry, "usage batch present");
+  assert.equal(agentEntry.id, "ses-7");
+  assert.equal(agentEntry.opts.agent, "planner");
+});
+
+test("usage observations are persisted to the session", async () => {
+  const appended = [];
+  const rt = runtime({
+    complete: say("done"),
+    sessions: {
+      read: (id) => ({ id, name: "test", agents: [] }),
+      append: (id, kind, payload, opts) => appended.push({ id, kind, payload, opts }),
+    },
+    usageLedger: new UsageLedger({ now: () => 1_000 }),
+  });
+
+  await rt.run({ agentId: "planner", task: "x", sessionId: "ses-7" });
+
+  const usageEntries = appended.filter((e) => e.kind === "usage");
+  assert.equal(usageEntries.length, 1, "one usage batch persisted");
+  assert.equal(usageEntries[0].id, "ses-7");
+  assert.equal(usageEntries[0].opts.agent, "planner");
+  assert.equal(usageEntries[0].payload.model, "oc/muse", "Router's dispatch model");
+  assert.equal(usageEntries[0].payload.provider, "oc");
+  assert.equal(usageEntries[0].payload.requests.length, 1, "one dispatch recorded");
+  assert.deepEqual(usageEntries[0].payload.requests[0].outcome, "ok");
 });
 
 test("a sessions collaborator without read() is named rather than throwing a TypeError", async () => {
@@ -721,14 +749,15 @@ test("the session records the outcome, not just the summary", async () => {
   const rt = runtime({ complete: say("ok"), sessions });
   await rt.run({ agentId: "planner", task: "x", sessionId: "ses_1" });
 
-  assert.equal(appended.length, 1);
-  const { payload } = appended[0];
+  assert.equal(appended.length, 2);
+  const { payload } = appended.find((e) => e.kind === "agent");
   assert.equal(payload.agentId, "planner");
   assert.equal(payload.completed, true);
   assert.equal(payload.state, STATE.COMPLETED);
   assert.ok(payload.model);
   assert.equal(typeof payload.iterations, "number");
   assert.ok(payload.output, "the output belongs in the record");
+  assert.ok(appended.find((e) => e.kind === "usage"), "usage batch also persisted");
 });
 
 test("the result carries the blackboard reference so the two stores link up", async () => {

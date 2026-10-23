@@ -1260,6 +1260,21 @@ export class AgentRuntime {
         for (const record of executions) {
           sessions.append(sessionId, ENTRY_KIND.TOOL_RESULT, record, { agent: agentId });
         }
+
+        // Persist usage observations from the bounded ledger. Token counts come
+        // only from provider-supplied usage; missing fields stay unknown. A cost
+        // is stored only with a named pricing source. The ledger is written as
+        // one batch so a cascade of model attempts is one locked write rather than
+        // one per attempt.
+        const usageRecords = this.usageLedger.records();
+        if (usageRecords.length > 0) {
+          const last = usageRecords[usageRecords.length - 1];
+          sessions.append(sessionId, ENTRY_KIND.USAGE, {
+            model: last?.model ?? null,
+            provider: last?.provider ?? null,
+            requests: usageRecords,
+          }, { agent: agentId });
+        }
       } catch (err) {
         result.persistError = [result.persistError, `session: ${err.message}`].filter(Boolean).join("; ");
       }
