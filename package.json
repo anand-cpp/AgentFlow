@@ -1,46 +1,73 @@
 {
-  "name": "agentflow",
-  "version": "0.3.0",
-  "description": "Terminal-first AI routing and agent platform",
+  "name": "agentflow-cli",
+  "version": "1.0.0",
+  "description": "A terminal-first CLI that routes work across many models — and tells you which of them actually answer.",
   "license": "MIT",
   "type": "module",
-  "engines": {
-    "node": ">=20.0.0"
-  },
-  "devDependencies": {
-    "@eslint/js": "^9.39.5",
-    "@types/node": "^20.19.43",
-    "eslint": "^9.39.5",
-    "typescript": "^5.9.3"
+  "main": "./src/cli/index.js",
+  "exports": {
+    ".": "./src/cli/index.js",
+    "./package.json": "./package.json"
   },
   "bin": {
-    "aflow": "./bin/aflow.js"
+    "agentflow": "./bin/agentflow.js",
+    "aflow": "./bin/agentflow.js"
   },
   "files": [
     "bin/",
     "src/",
     "open-sse/",
+    "CHANGELOG.md",
     "LICENSE",
     "PROJECT_ORIGIN.md",
     "README.md",
     "SECURITY.md",
     "THIRD_PARTY_NOTICES.md"
   ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anand-cpp/AgentFlow.git"
+  },
+  "bugs": {
+    "url": "https://github.com/anand-cpp/AgentFlow/issues"
+  },
+  "homepage": "https://github.com/anand-cpp/AgentFlow#readme",
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/anand-cpp"
+  },
+  "keywords": [
+    "ai",
+    "coding-agent",
+    "cli",
+    "llm",
+    "multi-model",
+    "tribunal",
+    "adversarial-reasoning"
+  ],
   "scripts": {
     "test": "node scripts/run-tests.mjs",
-    "aflow": "node bin/aflow.js",
-    "doctor": "node bin/aflow.js doctor",
+    "aflow": "node bin/agentflow.js",
+    "doctor": "node bin/agentflow.js doctor",
     "scan-secrets": "node scripts/scan-secrets.mjs",
+    "check-version": "node scripts/check-version.mjs",
+    "changelog": "node scripts/changelog.mjs",
+    "prepublishOnly": "npm run check-version && npm test && npm run lint && npm run typecheck",
+    "build:sea": "node scripts/build-sea.mjs",
+    "release": "node scripts/release.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": [
-    "ai",
-    "llm",
-    "router",
-    "agent",
-    "cli",
-    "tui"
-  ]
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^20.19.43",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
+    "postject": "^1.0.0-alpha.6",
+    "typescript": "^5.9.3"
+  }
 }

@@ -1,12 +1,17 @@
 // Inline approval tests. Zero runtime deps, deterministic streams.
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import { setColor } from "../src/cli/ui.js";
 import {
   classifyApproval,
   commandOf,
   pathOf,
+  workspaceReader,
+  proposedWrite,
   computeDiff,
   renderDiff,
   renderApproval,
@@ -163,4 +168,85 @@ test("createApprover remembers always", async () => {
   const approver3 = createApprover({ interactive: true, readLine: makeLineInput(["n"]).readLine, keyOf: (r) => r.tool });
   const no = await approver3({ tool: "fs.rm", scope: "write", args: {} });
   assert.equal(no, false);
+});
+
+test("proposedWrite derives oldText from an explicit oldText", () => {
+  const rec = proposedWrite({ scope: "write", args: { path: "a.txt", oldText: "a", newText: "b" } });
+  assert.equal(rec.path, "a.txt");
+  assert.equal(rec.oldText, "a");
+  assert.equal(rec.newText, "b");
+  assert.equal(rec.isNew, false);
+  assert.equal(rec.tracked, null);
+});
+
+test("proposedWrite reads the working-tree file through readFile", () => {
+  const rec = proposedWrite(
+    { scope: "write", args: { path: "a.txt", content: "new\n" } },
+    { readFile: (p) => (p === "a.txt" ? "old\n" : undefined) }
+  );
+  assert.equal(rec.oldText, "old\n");
+  assert.equal(rec.newText, "new\n");
+  assert.equal(rec.isNew, false);
+});
+
+test("proposedWrite marks a missing file new and labels tracked/untracked", () => {
+  const rec = proposedWrite(
+    { scope: "write", args: { path: "fresh.txt", content: "hi\n" } },
+    { readFile: () => null, isTracked: () => false }
+  );
+  assert.equal(rec.oldText, "");
+  assert.equal(rec.isNew, true);
+  assert.equal(rec.tracked, false);
+});
+
+test("proposedWrite returns null when the write cannot be diffed", () => {
+  assert.equal(proposedWrite({ scope: "shell", args: { command: "ls" } }), null);
+  assert.equal(proposedWrite({ scope: "write", args: { path: "a.txt" } }), null);
+  assert.equal(
+    proposedWrite({ scope: "write", args: { path: "a.txt", content: "x" } }, { readFile: () => undefined }),
+    null
+  );
+});
+
+test("workspaceReader reads inside the root, nulls a missing file, rejects escapes", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aflow-approval-"));
+  try {
+    fs.writeFileSync(path.join(root, "keep.txt"), "content\n");
+    const read = workspaceReader(root);
+    assert.equal(read("keep.txt"), "content\n");
+    assert.equal(read("missing.txt"), null);
+    assert.equal(read("../escape.txt"), undefined);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("renderApproval shows a write preview header and body", () => {
+  const s = renderApproval(
+    { tool: "fs.write", scope: "write", args: { path: "a.txt" } },
+    { preview: { header: "a.txt  tracked file  +1 -1", body: "-old\n+new" } }
+  );
+  assert.ok(s.includes("tracked file"));
+  assert.ok(s.includes("+new"));
+});
+
+test("decideApproval 'd' renders the write preview from disk", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aflow-approval-"));
+  try {
+    fs.writeFileSync(path.join(root, "a.txt"), "old\n");
+    const out = { chunks: [], write(x) { this.chunks.push(String(x)); } };
+    const io = makeLineInput(["d", "y"]);
+    const res = await decideApproval(
+      { tool: "fs.write", scope: "write", args: { path: "a.txt", content: "new\n" } },
+      { interactive: true, readLine: io.readLine, output: /** @type {any} */ (out), workspaceRoot: root, timeoutMs: 200 }
+    );
+    assert.equal(res.approved, true);
+    const text = out.chunks.join("");
+    assert.ok(text.includes("working tree"));
+    assert.ok(text.includes("+1 -1"));
+    assert.ok(text.includes("new"));
+    assert.ok(text.includes("old"));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -1,0 +1,10 @@
+{
+  "id": "provider-plugin",
+  "name": "Provider Plugin",
+  "version": "1.0.0",
+  "description": "Fixture registering a custom model provider, to prove plugin routing reaches the chat stream.",
+  "main": "index.js",
+  "permissions": {
+    "providers": true
+  }
+}

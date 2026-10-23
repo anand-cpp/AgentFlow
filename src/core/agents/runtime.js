@@ -134,7 +134,8 @@ export class AgentRuntime {
    *   registry?: object, tools?: object|Map, complete?: Function, catalogue?: Array,
    *   hints?: object, log?: object, now?: () => number, approver?: object,
    *   blackboard?: object, sessions?: object, providerHealth?: object,
-   *   guards?: Array, config?: object, workspaceRoot?: object|string
+   *   guards?: Array, config?: object, workspaceRoot?: object|string,
+   *   lspBridge?: object|null, plugins?: object|null
    * }} [options]
    */
   constructor({
@@ -161,6 +162,17 @@ export class AgentRuntime {
     // every tool call in this run compares against this value, so it cannot be
     // recomputed per call without the answer depending on when the call happened.
     workspaceRoot = null,
+    // Optional LSP feedback loop. When present, a successful write refreshes
+    // language-server diagnostics for the file and the next prompt carries any
+    // errors, so the model sees the consequences of its own edit. Advisory only:
+    // a null bridge is the normal no-LSP path, and the bridge swallows its own
+    // failures.
+    lspBridge = null,
+    // Optional plugin manager. When present, lifecycle hooks wrap the run and
+    // each tool call, and plugin tools/providers ride the same paths builtins
+    // do. Every plugin failure is captured inside the manager, so passing one
+    // cannot make the runtime less robust.
+    plugins = null,
   } = {}) {
     if (!registry) throw new RuntimeError("AgentRuntime requires a registry", "no_registry");
     if (typeof complete !== "function") {
@@ -181,6 +193,8 @@ export class AgentRuntime {
     this.providerHealth = providerHealth || new ProviderHealth({ now: this.now });
     this.guards = guards;
     this.config = config;
+    this.lspBridge = lspBridge;
+    this.plugins = plugins && typeof plugins === "object" ? plugins : null;
     this.workspace = this.#bindWorkspace(workspaceRoot);
     // Blackboard dedupe keys for the CURRENT run. Seeded here and cleared at the top
     // of every run(), so its lifetime is exactly one run -- see #board.
@@ -253,10 +267,13 @@ export class AgentRuntime {
   /**
    * Execute the tool calls a model asked for.
    *
-   * Returns a denial reason to stop the loop, or null to continue. Results are
-   * appended to the transcript FIFO, after the completion that requested them --
-   * the harness study is explicit that tool-observed content belongs after the
-   * transcript record, in order.
+   * Returns `{ message, code }` to stop the loop, or null to continue. `code` is
+   * `tool_denied` for ordinary permission failures and `plugin_denied` when a
+   * plugin's `beforeToolExecute` refused the call, so a consumer can tell the two
+   * apart without pattern-matching message text. Results are appended to the
+   * transcript FIFO, after the completion that requested them -- the harness study
+   * is explicit that tool-observed content belongs after the transcript record, in
+   * order.
    */
   async runRequestedTools(calls, { agent, result, signal, startedAt, transcript, emit, sessionId = null }) {
     for (const call of calls) {
@@ -274,10 +291,57 @@ export class AgentRuntime {
       if (!tool) {
         const reason = `no such tool: ${call.tool}`;
         emit(EVENTS.AGENT_TOOL_REQUESTED, { agentId: agent.id, tool: call.tool, known: false }, "warn");
-        return reason;
+        return { message: reason, code: "tool_denied" };
       }
 
       emit(EVENTS.AGENT_TOOL_REQUESTED, { agentId: agent.id, tool: call.tool, scope: tool.scope });
+
+      // Plugins observe the call before the approval waterfall runs, and may
+      // refuse it outright. A refusal here is a first-class denial outcome: it
+      // pushes into the same records, emits the same events, and stops the loop
+      // exactly like a permission failure would.
+      if (this.plugins) {
+        const intercept = await this.plugins.runBeforeToolExecute({
+          tool: call.tool,
+          args: call.args,
+          agentId: agent.id,
+        });
+        if (intercept?.deny) {
+          const reason = `tool ${call.tool} refused by plugin ${intercept.pluginId ?? "?"}: ${intercept.reason ?? "denied"}`;
+          const deniedOutcome = Object.freeze({
+            outcome: OUTCOME.DENIED,
+            tool: call.tool,
+            scope: tool.scope,
+            output: null,
+            contexts: [],
+            approved: false,
+            attempt: null,
+            error: { code: "plugin_denied", message: reason, step: "plugins" },
+          });
+          const callStartedAt = this.now();
+          result.toolResults.push(deniedOutcome);
+          result.toolExecutions.push(
+            summariseToolExecution(deniedOutcome, { agent, tool, startedAt: callStartedAt, now: this.now }),
+          );
+          emit(EVENTS.AGENT_PERMISSION_DENIED, {
+            agentId: agent.id,
+            tool: call.tool,
+            scope: tool.scope,
+            decision: "plugin",
+            reason,
+          }, "warn");
+          emit(EVENTS.AGENT_TOOL_FAILED, {
+            agentId: agent.id,
+            tool: call.tool,
+            scope: tool.scope,
+            code: "plugin_denied",
+            message: reason,
+            denied: true,
+          }, "warn");
+          this.#recordDenial(this.blackboard, sessionId, { agent, call, outcome: deniedOutcome });
+          return { message: reason, code: "plugin_denied" };
+        }
+      }
 
       // The workspace is the run's, not the call's. It is passed in the context
       // rather than read from the arguments, because an argument the model chose is
@@ -319,7 +383,7 @@ export class AgentRuntime {
           code: outcome.error.code,
           message: outcome.error.message,
         }, "error");
-        return outcome.error.message;
+        return { message: outcome.error.message, code: outcome.error.code };
       }
 
       const callStartedAt = this.now();
@@ -402,7 +466,12 @@ export class AgentRuntime {
           message: outcome.error?.message ?? null,
           denied: true,
         }, "warn");
-        return outcome.error?.message || `tool ${call.tool} was denied`;
+        // Permission denials keep the long-standing `tool_denied` code: a plugin
+        // refusal is the one case worth distinguishing, and it returns above.
+        return {
+          message: outcome.error?.message || `tool ${call.tool} was denied`,
+          code: "tool_denied",
+        };
       }
 
       if (outcome.outcome === OUTCOME.ERROR) {
@@ -422,12 +491,44 @@ export class AgentRuntime {
         // agent useful rather than merely supervised. Only a refusal stops the
         // loop, because retrying a denied call is asking for the same permission
         // again.
-        if (cancelled) return outcome.error?.message || `tool ${call.tool} was cancelled`;
+        if (cancelled) {
+          return {
+            message: outcome.error?.message || `tool ${call.tool} was cancelled`,
+            code: "tool_denied",
+          };
+        }
       }
 
       agent.lifecycle?.onToolResult?.(outcome, { agent, result });
       if (outcome.outcome === OUTCOME.OK) {
-        transcript.push({ role: "tool", tool: call.tool, output: outcome.output, contexts: outcome.contexts });
+        // Plugins may substitute what the model reads: the tool already ran
+        // within the walls (containment, redaction and the credential gate all
+        // happened inside runTool), so what an after-hook can and cannot see is
+        // exactly what the model was about to see either way.
+        let transcriptOutput = outcome.output;
+        if (this.plugins) {
+          const post = await this.plugins.runAfterToolExecute({ tool: call.tool, output: outcome.output, agentId: agent.id });
+          const replacement = post?.output;
+          if (typeof replacement === "string" && replacement !== outcome.output) {
+            transcriptOutput = replacement;
+            result.toolResults[result.toolResults.length - 1] = { ...outcome, output: replacement };
+          }
+        }
+        transcript.push({ role: "tool", tool: call.tool, output: transcriptOutput, contexts: outcome.contexts });
+        // Self-correction loop: after a successful write, ask the language server
+        // what it thinks of the new bytes. The diagnostics land in the manager and
+        // the next prompt carries them. Contained on purpose -- a slow or broken
+        // server must not turn a good write into a failed tool call.
+        if (this.lspBridge && call.tool === "filesystem.write") {
+          const written = outcome.output?.path ?? call.args?.path ?? null;
+          if (written) {
+            try {
+              await this.lspBridge.afterWrite(written);
+            } catch (err) {
+              this.log?.warn?.(`lsp: diagnostics refresh failed: ${err?.message ?? err}`);
+            }
+          }
+        }
       } else {
         // An error still goes into the transcript, as an observation. Hiding it
         // leaves the model with a tool call it made and no trace of the answer,
@@ -549,12 +650,32 @@ export class AgentRuntime {
         }
         session = this.sessions.read(sessionId);
       }
+      // Plugins first: beforeAgentRun can enrich the context packet (or veto
+      // the run) before anything else sees the task. A plugin failure cannot
+      // change the course of the run -- the manager embeds the registry's
+      // fail-isolation.
+      let runExtra = extra ?? null;
+      if (this.plugins) {
+        const before = await this.plugins.runBeforeAgentRun({ agentId: agent.id, task, sessionId, extra: runExtra });
+        if (before?.deny) {
+          result.state = STATE.FAILED;
+          result.error = { code: "plugin_denied", message: before.reason || "denied by plugin" };
+          emit(EVENTS.AGENT_FAILED, { agentId: agent.id, ...result.error }, "warn");
+          return this.endFailed(result, agent, sessionId);
+        }
+        if (before && typeof before === "object") {
+          if (typeof before.extra === "string") {
+            runExtra = before.extra;
+          }
+        }
+      }
+
       const context = buildAgentContext({
         agent,
         blackboard: this.blackboard,
         session,
         task,
-        extra,
+        extra: runExtra,
       });
       result.context = context;
       emit(EVENTS.AGENT_CONTEXT_LOADED, {
@@ -640,6 +761,12 @@ export class AgentRuntime {
 
         currentPrompt = buildPrompt(agent, context, task, iteration, transcript);
 
+        // Language-server errors from prior iterations ride along with the prompt.
+        // Recomputed each iteration because a write from the previous one may have
+        // introduced (or cleared) them.
+        const lspBlock = this.lspBridge?.renderPromptBlock?.() ?? "";
+        if (lspBlock) currentPrompt = `${currentPrompt}\n\n${lspBlock}`;
+
         let receipt = await router.route({
           signal,
           onAttempt: (record) => emit(EVENTS.AGENT_RETRYING, { agentId: agent.id, ...record }, "warn"),
@@ -720,7 +847,7 @@ export class AgentRuntime {
             // model asked for something it may not have; letting it ask again is
             // how a loop turns into a harassment attempt on the permission system.
             result.state = STATE.FAILED;
-            result.error = { code: "tool_denied", message: denial };
+            result.error = { code: denial.code ?? "tool_denied", message: denial.message };
             // No AGENT_PERMISSION_DENIED here: runRequestedTools already emitted it
             // with the tool, scope and reason. Emitting the same event type twice for
             // one refusal gives a consumer two records and no way to tell that they
@@ -1321,8 +1448,19 @@ export class AgentRuntime {
 
   finish(result) {
     this.stamp(result);
-    return Object.freeze(result);
-   }
+    const frozen = Object.freeze(result);
+    // afterAgentRun is observe-only and fire-and-forget: the funnel through
+    // finish() covers completed, failed, timed-out and cancelled runs alike,
+    // and the frozen result means no hook can rewrite history afterwards. The
+    // registry captures subscriber errors, so an unhandled rejection is not
+    // possible; the .catch below is belt for a broken manager contract.
+    if (this.plugins && typeof this.plugins.runAfterAgentRun === "function") {
+      void Promise.resolve(this.plugins.runAfterAgentRun(frozen)).catch(() => {
+        /* a broken manager is a manager problem, not the run's */
+      });
+    }
+    return frozen;
+  }
 }
 
 /**

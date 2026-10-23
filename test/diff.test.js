@@ -364,3 +364,28 @@ test("diff viewer dialog ignores unrelated keys without closing", () => {
   assert.equal(dialog.state.scroll, 0);
   assert.equal(dialog.state.fileIndex, 0);
 });
+
+test("renderWritePreview labels a new file and counts additions", () => {
+  const out = d.renderWritePreview({ path: "a.txt", oldText: "", newText: "one\ntwo\n", isNew: true });
+  assert.equal(out.additions, 2);
+  assert.equal(out.deletions, 0);
+  assert.equal(out.label, "new file");
+  assert.ok(out.header.includes("a.txt"));
+  assert.ok(out.header.includes("new file"));
+  assert.ok(out.header.includes("+2 -0"));
+  assert.ok(out.body.includes("one"));
+});
+
+test("renderWritePreview labels tracked and untracked modifications", () => {
+  const tracked = d.renderWritePreview({ path: "a.txt", oldText: "a\nb\n", newText: "a\nc\n", tracked: true });
+  assert.equal(tracked.label, "tracked file");
+  assert.equal(tracked.additions, 1);
+  assert.equal(tracked.deletions, 1);
+  const untracked = d.renderWritePreview({ path: "a.txt", oldText: "a\n", newText: "a\nb\n", tracked: false });
+  assert.equal(untracked.label, "untracked file");
+});
+
+test("renderWritePreview caps its body", () => {
+  const out = d.renderWritePreview({ path: "a.txt", oldText: "", newText: "1\n2\n3\n4\n5\n6\n" }, { max: 2 });
+  assert.ok(out.body.includes("more line(s)"));
+});

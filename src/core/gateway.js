@@ -169,7 +169,17 @@ export async function ping(config) {
     await getVersion(config);
     return { ok: true, elapsedMs: Date.now() - started };
   } catch (err) {
-    return { ok: false, elapsedMs: Date.now() - started, error: err.message, code: err.code ?? null };
+    return {
+      ok: false,
+      elapsedMs: Date.now() - started,
+      error: err.message,
+      code: err.code ?? null,
+      // Present only for an HTTP-level failure. A transport failure carries no
+      // status at all, which is exactly how a caller tells "nothing is listening"
+      // (an optional daemon that is simply switched off) apart from "listening
+      // and broken" (a 5xx that is a real problem).
+      status: err.status ?? null,
+    };
   }
 }
 

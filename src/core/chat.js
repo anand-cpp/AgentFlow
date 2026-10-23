@@ -45,6 +45,9 @@ import { AgentRegistry } from "./agents/registry.js";
 import { builtinSpecs } from "./agents/definitions.js";
 import { AgentRuntime } from "./agents/runtime.js";
 import { createRealTools } from "./agents/real-tools.js";
+import { createRepoMapBridge } from "./map/agent-bridge.js";
+import { PluginManager, PLUGIN_PROMPT_TOKEN_BUDGET } from "./plugins/manager.js";
+import { VERSION } from "./version.js";
 import { EVENTS } from "./events.js";
 
 const DEFAULT_CONTEXT_BUDGET_CHARS = 24_000;
@@ -115,9 +118,26 @@ export const SLASH_HELP = [
   "  /diff [file]         open the interactive diff viewer over workspace changes",
   "  /timeline            browse this session's entry stream",
   "  /swarm               draw this session's agent handoff graph",
+  "  /git [sub]           repository status, log, diff, branch, stage, commit, stash",
+  "  /lsp [sub]           language-server status, diagnostics, hover, definition",
+  "  /mcp [sub]           MCP servers: status, tools, call, read",
+  "  /map [sub]           repository map: show, build, query, stats",
+  "  /plugin [sub]        plugins: list, inspect, enable, disable, create",
   "",
   "Anything without a leading / is sent to the model.",
 ].join("\n");
+
+/**
+ * Command names plugins may not register. Everything documented above plus
+ * every switch arm in `command()`: a plugin command that shadowed /quit or
+ * /new would be a session-control takeover, not an extension.
+ */
+export const RESERVED_COMMANDS = Object.freeze([
+  "help", "quit", "exit", "q", "model", "session", "sessions", "new", "clear",
+  "compact", "tribunal", "agent", "doctor", "status", "add", "drop", "context",
+  "diff", "timeline", "swarm", "git", "lsp", "mcp", "map", "blackboard",
+  "plugin",
+]);
 
 function isWithin(root, target) {
   const rel = path.relative(root, target);
@@ -156,7 +176,7 @@ export class ChatSession {
    *   stream?: Function|null, complete?: Function|null, now?: () => number,
    *   contextBudgetChars?: number, recentKeep?: number, workspaceRoot?: object|string|null,
    *   projectRoot?: string|null, catalogue?: string[], handlers?: object,
-   *   approver?: Function|null
+   *   approver?: Function|null, pluginManager?: object|null
    * }} [options]
    */
   constructor({
@@ -180,6 +200,7 @@ export class ChatSession {
     catalogue = [],
     handlers = {},
     approver = null,
+    pluginManager = null,
   } = {}) {
     const gw = gateway || { complete: gatewayComplete, streamComplete: gatewayStream };
 
@@ -200,6 +221,9 @@ export class ChatSession {
     this.recentKeep = recentKeep;
     this.catalogue = Array.isArray(catalogue) ? catalogue : [];
     this.handlers = handlers || {};
+    // Plugins: injected manager wins; otherwise one is created (and loaded)
+    // during init(). A null stays null when plugins are disabled.
+    this.pluginManager = pluginManager || null;
     // The permission waterfall the agent runtime uses for tool (and continuation)
     // approvals. The CLI binds it once a terminal is available; unset means the
     // runtime fails closed, which is the correct default for --json and pipes.
@@ -283,6 +307,11 @@ export class ChatSession {
     this.#replay(session);
     if (typeof this.sessions.setCurrent === "function") this.sessions.setCurrent(session.id);
     this.#emit(EVENTS.SESSION_START, { sessionId: session.id, agentId: this.agentId, model: this.modelId });
+    // Plugins load once, before the runtime exists: their tools walk into the
+    // runtime's tool map through the same door builtins use, and their
+    // providers wrap the dispatch pair below. A plugin flood gate that fails
+    // costs the manager registry entries, never the session.
+    await this.#initPlugins();
     this.#buildRuntime();
     return this;
   }
@@ -320,9 +349,63 @@ export class ChatSession {
         sessions: this.sessions,
         workspaceRoot: this.workspaceRoot,
         approver: this.approver,
+        plugins: this.pluginManager ?? null,
       });
+      // The repository map rides on the runtime as one more tool, exactly the
+      // way MCP tools do, and is injected into run context by runAgent(). A
+      // bridge that fails to build loses the map, not the runtime.
+      this.mapBridge = createRepoMapBridge(this.workspaceRoot, this.config);
+      if (this.mapBridge) this.mapBridge.registerTools(this.runtime);
+      // Plugin tools join the same map after the builtins, namespaced, so a
+      // rebuilt runtime (setApprover) keeps them attached without re-loading
+      // plugin code.
+      if (this.pluginManager && this.runtime) this.pluginManager.registerToolsInto(this.runtime);
     } catch {
       this.runtime = null;
+    }
+  }
+
+  /**
+   * Create and load the plugin manager. Never throws: disabled config or a
+   * load failure leaves `pluginManager` null, and the chat engine is exactly
+   * the behaviour it would be without the directory.
+   */
+  async #initPlugins() {
+    if (this.pluginManager) {
+      // Rebuild path (setApprover): reattach tools to the fresh runtime.
+      if (this.runtime) this.pluginManager.registerToolsInto(this.runtime);
+      return;
+    }
+    if (this.config?.pluginsEnabled === false) return;
+    try {
+      const manager = new PluginManager({
+        workspaceRoot: this.workspaceRoot ?? this.projectRoot ?? process.cwd(),
+        currentVersion: VERSION,
+        builtinCommands: RESERVED_COMMANDS,
+        promptTokenBudget: PLUGIN_PROMPT_TOKEN_BUDGET,
+      });
+      await manager.init();
+      this.pluginManager = manager;
+      if (manager.providers.size > 0) {
+        // Only plugin providers dispatch differently. The wrapper captures the
+        // stream/complete pair as it is right now, including any test double,
+        // and inlines no behaviour beyond the provider prefix check.
+        const base = { complete: this.complete, streamComplete: this.stream };
+        const dispatched = manager.providerDispatch(base);
+        if (dispatched) {
+          this.complete = dispatched.complete;
+          // The dispatch wrapper names it `streamComplete`, matching the base
+          // object it wraps. Reading `.stream` here silently installed
+          // `undefined`, so every streamed reply threw as soon as a plugin
+          // registered a provider.
+          this.stream = dispatched.streamComplete;
+        }
+      }
+      if (this.runtime) manager.registerToolsInto(this.runtime);
+    } catch {
+      // Discovery or load blew up outside the loader's per-plugin isolation.
+      // The chat engine has no plugins at all rather than a half-built one.
+      this.pluginManager = null;
     }
   }
 
@@ -627,10 +710,22 @@ export class ChatSession {
    */
   async runAgent(task) {
     if (!this.runtime) return { ok: false, text: "agent runtime unavailable" };
+    // Warm the map best-effort and inline its section into the context packet.
+    // query picks up the task's own words so task-relevant files rank first.
+    let extra;
+    try {
+      await this.mapBridge?.ensureWarm?.();
+      if (this.mapBridge) {
+        extra = this.mapBridge.extraFor({ query: typeof task === "string" ? task : (task?.text ?? "") });
+      }
+    } catch {
+      extra = undefined; // the map is an optimisation, never a run gate
+    }
     const result = await this.runtime.run({
       agentId: this.agentId,
       task,
       sessionId: this.session?.id ?? null,
+      ...(extra ? { extra } : {}),
     });
     const raw = result?.output?.summary ?? result?.output ?? (result?.completed ? "completed" : "failed");
     const summary = typeof raw === "string" ? raw : JSON.stringify(raw);
@@ -794,8 +889,15 @@ export class ChatSession {
           text: "/swarm draws the session's agent handoff graph from its persisted agent runs.",
         };
 
-      default:
+      default: {
+        // Plugin commands go before the unknown-command verdict, with the
+        // same fail isolation they registered under.
+        const pluginCommand = this.pluginManager?.command?.(name);
+        if (pluginCommand) {
+          return await this.pluginManager.runCommand(name, arg, this);
+        }
         return { kind: "unknown", text: `unknown command: /${parsed?.name}. Type /help for the list.` };
+      }
     }
   }
 

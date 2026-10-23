@@ -3,7 +3,9 @@ node_modules/
 .next/
 out/
 build/
-dist/
+# Rooted so it ignores the build output at the repo root only, not the
+# test/dist/ directory that holds distribution-integrity tests.
+/dist/
 
 # Secrets — never commit
 .env
@@ -47,3 +49,7 @@ docs/audits/
 
 .gitattributes
 
+
+# Repository map cache (derived data, rebuilt on demand; config like
+# .agentflow/mcp.json is still committed)
+.agentflow/repo-map.json

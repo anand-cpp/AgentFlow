@@ -71,13 +71,23 @@ function assertRefused(result, expected) {
 // the assembled set
 // ---------------------------------------------------------------------------
 
-test("createRealTools exposes the four tools under their documented names", () => {
+test("createRealTools exposes every real tool under its documented name", () => {
   const map = createRealTools();
   assert.deepEqual([...map.keys()].sort(), [...REAL_TOOL_NAMES].sort());
   assert.deepEqual([...REAL_TOOL_NAMES].sort(), [
     "filesystem.read",
     "filesystem.search",
     "filesystem.write",
+    "git.blame",
+    "git.branch",
+    "git.commit",
+    "git.conflicts",
+    "git.diff",
+    "git.log",
+    "git.show",
+    "git.stage",
+    "git.stash",
+    "git.status",
     "shell.execute",
   ]);
 });

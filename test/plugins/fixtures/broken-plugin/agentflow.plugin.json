@@ -1,0 +1,10 @@
+{
+  "id": "broken-plugin",
+  "name": "Broken Plugin",
+  "version": "1.0.0",
+  "description": "Fixture that throws during activation, to prove a failing plugin costs itself and nothing else.",
+  "main": "index.js",
+  "permissions": {
+    "hooks": true
+  }
+}

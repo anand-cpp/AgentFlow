@@ -256,6 +256,14 @@ export function renderContext(context) {
     lines.push("Ask for what you need rather than assuming it is absent.");
   }
 
+  // A preformatted caller section (e.g. the repository map) is appended verbatim
+  // after the structured groups. Object extras stay structured above and are
+  // untouched here; only string sections render inline.
+  if (typeof context.extra === "string" && context.extra.trim()) {
+    lines.push("");
+    lines.push(context.extra.trim());
+  }
+
   return lines.join("\n");
 }
 

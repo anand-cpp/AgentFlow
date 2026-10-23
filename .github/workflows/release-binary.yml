@@ -1,0 +1,95 @@
+# Build and attach single-file executables to a GitHub Release.
+#
+# Triggered by the same `v*.*.*` tags as the npm workflow, so one tag ships both
+# the package and the binaries. Each OS builds its own executable with Node's
+# SEA pipeline (scripts/build-sea.mjs), then a single release job gathers the
+# artifacts, produces one checksums.txt, and attaches everything to the tag's
+# release.
+#
+# Native builds only: SEA injects a blob into the *running* node binary, so a
+# Linux runner cannot produce a Windows executable. The matrix is the mechanism,
+# not an optimisation.
+name: release-binary
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Version is consistent
+        run: node scripts/check-version.mjs
+
+      - name: Build single-file executable
+        run: node scripts/build-sea.mjs
+
+      # Name the artifact per platform so the three matrix jobs do not collide,
+      # and derive the name the same way the release job expects.
+      - name: Name the artifact
+        id: artifact
+        shell: bash
+        run: |
+          node -e "const fs=require('fs'),path=require('path');const v=require('./package.json').version;const o=(process.env.RUNNER_OS||'').toLowerCase();const a=(process.env.RUNNER_ARCH||'').toLowerCase();const e=o==='windows'?'.exe':'';const n='agentflow-'+v+'-'+o+'-'+a+e;const s=path.join('dist',o==='windows'?'agentflow.exe':'agentflow');fs.renameSync(s,path.join('dist',n));fs.appendFileSync(process.env.GITHUB_OUTPUT,'name='+n+'\n');console.log('artifact '+n);"
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: dist/${{ steps.artifact.outputs.name }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # required to create the release and attach assets
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums.txt
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          rm -f checksums.txt
+          for f in agentflow-*; do
+            node -e "const c=require('crypto'),fs=require('fs');const h=c.createHash('sha256').update(fs.readFileSync(process.argv[1])).digest('hex');fs.appendFileSync('checksums.txt',h+'  '+process.argv[1]+'\n');" "$f"
+          done
+          cat checksums.txt
+
+      - name: Attach binaries and checksums to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/agentflow-*
+            dist/checksums.txt
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

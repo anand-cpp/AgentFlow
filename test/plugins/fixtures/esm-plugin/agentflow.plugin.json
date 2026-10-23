@@ -1,0 +1,11 @@
+{
+  "id": "esm-plugin",
+  "name": "ESM Plugin",
+  "version": "2.0.0",
+  "description": "Fixture proving the trusted ESM path loads through discovery like any other plugin.",
+  "main": "index.mjs",
+  "permissions": {
+    "hooks": true,
+    "tools": true
+  }
+}

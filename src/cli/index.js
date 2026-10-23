@@ -9,7 +9,7 @@
 // `aflow --help` instant.
 
 import { Output } from "./output.js";
-import { getCommand, getCommands, valueFlagNames } from "./registry.js";
+import { getCommand, getCommands, valueFlagNames, loadCommand } from "./registry.js";
 import { resolveConfig } from "../config/index.js";
 import { setColor, bold, dim } from "./ui.js";
 import { VERSION } from "../core/version.js";
@@ -154,9 +154,18 @@ export async function run(argv) {
       out.error(dim(`run \`aflow --help\` to list commands`));
       return 127;
     }
+    // Per-command help needs that command's `usage`, which lives in its module.
+    // Load it on demand; plain `aflow --help` never touches command modules.
+    let helpText;
+    if (commandName && !target.loaded) {
+      const loaded = await loadCommand(commandName);
+      helpText = (loaded?.usage ? `${loaded.usage}\n` : null) ?? renderHelp(getCommands());
+    } else {
+      helpText = target?.usage ? `${target.usage}\n` : renderHelp(getCommands());
+    }
     await out.init(
       { commands: getCommands().map((c) => ({ name: c.name, summary: c.summary })) },
-      () => (target?.usage ? `${target.usage}\n` : renderHelp(getCommands()))
+      () => helpText
     );
     return 0;
   }
@@ -168,8 +177,22 @@ export async function run(argv) {
     return 127;
   }
 
+  // Lazy-load the command module (and only the subsystems it needs) on first
+  // use. Commands the user never invokes stay unloaded, keeping
+  // --version/--help/status fast.
+  let resolved = cmd;
+  if (!resolved.loaded) {
+    const loaded = await loadCommand(commandName);
+    if (!loaded) {
+      out.error(`unknown command: ${commandName}`);
+      out.error(dim(`run \`aflow --help\` to list commands`));
+      return 127;
+    }
+    resolved = loaded;
+  }
+
   try {
-    const code = await cmd.run({ args, flags, config, out });
+    const code = await resolved.run({ args, flags, config, out });
     return typeof code === "number" ? code : 0;
   } catch (err) {
     if (out.json) {

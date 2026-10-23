@@ -1,0 +1,98 @@
+# Publish to npm.
+#
+# Publishing is driven by tags, never by a branch push, so the version that
+# reaches the registry is the version a human deliberately cut. The workflow
+# refuses to publish unless the tag and package.json agree, then runs the same
+# gate that prepublishOnly runs locally before uploading with provenance.
+#
+# Required repository secret: NPM_TOKEN (an npm automation token with publish
+# rights). Provenance is signed via OIDC, which needs id-token: write -- no
+# other permission is granted.
+name: publish-npm
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  pull_request:
+    branches: [main]
+    paths:
+      - "package.json"
+      - ".npmignore"
+      - "scripts/check-version.mjs"
+      - ".github/workflows/publish-npm.yml"
+  workflow_dispatch:
+
+# A tag push and a PR run can never conflict, but two tag pushes could clobber
+# each other; serialise per ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # PR / manual path: prove the package is publishable without touching the
+  # registry or needing a token. This is the "would npm accept this?" check.
+  dry-run:
+    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Version is consistent
+        run: node scripts/check-version.mjs
+
+      - name: Show exactly what would be published
+        run: npm pack --dry-run
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for npm provenance (OIDC)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      # A tag is the only thing that triggers this job, so a mismatch here is a
+      # real mistake (tagged v0.3.1 but package.json still says 0.3.0). Catch it
+      # before the registry does.
+      - name: Tag and package.json version agree
+        run: |
+          set -euo pipefail
+          pkg_version="$(node -p "require('./package.json').version")"
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$pkg_version" != "$tag_version" ]; then
+            echo "::error::package.json version ($pkg_version) does not match tag ($tag_version)"
+            exit 1
+          fi
+          echo "version $pkg_version confirmed"
+
+      # The full gate: version sync, tests, lint, typecheck. Run explicitly so
+      # the failure is a named step in the log rather than buried in the publish
+      # output. The publish step then skips lifecycle scripts so this gate does
+      # not run twice.
+      - name: Gate (tests, lint, typecheck, version)
+        run: npm run prepublishOnly
+
+      - name: Publish with provenance
+        run: npm publish --provenance --access public --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
