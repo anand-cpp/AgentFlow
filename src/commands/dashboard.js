@@ -2,12 +2,9 @@
 
 import { defineCommand } from "../cli/registry.js";
 import { ping, getVersion, listModels, probeModel } from "../core/gateway.js";
+import { defaultKeysFile, readKeysFile, mergeEnv } from "../core/keys.js";
+import { defaultProbeCandidates } from "../core/probe-candidates.js";
 import { runDashboard } from "../tui/dashboard.js";
-
-const CANDIDATES = [
-  "oc/muse-spark-1.3-contributor-free",
-  "ocz/deepseek-v4-flash-free",
-];
 
 async function collectState(config, { doProbe }) {
   const p = await ping(config);
@@ -30,7 +27,8 @@ async function collectState(config, { doProbe }) {
 
   let probes = [];
   if (doProbe) {
-    for (const m of config.defaultModel ? [config.defaultModel] : CANDIDATES) {
+    const defaults = defaultProbeCandidates(mergeEnv(readKeysFile(defaultKeysFile()), process.env));
+    for (const m of config.defaultModel ? [config.defaultModel] : defaults) {
       probes.push(await probeModel(config, m));
     }
   }
