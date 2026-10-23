@@ -689,7 +689,13 @@ export class AgentRuntime {
       // --- routing -------------------------------------------------------
       // The model plan is resolved before the loop because a resolvable plan is
       // cheap and an unresolvable one should fail before anything is dispatched.
-      const plan = resolveModelPlan(agent, { catalogue: this.catalogue, hints: this.hints });
+      const plan = resolveModelPlan(agent, {
+        catalogue: this.catalogue,
+        hints: this.hints,
+        // Free-first is the product default. A config value of `false` is the
+        // only way to turn it off; an absent value must not silently disable it.
+        preferFree: this.config?.preferFree !== false,
+      });
       result.plan = plan;
       // Deliberately *not* AGENT_MODEL_SELECTED. Nothing has been selected yet --
       // this is the candidate set. The event that claims a model was chosen is
@@ -699,6 +705,7 @@ export class AgentRuntime {
         agentId: agent.id,
         pinned: plan.pinned,
         candidates: plan.candidates,
+        cost: plan.cost ?? null,
         reason: explainPlan(plan),
       });
 

@@ -182,6 +182,70 @@ test("tier size comes from routing policy", () => {
 });
 
 // ---------------------------------------------------------------------------
+// free-first ordering
+// ---------------------------------------------------------------------------
+
+test("the anonymous remainder is ordered free -> free-tier -> unknown -> paid", () => {
+  const plan = resolveModelPlan(agent(), {
+    catalogue: ["acme/paid", "openrouter/free:free", "groq/fast", "acme/unknown"],
+    hints: { "acme/paid": { costClass: "paid" } },
+  });
+
+  assert.deepEqual(plan.candidates, ["openrouter/free:free", "groq/fast", "acme/unknown", "acme/paid"]);
+  assert.equal(plan.cost.preference, "free-first");
+  assert.deepEqual(plan.cost.classes, {
+    "openrouter/free:free": "free",
+    "groq/fast": "free-tier",
+    "acme/unknown": "unknown",
+    "acme/paid": "paid",
+  });
+});
+
+test("an explicit preference outranks a cheaper anonymous model", () => {
+  const plan = resolveModelPlan(agent({ model: { prefer: ["acme/paid"] } }), {
+    catalogue: ["openrouter/free:free", "acme/paid"],
+    hints: { "acme/paid": { costClass: "paid" } },
+  });
+
+  assert.equal(plan.candidates[0], "acme/paid");
+  assert.deepEqual(plan.tiers[0], { name: "pref1", models: ["acme/paid"] });
+});
+
+test("free-first can be disabled without changing the catalogue order", () => {
+  const catalogue = ["acme/paid", "openrouter/free:free", "groq/fast"];
+  const plan = resolveModelPlan(agent(), {
+    catalogue,
+    hints: { "acme/paid": { costClass: "paid" } },
+    preferFree: false,
+  });
+
+  assert.deepEqual(plan.candidates, catalogue);
+  assert.equal(plan.cost.preference, "catalogue");
+});
+
+test("a pinned model is never re-ordered and still reports its cost", () => {
+  const plan = resolveModelPlan(agent({ model: "ollama/local" }), { catalogue: [] });
+  assert.deepEqual(plan.candidates, ["ollama/local"]);
+  assert.equal(plan.cost.preference, "pinned");
+  assert.equal(plan.cost.classes["ollama/local"], "free");
+});
+
+test("the explanation names the free-first policy and its evidence", () => {
+  const plan = resolveModelPlan(agent(), {
+    catalogue: ["openrouter/free:free", "groq/fast"],
+  });
+  assert.match(explainPlan(plan), /free-first \(1 free, 1 free-tier\)/);
+});
+
+test("a cost-only hint does not make an inferred capability look declared", () => {
+  const plan = resolveModelPlan(agent({ model: { requireCapabilities: [CAPABILITY.REASONING] } }), {
+    catalogue: ["oc/deepseek-r1"],
+    hints: { "oc/deepseek-r1": { costClass: "paid" } },
+  });
+  assert.deepEqual(plan.unhinted, ["oc/deepseek-r1"]);
+});
+
+// ---------------------------------------------------------------------------
 // honest reporting
 // ---------------------------------------------------------------------------
 

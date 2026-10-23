@@ -35,6 +35,11 @@ export const DEFAULTS = Object.freeze({
   // empty by default because a wrong hint means an agent runs with tools it cannot
   // call, and silence is the safer default.
   modelHints: {},
+  // Order anonymous candidate models free -> free-tier -> unknown -> paid.
+  // Explicit choices (a named model, a pin, an agent preference, a --fallback
+  // list) are never re-ordered. Disable with `"preferFree": false`; classification
+  // is evidence-based and defaults to "unknown" rather than guessing "free".
+  preferFree: true,
   // Minimum confidence before doctor reports a provider as reachable.
   theme: "auto",
   // Local gateway server (src/core/gateway-server.js) — the address `aflow server
@@ -122,6 +127,7 @@ const ENV_MAP = {
   AGENTFLOW_API_KEY: "apiKey",
   AGENTFLOW_PROBE_TIMEOUT_MS: "probeTimeoutMs",
   AGENTFLOW_DEFAULT_MODEL: "defaultModel",
+  AGENTFLOW_PREFER_FREE: "preferFree",
   AGENTFLOW_THEME: "theme",
   AGENTFLOW_SERVER_PORT: "serverPort",
   AGENTFLOW_SERVER_HOST: "serverHost",

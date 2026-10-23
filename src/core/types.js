@@ -207,7 +207,8 @@
  * @property {string|null} apiKey      provider credential (may be split into apiKeys)
  * @property {number} probeTimeoutMs   provider probe timeout, ms
  * @property {string|null} defaultModel  model used when a command needs one
- * @property {Record<string, unknown>} modelHints  declared capability hints by model id
+ * @property {Record<string, unknown>} modelHints  declared capability and cost hints by model id
+ * @property {boolean} preferFree      order anonymous candidates free-first
  * @property {string} theme            auto | dark | light
  * @property {number} serverPort       local gateway server port
  * @property {string} serverHost       local gateway server host

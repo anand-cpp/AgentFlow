@@ -16,6 +16,7 @@
 // clear refusal rather than a silent downgrade to "some model, probably fine".
 
 import { tiersFromList } from "../routing.js";
+import { classifyModelCost, costClassesFor, countCostClasses, orderByCost } from "../model-cost.js";
 
 /**
  * Hints a user can attach to a model so requirements can be resolved against it.
@@ -24,7 +25,16 @@ import { tiersFromList } from "../routing.js";
  * reliable about context length, and guessing from substrings is how an agent ends
  * up silently running with a 4k window and no error.
  */
-export const MODEL_HINT_FIELDS = ["capabilities", "contextWindow", "maxTokens", "toolCalling", "provider"];
+export const MODEL_HINT_FIELDS = [
+  "capabilities",
+  "contextWindow",
+  "maxTokens",
+  "toolCalling",
+  "provider",
+  "costClass",
+  "cost",
+  "free",
+];
 
 export class RequirementError extends Error {
   constructor(message, code = "requirement_unsatisfied") {
@@ -78,8 +88,27 @@ export function resolveHints(modelId, declared = null) {
     if (declared[field] !== undefined && declared[field] !== null) merged[field] = Number(declared[field]);
   }
   if (declared.toolCalling !== undefined) merged.toolCalling = Boolean(declared.toolCalling);
+  // Cost hints are intentionally not merged here. `source: "declared"` drives the
+  // "matched on inference" warning for *capabilities*, and a cost-only hint must
+  // not make an inferred capability look declared. Cost classification reads the
+  // raw hint directly in model-cost.js.
   merged.source = "declared";
   return merged;
+}
+
+/**
+ * Strip a cost-only hint before capability resolution.
+ *
+ * `resolveHints` marks any declared object as `source: "declared"`, which feeds
+ * the "matched on inference" warning. A hint that only says a model is paid does
+ * not declare anything about its capabilities, so it must not suppress that
+ * warning. Keeping the filter here avoids changing `resolveHints` for every
+ * caller, including those that legitimately only care about inference.
+ */
+function capabilityHint(hint) {
+  if (!hint || typeof hint !== "object") return null;
+  const fields = ["capabilities", "contextWindow", "maxTokens", "toolCalling", "provider"];
+  return fields.some((field) => hint[field] !== undefined) ? hint : null;
 }
 
 /**
@@ -117,14 +146,16 @@ export function checkRequirements(modelId, requirements, hints = null) {
  * empty candidate list instead would hand the router a stack trace instead of a
  * sentence an operator can act on.
  */
-export function resolveModelPlan(agent, { catalogue = [], hints = {}, includeUnhinted = true } = {}) {
+export function resolveModelPlan(agent, { catalogue = [], hints = {}, includeUnhinted = true, preferFree = true } = {}) {
   const requirements = agent?.model?.requireCapabilities || [];
   const preferences = agent?.model?.prefer || [];
   const routing = agent?.routing || {};
 
   if (agent?.model?.pinModel) {
-    // A pinned model is explicit intent. It is never filtered, and saying so in
-    // the receipt prevents the surprise where a pin silently stops working.
+    // A pinned model is explicit intent. It is never filtered or re-ordered, and
+    // saying so in the receipt prevents the surprise where a pin silently stops
+    // working.
+    const pinnedClass = classifyModelCost(agent.model.pinModel, { declared: hints?.[agent.model.pinModel] ?? null }).class;
     return {
       pinned: true,
       model: agent.model.pinModel,
@@ -135,6 +166,7 @@ export function resolveModelPlan(agent, { catalogue = [], hints = {}, includeUnh
         { model: agent.model.pinModel, ok: true, missing: [], capabilities: [], hintSource: "pinned" },
       ],
       unfiltered: true,
+      cost: { preference: "pinned", classes: { [agent.model.pinModel]: pinnedClass } },
     };
   }
 
@@ -146,7 +178,7 @@ export function resolveModelPlan(agent, { catalogue = [], hints = {}, includeUnh
     );
   }
 
-  const considered = advertised.map((id) => checkRequirements(id, requirements, hints[id]));
+  const considered = advertised.map((id) => checkRequirements(id, requirements, capabilityHint(hints[id])));
   const capable = considered.filter((v) => v.ok);
 
   if (!capable.length) {
@@ -183,18 +215,26 @@ export function resolveModelPlan(agent, { catalogue = [], hints = {}, includeUnh
     .map((v) => v.model)
     .filter((id) => !used.has(id));
 
-  const remainder = rest.length ? tiersFromList(rest, { size: routing.tierSize || 2, prefix: "tier" }) : [];
+  // Preferences are explicit and keep their own tiers. The remainder is the part
+  // that needs a policy: free-first by default, stable within a cost class. This
+  // is why cost ordering lives here and not in the Router -- the Router executes
+  // a tier list, it does not decide which models belong in it.
+  const orderedRest = orderByCost(rest, { hints, catalogue, preferFree });
+  const remainder = orderedRest.length
+    ? tiersFromList(orderedRest, { size: routing.tierSize || 2, prefix: "tier" })
+    : [];
   const tiers = [...prefTiers, ...remainder];
 
   if (!tiers.length) {
     throw new RequirementError("every capable model was excluded by the routing policy", "no_tiers");
   }
 
+  const candidates = tiers.flatMap((t) => t.models);
   return {
     pinned: false,
     model: null,
     requirements: [...requirements],
-    candidates: tiers.flatMap((t) => t.models),
+    candidates,
     tiers,
     considered,
     unfiltered: false,
@@ -202,6 +242,12 @@ export function resolveModelPlan(agent, { catalogue = [], hints = {}, includeUnh
     // was picked on inference rather than on a declaration they wrote.
     unhinted: capable.filter((v) => v.hintSource !== "declared").map((v) => v.model),
     droppedPreferences,
+    // Recorded rather than acted on: a receipt can say the plan preferred free
+    // models without the planner pretending it knows an exact price.
+    cost: {
+      preference: preferFree ? "free-first" : "catalogue",
+      classes: costClassesFor(candidates, { hints, catalogue }),
+    },
   };
 }
 
@@ -233,6 +279,13 @@ export function explainPlan(plan, { max = 6 } = {}) {
   }
   if (plan.droppedPreferences && plan.droppedPreferences.length) {
     parts.push(`ignored preferences not meeting requirements: ${plan.droppedPreferences.join(", ")}`);
+  }
+  if (plan.cost?.preference === "free-first") {
+    const counts = countCostClasses(plan.cost.classes);
+    const freeish = counts.free + counts["free-tier"];
+    if (freeish) parts.push(`free-first (${counts.free} free, ${counts["free-tier"]} free-tier)`);
+  } else if (plan.cost?.preference === "catalogue") {
+    parts.push("catalogue order (free-first disabled)");
   }
   return parts.join("; ");
 }
