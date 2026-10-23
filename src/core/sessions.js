@@ -62,6 +62,7 @@ export const ENTRY_KIND = {
   BLACKBOARD_REF: "blackboard_ref",
   CHECKPOINT: "checkpoint",
   TRIBUNAL_RUN: "tribunal_run",
+  ARENA_RUN: "arena_run",
   // Context packets and provider transitions are recorded as entries so a
   // session is a complete, replayable record of a cross-provider handoff: the
   // packet the continuation ran on (context) and the provider/model switch that
