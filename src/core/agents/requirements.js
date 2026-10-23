@@ -146,7 +146,10 @@ export function checkRequirements(modelId, requirements, hints = null) {
  * empty candidate list instead would hand the router a stack trace instead of a
  * sentence an operator can act on.
  */
-export function resolveModelPlan(agent, { catalogue = [], hints = {}, includeUnhinted = true, preferFree = true } = {}) {
+export function resolveModelPlan(
+  agent,
+  { catalogue = [], hints = {}, includeUnhinted = true, preferFree = true, allowPaidFallback = false } = {}
+) {
   const requirements = agent?.model?.requireCapabilities || [];
   const preferences = agent?.model?.prefer || [];
   const routing = agent?.routing || {};
@@ -219,14 +222,20 @@ export function resolveModelPlan(agent, { catalogue = [], hints = {}, includeUnh
   // that needs a policy: free-first by default, stable within a cost class. This
   // is why cost ordering lives here and not in the Router -- the Router executes
   // a tier list, it does not decide which models belong in it.
-  const orderedRest = orderByCost(rest, { hints, catalogue, preferFree });
+  const orderedRest = orderByCost(rest, { hints, catalogue, preferFree, allowPaid: allowPaidFallback });
   const remainder = orderedRest.length
     ? tiersFromList(orderedRest, { size: routing.tierSize || 2, prefix: "tier" })
     : [];
   const tiers = [...prefTiers, ...remainder];
 
   if (!tiers.length) {
-    throw new RequirementError("every capable model was excluded by the routing policy", "no_tiers");
+    const paidOnly = rest.length > 0 && !allowPaidFallback;
+    throw new RequirementError(
+      paidOnly
+        ? "every capable anonymous model is paid and paid fallback is disabled; set allowPaidFallback: true to permit it, or name a model explicitly"
+        : "every capable model was excluded by the routing policy",
+      paidOnly ? "paid_fallback_disabled" : "no_tiers"
+    );
   }
 
   const candidates = tiers.flatMap((t) => t.models);
@@ -246,6 +255,7 @@ export function resolveModelPlan(agent, { catalogue = [], hints = {}, includeUnh
     // models without the planner pretending it knows an exact price.
     cost: {
       preference: preferFree ? "free-first" : "catalogue",
+      paidFallback: Boolean(allowPaidFallback),
       classes: costClassesFor(candidates, { hints, catalogue }),
     },
   };

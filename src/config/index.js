@@ -40,6 +40,15 @@ export const DEFAULTS = Object.freeze({
   // list) are never re-ordered. Disable with `"preferFree": false`; classification
   // is evidence-based and defaults to "unknown" rather than guessing "free".
   preferFree: true,
+  // Paid models are not used as anonymous fallbacks unless this is explicitly
+  // true. An explicit model, pin, agent preference, or fallback list still wins:
+  // the policy only governs candidates nobody named.
+  allowPaidFallback: false,
+  // Rolling window for provider request-rate limits (registry `ratePerMin`).
+  requestRateWindowMs: 60000,
+  // Longest a single candidate may wait for a local rate-limit slot. Routing
+  // moves to another candidate rather than waiting indefinitely.
+  maxRateLimitWaitMs: 5000,
   // Minimum confidence before doctor reports a provider as reachable.
   theme: "auto",
   // Local gateway server (src/core/gateway-server.js) — the address `aflow server
@@ -128,6 +137,9 @@ const ENV_MAP = {
   AGENTFLOW_PROBE_TIMEOUT_MS: "probeTimeoutMs",
   AGENTFLOW_DEFAULT_MODEL: "defaultModel",
   AGENTFLOW_PREFER_FREE: "preferFree",
+  AGENTFLOW_ALLOW_PAID_FALLBACK: "allowPaidFallback",
+  AGENTFLOW_REQUEST_RATE_WINDOW_MS: "requestRateWindowMs",
+  AGENTFLOW_MAX_RATE_LIMIT_WAIT_MS: "maxRateLimitWaitMs",
   AGENTFLOW_THEME: "theme",
   AGENTFLOW_SERVER_PORT: "serverPort",
   AGENTFLOW_SERVER_HOST: "serverHost",

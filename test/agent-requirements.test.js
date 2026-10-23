@@ -189,6 +189,7 @@ test("the anonymous remainder is ordered free -> free-tier -> unknown -> paid", 
   const plan = resolveModelPlan(agent(), {
     catalogue: ["acme/paid", "openrouter/free:free", "groq/fast", "acme/unknown"],
     hints: { "acme/paid": { costClass: "paid" } },
+    allowPaidFallback: true,
   });
 
   assert.deepEqual(plan.candidates, ["openrouter/free:free", "groq/fast", "acme/unknown", "acme/paid"]);
@@ -217,6 +218,7 @@ test("free-first can be disabled without changing the catalogue order", () => {
     catalogue,
     hints: { "acme/paid": { costClass: "paid" } },
     preferFree: false,
+    allowPaidFallback: true,
   });
 
   assert.deepEqual(plan.candidates, catalogue);
@@ -241,6 +243,7 @@ test("a cost-only hint does not make an inferred capability look declared", () =
   const plan = resolveModelPlan(agent({ model: { requireCapabilities: [CAPABILITY.REASONING] } }), {
     catalogue: ["oc/deepseek-r1"],
     hints: { "oc/deepseek-r1": { costClass: "paid" } },
+    allowPaidFallback: true,
   });
   assert.deepEqual(plan.unhinted, ["oc/deepseek-r1"]);
 });

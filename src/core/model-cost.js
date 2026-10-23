@@ -161,14 +161,20 @@ function rowFor(model, hints, index) {
  * hide a caller's mistake.
  *
  * @param {Array<string|{id: string}>} models
- * @param {{ hints?: object, catalogue?: Array<string|object>, preferFree?: boolean }} [options]
+ * @param {{ hints?: object, catalogue?: Array<string|object>, preferFree?: boolean, allowPaid?: boolean }} [options]
  */
-export function orderByCost(models, { hints = {}, catalogue = [], preferFree = true } = {}) {
+export function orderByCost(models, { hints = {}, catalogue = [], preferFree = true, allowPaid = true } = {}) {
   const index = catalogueIndex(catalogue);
   const rows = [];
   for (const model of Array.isArray(models) ? models : []) {
     const row = rowFor(model, hints, index);
-    if (row) rows.push({ ...row, at: rows.length });
+    if (!row) continue;
+    // Paid fallback is opt-in. Dropping paid rows here keeps the decision in the
+    // cost policy instead of teaching every caller to filter afterwards. An
+    // explicit choice is never passed through this function, so intent still
+    // wins over the default.
+    if (!allowPaid && row.cost.class === COST_CLASS.PAID) continue;
+    rows.push({ ...row, at: rows.length });
   }
   if (!preferFree) return rows.map((r) => r.id);
   rows.sort((a, b) => COST_RANK[a.cost.class] - COST_RANK[b.cost.class] || a.at - b.at);

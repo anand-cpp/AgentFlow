@@ -41,6 +41,7 @@ import { ROLE, complete as gatewayComplete, streamComplete as gatewayStream } fr
 import { Router, tiersFromList, parseModelId } from "./routing.js";
 import { orderByCost } from "./model-cost.js";
 import { ProviderHealth, PROVIDER_STATUS } from "./provider-health.js";
+import { UsageLedger } from "./usage-ledger.js";
 import { ENTRY_KIND } from "./sessions.js";
 import { AgentRegistry } from "./agents/registry.js";
 import { builtinSpecs } from "./agents/definitions.js";
@@ -177,7 +178,8 @@ export class ChatSession {
    *   stream?: Function|null, complete?: Function|null, now?: () => number,
    *   contextBudgetChars?: number, recentKeep?: number, workspaceRoot?: object|string|null,
    *   projectRoot?: string|null, catalogue?: string[], handlers?: object,
-   *   approver?: Function|null, pluginManager?: object|null
+   *   approver?: Function|null, pluginManager?: object|null, limiter?: object|null,
+   *   usage?: object|null
    * }} [options]
    */
   constructor({
@@ -202,6 +204,8 @@ export class ChatSession {
     handlers = {},
     approver = null,
     pluginManager = null,
+    limiter = null,
+    usage = null,
   } = {}) {
     const gw = gateway || { complete: gatewayComplete, streamComplete: gatewayStream };
 
@@ -210,6 +214,9 @@ export class ChatSession {
     this.gateway = gw;
     this.health = health || new ProviderHealth({ now });
     this.router = router || null;
+    this.limiter = limiter;
+    this.usage = usage || new UsageLedger({ now });
+    this._usagePersisted = 0;
     this.config = config || {};
     // Validated once here so a malformed `modelHints` value cannot throw inside
     // routing, and so the chat runtime sees the same hints as the candidate list.
@@ -353,6 +360,8 @@ export class ChatSession {
         log: this.log,
         config: this.config,
         providerHealth: this.health,
+        limiter: this.limiter,
+        usageLedger: this.usage,
         blackboard: this.blackboard,
         sessions: this.sessions,
         workspaceRoot: this.workspaceRoot,
@@ -525,6 +534,7 @@ export class ChatSession {
       hints: this.hints,
       catalogue: this.catalogue,
       preferFree: this.config?.preferFree !== false,
+      allowPaid: this.config?.allowPaidFallback === true,
     })) {
       push(id);
     }
@@ -556,7 +566,12 @@ export class ChatSession {
 
     const candidates = this.#candidates();
     if (!candidates.length) {
-      const err = new ChatError("no model configured; pass --model or set defaultModel", "no_model");
+      const err = new ChatError(
+        this.config?.allowPaidFallback === true
+          ? "no model configured; pass --model or set defaultModel"
+          : "no eligible model: paid fallback is disabled and no free, free-tier, unknown-cost, or explicitly named model is available (set allowPaidFallback: true to permit paid fallback)",
+        "no_model"
+      );
       onError?.(err);
       return { ok: false, error: err, reason: "no_model" };
     }
@@ -594,6 +609,9 @@ export class ChatSession {
         log: this.log,
         now: this.now,
         providerHealth: this.health,
+        limiter: this.limiter,
+        limiterWaitMs: this.config?.maxRateLimitWaitMs,
+        ledger: this.usage,
       });
 
     let receipt = await router.route({
@@ -631,11 +649,13 @@ export class ChatSession {
         onNotice?.("[empty response from the model]");
       }
       const info = this.getInfo();
+      this.#persistUsage();
       onComplete?.(responseText, info);
-      return { ok: true, text: responseText, model, provider, usage: value.usage ?? null, info, noticed: sawNotice };
+      return { ok: true, text: responseText, model, provider, usage: value.usage ?? null, usageSummary: this.usage.summary(), info, noticed: sawNotice };
     }
 
     if (signal?.aborted) {
+      this.#persistUsage();
       return { ok: false, cancelled: true, reason: "cancelled" };
     }
 
@@ -643,6 +663,7 @@ export class ChatSession {
     err.failureKinds = receipt.failureKinds;
     err.attempts = receipt.attempts;
     this.#recordError(err.message);
+    this.#persistUsage();
     onError?.(err);
     return {
       ok: false,
@@ -651,6 +672,7 @@ export class ChatSession {
       allFailed: true,
       failureKinds: receipt.failureKinds,
       attempts: receipt.attempts,
+      usageSummary: this.usage.summary(),
     };
   }
 
@@ -1029,6 +1051,34 @@ export class ChatSession {
       });
     } catch (err) {
       this.#emit(EVENTS.SESSION_START, { persistError: err?.message || String(err) }, "warn");
+    }
+  }
+
+  /**
+   * Persist the usage records produced by the most recent route.
+   *
+   * One session entry carries the batch, so a cascade of six candidates is one
+   * locked write rather than six. The ledger itself is bounded; this only writes
+   * records that have not been persisted yet, which is what keeps a retried or
+   * resumed turn from being counted twice.
+   */
+  #persistUsage() {
+    if (!this.session || typeof this.sessions?.append !== "function") return;
+    const all = this.usage.records();
+    if (all.length <= this._usagePersisted) return;
+    const fresh = all.slice(this._usagePersisted);
+    try {
+      const last = fresh[fresh.length - 1];
+      this.sessions.append(this.session.id, ENTRY_KIND.USAGE, {
+        model: last?.model ?? null,
+        provider: last?.provider ?? null,
+        requests: fresh,
+      });
+      // Advance only after a successful write. If the store refuses, the next
+      // turn retries the same bounded batch instead of losing the observation.
+      this._usagePersisted = all.length;
+    } catch {
+      /* best-effort: usage telemetry must not break the chat */
     }
   }
 

@@ -38,6 +38,8 @@ import { ChatSession, parseSlash } from "../core/chat.js";
 import { SessionStore, defaultSessionsDir } from "../core/sessions.js";
 import { BlackboardStore, defaultBlackboardDir } from "../core/blackboard.js";
 import { ProviderHealth } from "../core/provider-health.js";
+import { RollingWindowLimiter, rateLimitsFromRegistry } from "../core/rate-limit.js";
+import { PROVIDERS } from "../core/gateway-server.js";
 import { AgentRegistry } from "../core/agents/registry.js";
 import { builtinSpecs } from "../core/agents/definitions.js";
 import { resolveWorkspaceRoot } from "../core/agents/workspace.js";
@@ -545,6 +547,16 @@ export async function runChat({ args = [], flags = {}, config = {}, out, deps = 
   const log =
     deps.log || new EventLog({ file: flags["log-file"] || config.logPath || defaultLogPath(), level: config.logLevel });
   const health = deps.health || new ProviderHealth({});
+  // The registry's `ratePerMin` is request-rate metadata, not a daily quota.
+  // Only providers that actually declare one are limited; everything else keeps
+  // the previous unlimited-local behaviour.
+  const limiter =
+    deps.limiter ||
+    new RollingWindowLimiter({
+      limits: rateLimitsFromRegistry(PROVIDERS),
+      windowMs: config.requestRateWindowMs,
+      maxWaitMs: config.maxRateLimitWaitMs,
+    });
 
   let catalogue = [];
   try {
@@ -565,6 +577,8 @@ export async function runChat({ args = [], flags = {}, config = {}, out, deps = 
     modelId: flags.model ? String(flags.model) : null,
     registry,
     health,
+    limiter,
+    usage: deps.usage ?? null,
     log,
     stream: deps.stream ?? null,
     complete: deps.complete ?? null,

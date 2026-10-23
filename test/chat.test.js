@@ -260,7 +260,7 @@ test("chat preserves catalogue order when free-first is disabled", async () => {
   const stream = mockStream("catalogue answer");
   const chat = new ChatSession({
     sessions,
-    config: { preferFree: false, modelHints: { "acme/paid": { costClass: "paid" } } },
+    config: { preferFree: false, allowPaidFallback: true, modelHints: { "acme/paid": { costClass: "paid" } } },
     catalogue: ["acme/paid", "openrouter/free:free"],
     stream,
   });
@@ -268,6 +268,61 @@ test("chat preserves catalogue order when free-first is disabled", async () => {
 
   await chat.send("ping");
   assert.deepEqual(stream.calls.map((c) => c.modelId), ["acme/paid"]);
+});
+
+test("paid fallback is disabled by default and refuses with an actionable error", async () => {
+  const sessions = new SessionStore({ dir: scratch("aflow-chat-") });
+  const stream = mockStream("should not run");
+  const chat = new ChatSession({
+    sessions,
+    config: { preferFree: true, modelHints: { "acme/paid": { costClass: "paid" } } },
+    catalogue: ["acme/paid"],
+    stream,
+  });
+  await chat.init({ forceNew: true });
+
+  const result = await chat.send("ping");
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "no_model");
+  assert.match(result.error.message, /paid fallback is disabled/);
+  assert.deepEqual(stream.calls, [], "no paid request may be dispatched");
+});
+
+test("paid fallback runs only when explicitly enabled", async () => {
+  const sessions = new SessionStore({ dir: scratch("aflow-chat-") });
+  const stream = mockStream("paid answer");
+  const chat = new ChatSession({
+    sessions,
+    config: { preferFree: true, allowPaidFallback: true, modelHints: { "acme/paid": { costClass: "paid" } } },
+    catalogue: ["acme/paid"],
+    stream,
+  });
+  await chat.init({ forceNew: true });
+
+  const result = await chat.send("ping");
+  assert.equal(result.ok, true);
+  assert.deepEqual(stream.calls.map((c) => c.modelId), ["acme/paid"]);
+});
+
+test("each turn persists one usage entry with observed tokens", async () => {
+  const sessions = new SessionStore({ dir: scratch("aflow-chat-") });
+  const chat = new ChatSession({ sessions, config: {}, modelId: "a/one", stream: mockStream("Hello") });
+  await chat.init({ forceNew: true });
+
+  const first = await chat.send("hi");
+  const second = await chat.send("again");
+  assert.equal(first.usageSummary.requests, 1);
+  assert.equal(second.usageSummary.requests, 2);
+
+  const persisted = sessions.read(chat.getInfo().sessionId);
+  const usage = persisted.entries.filter((e) => e.kind === "usage");
+  assert.equal(usage.length, 2, "one batch per turn, not one entry per request");
+  assert.equal(usage[0].requests.length, 1);
+  assert.equal(usage[0].requests[0].outcome, "ok");
+  assert.equal(usage[0].requests[0].dispatched, true);
+  assert.deepEqual(usage[0].requests[0].tokens, { prompt: null, completion: null, total: 5 });
+  assert.equal(usage[0].requests[0].usageSource, "provider");
+  assert.equal(usage[1].requests.length, 1);
 });
 
 // ---------------------------------------------------------------------------

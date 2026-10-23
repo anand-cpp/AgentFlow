@@ -69,6 +69,11 @@ export const ENTRY_KIND = {
   // happened and why (provider_transition).
   CONTEXT: "context",
   PROVIDER_TRANSITION: "provider_transition",
+  // One batch of request observations from the usage ledger. Kept separate from
+  // conversation entries so token/cost evidence can be summarised without
+  // replaying prompts, and so a retry is counted as a request rather than as a
+  // second assistant turn.
+  USAGE: "usage",
 };
 
 const ENTRY_KINDS = new Set(Object.values(ENTRY_KIND));

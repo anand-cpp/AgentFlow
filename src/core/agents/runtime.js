@@ -20,6 +20,7 @@
 
 import { Router } from "../routing.js";
 import { ProviderHealth } from "../provider-health.js";
+import { UsageLedger } from "../usage-ledger.js";
 import { EVENTS } from "../events.js";
 import { redactDeep } from "../redact.js";
 import { ENTRY_KIND } from "../sessions.js";
@@ -135,7 +136,8 @@ export class AgentRuntime {
    *   hints?: object, log?: object, now?: () => number, approver?: object,
    *   blackboard?: object, sessions?: object, providerHealth?: object,
    *   guards?: Array, config?: object, workspaceRoot?: object|string,
-   *   lspBridge?: object|null, plugins?: object|null
+   *   lspBridge?: object|null, plugins?: object|null, limiter?: object|null,
+   *   usageLedger?: object|null
    * }} [options]
    */
   constructor({
@@ -156,6 +158,13 @@ export class AgentRuntime {
     // dead in every real run. Injected, never a second one -- the Router owns the
     // policy, this only holds the memory.
     providerHealth = null,
+    // Shared request-rate limiter. Injected by the CLI so every agent in one
+    // process spends the same provider budget; a runtime constructed on its own
+    // still works, it simply has no configured limits.
+    limiter = null,
+    // Observations only. The ledger never invents tokens or prices, and the
+    // runtime passes it through to the Router rather than recording twice.
+    usageLedger = null,
     guards = [],
     config = null,
     // A resolved WorkspaceRoot, or a plain string. Resolved once, here, and frozen:
@@ -191,6 +200,8 @@ export class AgentRuntime {
     // and stored on the instance so cooldown state survives across runs -- a
     // breaker that forgot itself between runs would not be a breaker.
     this.providerHealth = providerHealth || new ProviderHealth({ now: this.now });
+    this.limiter = limiter;
+    this.usageLedger = usageLedger || new UsageLedger({ now: this.now });
     this.guards = guards;
     this.config = config;
     this.lspBridge = lspBridge;
@@ -695,6 +706,8 @@ export class AgentRuntime {
         // Free-first is the product default. A config value of `false` is the
         // only way to turn it off; an absent value must not silently disable it.
         preferFree: this.config?.preferFree !== false,
+        // Paid models are only anonymous fallbacks when explicitly enabled.
+        allowPaidFallback: this.config?.allowPaidFallback === true,
       });
       result.plan = plan;
       // Deliberately *not* AGENT_MODEL_SELECTED. Nothing has been selected yet --
@@ -750,6 +763,9 @@ export class AgentRuntime {
         // that had just failed three times was re-tried immediately on the next
         // request instead of cooling down.
         providerHealth: this.providerHealth,
+        limiter: this.limiter,
+        limiterWaitMs: this.config?.maxRateLimitWaitMs,
+        ledger: this.usageLedger,
       });
 
       // --- loop ----------------------------------------------------------
