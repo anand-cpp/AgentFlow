@@ -284,7 +284,11 @@ export function validateRelPath(relPath) {
   const text = typeof relPath === "string" ? relPath : "";
   if (!text.trim()) return { ok: false, path: null, error: "path is empty" };
   if (UNSAFE_CHARS.test(text)) return { ok: false, path: null, error: "path contains forbidden characters (shell metacharacters or newlines)" };
-  if (path.isAbsolute(text) || /^[a-zA-Z]:[\\/]/.test(text)) {
+  if (
+    path.isAbsolute(text) ||
+    /^[a-zA-Z]:[\\/]/.test(text) ||   // Windows drive letter: C:\ or C:/
+    /^\\\\/.test(text)                  // Windows UNC share: \\server\share
+  ) {
     return { ok: false, path: null, error: "path must be relative to the workspace root, not absolute" };
   }
   const segments = text.split(/[\\/]+/);
