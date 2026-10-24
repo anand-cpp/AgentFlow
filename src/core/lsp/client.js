@@ -268,37 +268,42 @@ export class LspClient {
     }
     const id = this.#nextId++;
     return new Promise((resolve, reject) => {
-      let settled = false;
-      const safeResolve = (value) => {
-        if (settled) return;
-        settled = true;
-        try {
-          resolve(value);
-        } catch {
-          /* Ignore double-resolution errors (Node.js 20+) */
-        }
-      };
-      const safeReject = (reason) => {
-        if (settled) return;
-        settled = true;
-        try {
-          reject(reason);
-        } catch {
-          /* Ignore double-resolution errors (Node.js 20+) */
-        }
-      };
+      let state = 'pending';
       const timer = setTimeout(() => {
-        this.#pending.delete(id);
-        safeReject(new LspRequestError(`${method} timed out after ${timeoutMs}ms`, { code: "lsp_timeout", method }));
+        if (state === 'pending') {
+          state = 'rejected';
+          this.#pending.delete(id);
+          reject(new LspRequestError(`${method} timed out after ${timeoutMs}ms`, { code: "lsp_timeout", method }));
+        }
       }, timeoutMs);
       if (typeof timer.unref === "function") timer.unref();
-      this.#pending.set(id, { resolve: safeResolve, reject: safeReject, method, timer });
+      this.#pending.set(id, {
+        resolve: (value) => {
+          if (state === 'pending') {
+            state = 'resolved';
+            clearTimeout(timer);
+            resolve(value);
+          }
+        },
+        reject: (reason) => {
+          if (state === 'pending') {
+            state = 'rejected';
+            clearTimeout(timer);
+            reject(reason);
+          }
+        },
+        method,
+        timer,
+      });
       try {
         this.#proc.send({ jsonrpc: "2.0", id, method, params });
       } catch (err) {
         clearTimeout(timer);
         this.#pending.delete(id);
-        safeReject(err);
+        if (state === 'pending') {
+          state = 'rejected';
+          reject(err);
+        }
       }
     });
   }
