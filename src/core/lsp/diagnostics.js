@@ -137,7 +137,11 @@ export class LspDiagnosticsManager {
           timer = null;
         }
         off();
-        resolve(value);
+        try {
+          resolve(value);
+        } catch {
+          /* Ignore double-resolution errors (Node.js 20+) */
+        }
       };
       const timeoutReject = (reason) => {
         if (state !== 'pending') return;
