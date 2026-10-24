@@ -21,15 +21,28 @@ const CRASH = path.resolve("test/lsp/fixtures/crash-ls.js");
  */
 function waitFor(emitter, type, { timeoutMs = 3000, filter } = {}) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const safeResolve = (value) => {
+      if (!settled) {
+        settled = true;
+        resolve(value);
+      }
+    };
+    const safeReject = (reason) => {
+      if (!settled) {
+        settled = true;
+        reject(reason);
+      }
+    };
     const timer = setTimeout(() => {
       off();
-      reject(new Error(`timed out waiting for ${type}`));
+      safeReject(new Error(`timed out waiting for ${type}`));
     }, timeoutMs);
     const off = emitter.on(type, (detail) => {
       if (filter && !filter(detail)) return;
       clearTimeout(timer);
       off();
-      resolve(detail);
+      safeResolve(detail);
     });
   });
 }

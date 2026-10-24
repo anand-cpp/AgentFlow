@@ -23,6 +23,19 @@ const COMMANDS = [
 
 function runCli(args, { timeoutMs = 15000 } = {}) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const safeResolve = (value) => {
+      if (!settled) {
+        settled = true;
+        resolve(value);
+      }
+    };
+    const safeReject = (reason) => {
+      if (!settled) {
+        settled = true;
+        reject(reason);
+      }
+    };
     const child = spawn(process.execPath, [BIN, ...args], {
       cwd: ROOT,
       windowsHide: true,
@@ -34,15 +47,15 @@ function runCli(args, { timeoutMs = 15000 } = {}) {
     child.stderr.on("data", (d) => (stderr += d));
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      reject(new Error(`timed out: aflow ${args.join(" ")}`));
+      safeReject(new Error(`timed out: aflow ${args.join(" ")}`));
     }, timeoutMs);
     child.on("error", (err) => {
       clearTimeout(timer);
-      reject(err);
+      safeReject(err);
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      resolve({ code, stdout, stderr, output: stdout + stderr });
+      safeResolve({ code, stdout, stderr, output: stdout + stderr });
     });
   });
 }
