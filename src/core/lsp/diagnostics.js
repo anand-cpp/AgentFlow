@@ -124,28 +124,24 @@ export class LspDiagnosticsManager {
     if (this.revisionOf(uri) > sinceRevision) {
       return Promise.resolve(this.diagnosticsForUri(uri));
     }
-    return new Promise((resolve) => {
-      let off = () => {};
-      let settled = false;
-      const safeResolve = (value) => {
-        if (!settled) {
-          settled = true;
-          resolve(value);
-        }
-      };
-      const timer = setTimeout(() => {
-        off();
-        safeResolve(this.diagnosticsForUri(uri));
-      }, timeoutMs);
-      if (typeof timer.unref === "function") timer.unref();
-      off = this.#client.on("diagnostics", (detail) => {
+    // Event promise: resolves when a newer diagnostic arrives
+    const eventPromise = new Promise((resolve) => {
+      const off = this.#client.on("diagnostics", (detail) => {
         if (detail.uri !== uri) return;
         if (this.revisionOf(uri) <= sinceRevision) return;
-        clearTimeout(timer);
         off();
-        safeResolve(this.diagnosticsForUri(uri));
+        resolve(this.diagnosticsForUri(uri));
       });
     });
+    // Timeout promise: resolves with current view after timeoutMs
+    const timeoutPromise = new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        resolve(this.diagnosticsForUri(uri));
+      }, timeoutMs);
+      if (typeof timer.unref === "function") timer.unref();
+    });
+    // Race: first to settle wins, avoiding double-resolution entirely
+    return Promise.race([eventPromise, timeoutPromise]);
   }
 
   /** Drop everything the server has told us (used on server restart). */
