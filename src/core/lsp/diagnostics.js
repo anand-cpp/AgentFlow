@@ -124,44 +124,27 @@ export class LspDiagnosticsManager {
     if (this.revisionOf(uri) > sinceRevision) {
       return Promise.resolve(this.diagnosticsForUri(uri));
     }
-    // Event promise: resolves when a newer diagnostic arrives
-    const eventPromise = new Promise((resolve) => {
-      let settled = false;
-      const safeResolve = (value) => {
-        if (settled) return;
-        settled = true;
-        try {
-          resolve(value);
-        } catch {
-          /* Ignore double-resolution errors (Node.js 20+) */
+    return new Promise((resolve) => {
+      let off = () => {};
+      let timer = null;
+      const settle = (value) => {
+        if (timer !== null) {
+          clearTimeout(timer);
+          timer = null;
         }
-      };
-      const off = this.#client.on("diagnostics", (detail) => {
-        if (detail.uri !== uri) return;
-        if (this.revisionOf(uri) <= sinceRevision) return;
         off();
-        safeResolve(this.diagnosticsForUri(uri));
-      });
-    });
-    // Timeout promise: resolves with current view after timeoutMs
-    const timeoutPromise = new Promise((resolve) => {
-      let settled = false;
-      const safeResolve = (value) => {
-        if (settled) return;
-        settled = true;
-        try {
-          resolve(value);
-        } catch {
-          /* Ignore double-resolution errors (Node.js 20+) */
-        }
+        resolve(value);
       };
-      const timer = setTimeout(() => {
-        safeResolve(this.diagnosticsForUri(uri));
+      timer = setTimeout(() => {
+        settle(this.diagnosticsForUri(uri));
       }, timeoutMs);
       if (typeof timer.unref === "function") timer.unref();
+      off = this.#client.on("diagnostics", (detail) => {
+        if (detail.uri !== uri) return;
+        if (this.revisionOf(uri) <= sinceRevision) return;
+        settle(this.diagnosticsForUri(uri));
+      });
     });
-    // Race: first to settle wins, avoiding double-resolution entirely
-    return Promise.race([eventPromise, timeoutPromise]);
   }
 
   /** Drop everything the server has told us (used on server restart). */

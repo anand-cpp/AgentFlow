@@ -108,6 +108,50 @@ test("waitFor times out to the current view rather than hanging", async () => {
   assert.equal(result[0].message, "warn");
 });
 
+test("waitFor removes event listener after successful resolution", async () => {
+  const client = stubClient();
+  const mgr = new LspDiagnosticsManager(client);
+  mgr.record(uri, [{ severity: 1, message: "initial" }]);
+  const pending = mgr.waitFor(uri, { sinceRevision: mgr.revisionOf(uri), timeoutMs: 200 });
+  mgr.record(uri, [{ severity: 1, message: "new" }]);
+  await pending;
+  // After resolution, a subsequent publish should not cause any issue (listener removed)
+  mgr.record(uri, [{ severity: 1, message: "later" }]);
+  // Wait a bit to ensure no async side effects
+  await new Promise((r) => setTimeout(r, 10));
+  const current = mgr.diagnosticsForUri(uri);
+  assert.equal(current.length, 1);
+  assert.equal(current[0].message, "later");
+});
+
+test("waitFor clears timeout after successful resolution", async () => {
+  const client = stubClient();
+  const mgr = new LspDiagnosticsManager(client);
+  mgr.record(uri, [{ severity: 1, message: "initial" }]);
+  const pending = mgr.waitFor(uri, { sinceRevision: mgr.revisionOf(uri), timeoutMs: 200 });
+  mgr.record(uri, [{ severity: 1, message: "new" }]);
+  await pending;
+  // Wait longer than the original timeout to ensure no timeout callback fires
+  await new Promise((r) => setTimeout(r, 300));
+  const current = mgr.diagnosticsForUri(uri);
+  assert.equal(current.length, 1);
+  assert.equal(current[0].message, "new");
+});
+
+test("waitFor timeout followed by late event does not change result or leak listener", async () => {
+  const client = stubClient();
+  const mgr = new LspDiagnosticsManager(client);
+  mgr.record(uri, [{ severity: 2, message: "warn" }]);
+  const result = await mgr.waitFor(uri, { sinceRevision: mgr.revisionOf(uri), timeoutMs: 20 });
+  assert.equal(result[0].message, "warn");
+  // Late event after timeout should not cause issues
+  mgr.record(uri, [{ severity: 1, message: "late" }]);
+  await new Promise((r) => setTimeout(r, 10));
+  const current = mgr.diagnosticsForUri(uri);
+  assert.equal(current.length, 1);
+  assert.equal(current[0].message, "late");
+});
+
 test("clear drops every file", () => {
   const client = stubClient();
   const mgr = new LspDiagnosticsManager(client);
