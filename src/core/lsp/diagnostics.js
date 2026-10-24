@@ -124,49 +124,45 @@ export class LspDiagnosticsManager {
     if (this.revisionOf(uri) > sinceRevision) {
       return Promise.resolve(this.diagnosticsForUri(uri));
     }
-    // Deferred pattern with explicit state machine guarantees single settlement
-    let state = { value: 'pending' };
+    // Deferred class encapsulates promise and guarantees single settlement
+    class Deferred {
+      #state = 'pending';
+      #resolve;
+      #reject;
+      #promise;
+      constructor() {
+        this.#promise = new Promise((resolve, reject) => {
+          this.#resolve = resolve;
+          this.#reject = reject;
+        });
+      }
+      get promise() { return this.#promise; }
+      resolve(value) {
+        if (this.#state !== 'pending') return;
+        this.#state = 'resolved';
+        try { this.#resolve(value); } catch { /* Ignore double-resolution */ }
+      }
+      reject(reason) {
+        if (this.#state !== 'pending') return;
+        this.#state = 'rejected';
+        try { this.#reject(reason); } catch { /* Ignore double-resolution */ }
+      }
+    }
+    const deferred = new Deferred();
     let off = () => {};
     let timer = null;
-    return new Promise((resolve) => {
-      const settle = (value) => {
-        if (state.value !== 'pending') return;
-        state.value = 'resolved';
-        if (timer !== null) {
-          clearTimeout(timer);
-          timer = null;
-        }
-        off();
-        try {
-          resolve(value);
-        } catch {
-          /* Ignore double-resolution errors (Node.js 20+) */
-        }
-      };
-      const timeoutResolve = (value) => {
-        if (state.value !== 'pending') return;
-        state.value = 'resolved';
-        if (timer !== null) {
-          clearTimeout(timer);
-          timer = null;
-        }
-        off();
-        try {
-          resolve(value);
-        } catch {
-          /* Ignore double-resolution errors (Node.js 20+) */
-        }
-      };
-      timer = setTimeout(() => {
-        timeoutResolve(this.diagnosticsForUri(uri));
-      }, timeoutMs);
-      if (typeof timer.unref === "function") timer.unref();
-      off = this.#client.on("diagnostics", (detail) => {
-        if (detail.uri !== uri) return;
-        if (this.revisionOf(uri) <= sinceRevision) return;
-        settle(this.diagnosticsForUri(uri));
-      });
+    timer = setTimeout(() => {
+      deferred.resolve(this.diagnosticsForUri(uri));
+    }, timeoutMs);
+    if (typeof timer.unref === "function") timer.unref();
+    off = this.#client.on("diagnostics", (detail) => {
+      if (detail.uri !== uri) return;
+      if (this.revisionOf(uri) <= sinceRevision) return;
+      clearTimeout(timer);
+      off();
+      deferred.resolve(this.diagnosticsForUri(uri));
     });
+    return deferred.promise;
   }
 
   /** Drop everything the server has told us (used on server restart). */
