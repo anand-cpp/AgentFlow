@@ -127,13 +127,20 @@ export class LspDiagnosticsManager {
     return new Promise((resolve) => {
       let off = () => {};
       let timer = null;
+      let settled = false;
       const settle = (value) => {
+        if (settled) return;
+        settled = true;
         if (timer !== null) {
           clearTimeout(timer);
           timer = null;
         }
         off();
-        resolve(value);
+        try {
+          resolve(value);
+        } catch {
+          /* Ignore double-resolution errors (Node.js 20+) */
+        }
       };
       timer = setTimeout(() => {
         settle(this.diagnosticsForUri(uri));
