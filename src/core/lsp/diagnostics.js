@@ -126,17 +126,37 @@ export class LspDiagnosticsManager {
     }
     // Event promise: resolves when a newer diagnostic arrives
     const eventPromise = new Promise((resolve) => {
+      let settled = false;
+      const safeResolve = (value) => {
+        if (settled) return;
+        settled = true;
+        try {
+          resolve(value);
+        } catch {
+          /* Ignore double-resolution errors (Node.js 20+) */
+        }
+      };
       const off = this.#client.on("diagnostics", (detail) => {
         if (detail.uri !== uri) return;
         if (this.revisionOf(uri) <= sinceRevision) return;
         off();
-        resolve(this.diagnosticsForUri(uri));
+        safeResolve(this.diagnosticsForUri(uri));
       });
     });
     // Timeout promise: resolves with current view after timeoutMs
     const timeoutPromise = new Promise((resolve) => {
+      let settled = false;
+      const safeResolve = (value) => {
+        if (settled) return;
+        settled = true;
+        try {
+          resolve(value);
+        } catch {
+          /* Ignore double-resolution errors (Node.js 20+) */
+        }
+      };
       const timer = setTimeout(() => {
-        resolve(this.diagnosticsForUri(uri));
+        safeResolve(this.diagnosticsForUri(uri));
       }, timeoutMs);
       if (typeof timer.unref === "function") timer.unref();
     });

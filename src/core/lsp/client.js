@@ -270,15 +270,21 @@ export class LspClient {
     return new Promise((resolve, reject) => {
       let settled = false;
       const safeResolve = (value) => {
-        if (!settled) {
-          settled = true;
+        if (settled) return;
+        settled = true;
+        try {
           resolve(value);
+        } catch {
+          /* Ignore double-resolution errors (Node.js 20+) */
         }
       };
       const safeReject = (reason) => {
-        if (!settled) {
-          settled = true;
+        if (settled) return;
+        settled = true;
+        try {
           reject(reason);
+        } catch {
+          /* Ignore double-resolution errors (Node.js 20+) */
         }
       };
       const timer = setTimeout(() => {
