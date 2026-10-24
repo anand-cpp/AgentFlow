@@ -124,26 +124,33 @@ export class LspDiagnosticsManager {
     if (this.revisionOf(uri) > sinceRevision) {
       return Promise.resolve(this.diagnosticsForUri(uri));
     }
+    // Deferred pattern with explicit state machine guarantees single settlement
+    let state = 'pending';
+    let off = () => {};
+    let timer = null;
     return new Promise((resolve) => {
-      let off = () => {};
-      let timer = null;
-      let settled = false;
       const settle = (value) => {
-        if (settled) return;
-        settled = true;
+        if (state !== 'pending') return;
+        state = 'resolved';
         if (timer !== null) {
           clearTimeout(timer);
           timer = null;
         }
         off();
-        try {
-          resolve(value);
-        } catch {
-          /* Ignore double-resolution errors (Node.js 20+) */
+        resolve(value);
+      };
+      const timeoutReject = (reason) => {
+        if (state !== 'pending') return;
+        state = 'rejected';
+        if (timer !== null) {
+          clearTimeout(timer);
+          timer = null;
         }
+        off();
+        resolve(reason); // timeout resolves with current view, not rejection
       };
       timer = setTimeout(() => {
-        settle(this.diagnosticsForUri(uri));
+        timeoutReject(this.diagnosticsForUri(uri));
       }, timeoutMs);
       if (typeof timer.unref === "function") timer.unref();
       off = this.#client.on("diagnostics", (detail) => {
