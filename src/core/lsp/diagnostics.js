@@ -140,7 +140,7 @@ export class LspDiagnosticsManager {
       resolve(value) {
         if (this.#state !== 'pending') return;
         this.#state = 'resolved';
-        try { this.#resolve(value); } catch { /* Ignore double-resolution */ }
+        try { this.#resolve(value); } catch { /* Ignore double-resolution (Node.js 20+) */ }
       }
       reject(reason) {
         if (this.#state !== 'pending') return;
