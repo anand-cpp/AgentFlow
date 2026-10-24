@@ -154,7 +154,6 @@ export class LspDiagnosticsManager {
     timer = setTimeout(() => {
       deferred.resolve(this.diagnosticsForUri(uri));
     }, timeoutMs);
-    if (typeof timer.unref === "function") timer.unref();
     off = this.#client.on("diagnostics", (detail) => {
       if (detail.uri !== uri) return;
       if (this.revisionOf(uri) <= sinceRevision) return;

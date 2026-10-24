@@ -276,7 +276,6 @@ export class LspClient {
           reject(new LspRequestError(`${method} timed out after ${timeoutMs}ms`, { code: "lsp_timeout", method }));
         }
       }, timeoutMs);
-      if (typeof timer.unref === "function") timer.unref();
       this.#pending.set(id, {
         resolve: (value) => {
           if (state === 'pending') {
