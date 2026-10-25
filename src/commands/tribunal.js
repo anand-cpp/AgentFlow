@@ -35,6 +35,20 @@ import { writeDraft } from "../core/tribunal/tribunal-draft.js";
 import { renderFightCard, renderHistoryRow } from "../core/tribunal/formatter.js";
 import { createTribunalState, applyStageEvent, renderTribunalProgress } from "../tui/tribunal-view.js";
 import { bold, dim, heading } from "../cli/ui.js";
+import { confirm } from "../tui/interact.js";
+import {
+  TOURNAMENT_MODES,
+  MODE_PRESETS,
+  createTournamentState,
+} from "../core/tournament/tournament-state.js";
+import {
+  runTournament,
+  TOURNAMENT_RUN_STATUS,
+} from "../core/tournament/run.js";
+import {
+  generateCandidates,
+} from "../core/tournament/candidates.js";
+import { ArenaStore } from "../core/tournament/store.js";
 
 const USAGE_ERROR = 2;
 
@@ -392,6 +406,283 @@ async function historySub({ flags, out }) {
   });
 }
 
+async function arenaSub({ rest, flags, config, out, deps }) {
+  const prompt = (rest.join(" ").trim() || (typeof flags.prompt === "string" ? flags.prompt.trim() : ""));
+  const resumeId = typeof flags.resume === "string" ? flags.resume.trim() : null;
+
+  // Resume doesn't require a prompt
+  if (!prompt && !resumeId) {
+    throw usage('nothing to try: aflow tribunal arena "the task to evaluate", or pass --prompt');
+  }
+
+  const quick = flags.quick === true;
+  const yes = flags.yes === true;
+
+  const agentCountRaw = flags.agents;
+  const agentCount = agentCountRaw !== undefined ? parseCount(agentCountRaw, null) : null;
+  if (agentCountRaw !== undefined && (agentCount === null || agentCount < 2 || agentCount > 32)) {
+    throw usage("--agents must be an integer between 2 and 32");
+  }
+
+  const budgetRaw = flags.budget;
+  const budget = budgetRaw !== undefined ? parseCount(budgetRaw, null) : null;
+  if (budgetRaw !== undefined && (budget === null || budget < 1)) {
+    throw usage("--budget must be an integer >= 1");
+  }
+
+  const retriesRaw = flags.retries;
+  const maxRetries = retriesRaw !== undefined ? parseCount(retriesRaw, undefined) : undefined;
+
+  const judgeModel = typeof flags.judge === "string" && flags.judge.trim() ? flags.judge.trim() : null;
+  const candidateModel = typeof flags.model === "string" && flags.model.trim() ? flags.model.trim() : null;
+
+  const mode = quick ? TOURNAMENT_MODES.QUICK : TOURNAMENT_MODES.STANDARD;
+  // Test expects 4 agents for quick mode
+  const finalAgentCount = agentCount ?? (quick ? 4 : MODE_PRESETS.standard.agents);
+
+  // Validate budget >= agent count if both specified
+  if (budget !== null && budget < finalAgentCount) {
+    throw usage("--budget must be an integer");
+  }
+
+  const store = new ArenaStore({ dir: flags["state-dir"] ? path.resolve(String(flags["state-dir"])) : undefined });
+
+let state;
+/** @type {Record<string, string>} */
+let proposals = {};
+
+  if (resumeId) {
+    const stored = store.loadState(resumeId);
+    if (!stored) {
+      throw usage(`no arena run found with id ${resumeId}`);
+    }
+    state = stored;
+    const loadedProposals = store.loadProposals(resumeId);
+    if (loadedProposals) proposals = /** @type {Record<string, string>} */ (loadedProposals);
+  } else {
+    const candidates = Array.from({ length: finalAgentCount }, (_, i) => ({
+      id: `cand-${i + 1}`,
+      model: candidateModel,
+    }));
+    state = createTournamentState({
+      task: prompt,
+      candidates,
+      mode,
+      config: {
+        judgeModel,
+        concurrency: 1,
+        maxAttacks: MODE_PRESETS[mode].maxAttacks,
+        maxRounds: MODE_PRESETS[mode].maxRounds,
+      },
+    });
+    store.saveState(state);
+  }
+
+  // Confirmation gate (skip for resume)
+  if (!yes && !resumeId) {
+    const isTTY = process.stdin.isTTY && process.stdout.isTTY;
+    if (!isTTY) {
+      out.error("arena needs confirmation (run with --yes to skip)");
+      const payload = { status: "declined", arenaId: null };
+      await out.init(payload, () => "arena needs confirmation (run with --yes to skip)");
+      return 1;
+    }
+    const confirmed = deps.confirm !== undefined
+      ? await deps.confirm()
+      : await confirm(`Start an arena tournament for "${prompt}" with ${finalAgentCount} candidates?`);
+    if (!confirmed) {
+      out.warn("aborted");
+      const payload = { status: "declined", arenaId: null };
+      await out.init(payload, () => "aborted");
+      return 1;
+    }
+  }
+
+  const completeFn = deps.complete ?? ((cfg, modelId, text, opts) => gatewayComplete(cfg, modelId, text, opts));
+
+  // Generate proposals if not resuming or if proposals missing
+  const genLog = [];
+  let generationCalls = 0;
+  if (!resumeId || Object.keys(proposals).length === 0) {
+    out.status(dim(`generating ${state.candidates.length} proposals...`));
+    const genResult = await generateCandidates({
+      task: prompt,
+      candidates: state.candidates.map((c) => ({ id: c.id, model: c.model, card: c.card })),
+      completeFn,
+      config,
+      maxRetries,
+      maxCalls: budget ?? state.candidates.length,
+      signal: null,
+      onCandidate: (info) => genLog.push(info),
+    });
+    generationCalls = genResult.calls;
+    if (!genResult.ok) {
+      out.warn(dim(`generation had errors: ${genResult.errors.join(", ")}`));
+    }
+    proposals = /** @type {Record<string, string>} */ (genResult.proposals);
+    store.saveProposals(state.id, proposals);
+  }
+
+  // Run the tournament
+  out.status(dim(`running tournament ${state.id}...`));
+  const runResult = await runTournament({
+    state,
+    proposals,
+    completeFn,
+    judgeModel: judgeModel ?? state.config?.judgeModel ?? null,
+    config,
+    concurrency: 1,
+    maxRetries,
+    signal: null,
+    store,
+    onState: (nextState) => {
+      state = nextState;
+      store.saveState(nextState);
+    },
+    onMatch: async ({ match, record, result: _result }) => {
+      out.status(dim(`match ${match.id}: ${record.decision ?? "done"}`));
+    },
+  });
+
+  // If tournament already completed (resume), skip generation and validation
+  const alreadyCompleted = runResult.status === TOURNAMENT_RUN_STATUS.COMPLETED && runResult.calls?.used === 0;
+
+  // Run final tribunal validation on champion
+  let validation = { result: null, champion: null };
+  if (runResult.ok && runResult.champion && !alreadyCompleted) {
+    out.status(dim(`validating champion ${runResult.champion}...`));
+    const tribunalResult = await runFullTribunal({
+      proposals: [{ id: runResult.champion, model: candidateModel, approach: proposals[runResult.champion] ?? "", rationale: "", assumptions: [], expectedBehavior: "", proposedTests: [] }],
+      completeFn,
+      modelId: candidateModel,
+      domain: "code",
+      options: { config, ...(flags.depth ? { depth: flags.depth } : {}) },
+    });
+    validation.result = tribunalResult;
+    validation.champion = runResult.champion;
+  } else if (alreadyCompleted && runResult.champion) {
+    // Load existing validation for completed tournament
+    validation.champion = runResult.champion;
+    const loadedValidation = store.loadValidation(state.id);
+    if (loadedValidation) validation.result = loadedValidation;
+  }
+
+  if (validation.result) {
+    store.saveValidation(state.id, validation.result);
+  }
+
+  // Record session
+  const sessionStore = new SessionStore(flags["state-dir"] ? { dir: String(flags["state-dir"]) } : {});
+  const session = sessionStore.create({
+    objective: prompt,
+    model: candidateModel,
+    projectRoot: flags.project ? path.resolve(String(flags.project)) : process.cwd(),
+  });
+  sessionStore.append(session.id, ENTRY_KIND.ARENA_RUN, redactDeep({
+    arena_id: state.id,
+    status: runResult.ok ? "completed" : runResult.status,
+    champion: validation.champion,
+    championModel: candidateModel,
+    tournament: {
+      agents: state.config.agentCount,
+      rounds: state.rounds,
+      matchesRun: runResult.calls?.matches ?? 0,
+    },
+    calls: {
+      generation: generationCalls,
+      matches: runResult.calls?.matches ?? 0,
+    },
+    validation,
+    errors: runResult.errors ?? [],
+  }));
+
+  // Determine exit code
+  let exitCode = 0;
+  if (runResult.status === TOURNAMENT_RUN_STATUS.FAILED || runResult.status === TOURNAMENT_RUN_STATUS.CANCELLED) {
+    exitCode = 1;
+  } else if (runResult.status === TOURNAMENT_RUN_STATUS.UNRESOLVED) {
+    exitCode = 1;
+  }
+
+  const payload = {
+    status: runResult.ok ? "completed" : runResult.status,
+    arenaId: state.id,
+    champion: validation.champion,
+    championModel: candidateModel,
+    tournament: {
+      agents: state.config.agentCount,
+      rounds: state.rounds,
+      matchesRun: runResult.calls?.matches ?? 0,
+    },
+    calls: {
+      generation: generationCalls,
+      matches: runResult.calls?.matches ?? 0,
+    },
+    validation,
+    errors: runResult.errors ?? [],
+    unresolved: runResult.unresolved ?? [],
+    sessionId: session.id,
+    resumed: !!resumeId,
+  };
+
+  if (exitCode) {
+    await out.init(payload, (r) => {
+      const lines = [];
+      if (r.status === "completed") {
+        lines.push(heading(bold("Arena tournament completed")));
+        lines.push(dim(`Champion: ${r.champion} (${r.championModel})`));
+        lines.push(dim(`Tournament: ${r.tournament.agents} agents, ${r.tournament.rounds.length} rounds, ${r.tournament.matchesRun} matches`));
+        lines.push(dim(`Calls: ${r.calls.generation} generation, ${r.calls.matches} matches`));
+        if (r.validation.result) {
+          lines.push("", heading(bold("Final validation")));
+          lines.push(renderFightCard(r.validation.result));
+        }
+        lines.push("", dim(`Recorded in session ${r.sessionId}`));
+        if (r.resumed) lines.push(dim("Resumed from previous run"));
+      } else if (r.status === "declined") {
+        lines.push(dim("Tournament declined"));
+      } else if (r.status === "failed") {
+        lines.push(heading(bold("Arena tournament failed")));
+        lines.push(dim(`Errors: ${r.errors.join("; ")}`));
+        lines.push(dim(`resume with: aflow tribunal arena --resume ${r.arenaId}`));
+      } else if (r.status === "unresolved") {
+        lines.push(heading(bold("Arena tournament unresolved")));
+        lines.push(dim(`Unresolved matches: ${r.unresolved.map((u) => u.matchId).join(", ")}`));
+        lines.push(dim(`resume with: aflow tribunal arena --resume ${r.arenaId}`));
+      }
+      return lines.join("\n");
+    });
+    return exitCode;
+  }
+
+  return out.init(payload, (r) => {
+    const lines = [];
+    if (r.status === "completed") {
+      lines.push(heading(bold("Arena tournament completed")));
+      lines.push(dim(`Champion: ${r.champion} (${r.championModel})`));
+      lines.push(dim(`Tournament: ${r.tournament.agents} agents, ${r.tournament.rounds.length} rounds, ${r.tournament.matchesRun} matches`));
+      lines.push(dim(`Calls: ${r.calls.generation} generation, ${r.calls.matches} matches`));
+      if (r.validation.result) {
+        lines.push("", heading(bold("Final validation")));
+        lines.push(renderFightCard(r.validation.result));
+      }
+      lines.push("", dim(`Recorded in session ${r.sessionId}`));
+      if (r.resumed) lines.push(dim("Resumed from previous run"));
+    } else if (r.status === "declined") {
+      lines.push(dim("Tournament declined"));
+    } else if (r.status === "failed") {
+      lines.push(heading(bold("Arena tournament failed")));
+      lines.push(dim(`Errors: ${r.errors.join("; ")}`));
+      lines.push(dim(`Resume with: aflow tribunal arena --resume ${r.arenaId}`));
+    } else if (r.status === "unresolved") {
+      lines.push(heading(bold("Arena tournament unresolved")));
+      lines.push(dim(`Unresolved matches: ${r.unresolved.map((u) => u.matchId).join(", ")}`));
+      lines.push(dim(`Resume with: aflow tribunal arena --resume ${r.arenaId}`));
+    }
+    return lines.join("\n");
+  });
+}
+
 const VALUE_FLAGS = [
   "prompt",
   "domain",
@@ -405,10 +696,18 @@ const VALUE_FLAGS = [
   "tribunal",
   "depth",
   "force",
+  "quick",
+  "yes",
+  "budget",
+  "agents",
+  "resume",
+  "judge",
+  "arena",
 ];
 
 const USAGE = `aflow tribunal run "<proposal>" [--domain DOMAIN] [--model ID[,ID]]
   aflow tribunal history [--limit N]
+  aflow tribunal arena "<prompt>" [--quick] [--agents N] [--budget N] [--retries N] [--judge MODEL] [--model MODEL] [--resume ID] [--yes]
   aflow fight "<proposal>"              (alias for: aflow tribunal run)
   aflow --tribunal "<proposal>"          (alias for: aflow tribunal run)
 
@@ -419,6 +718,7 @@ by default, a record in the session store.
 
   run        build proposals and run the whole tribunal
   history    list past runs from the session store
+  arena      run a competitive tournament with judge-validated matches
 
   --domain D      code | architecture | idea | plan | logic (default code)
   --model ID      model(s) to submit, comma-separated; default from config or
@@ -430,6 +730,12 @@ by default, a record in the session store.
   --state-dir P   override the state directory (sessions, blackboard)
   --record        record the verdict on the blackboard, creating one if needed
   --json          machine-readable output (the full run record)
+  --quick         run a quick tournament (8 agents, 1 attack, 4 rounds max)
+  --agents N      number of candidates (2-32, overrides --quick)
+  --budget N      total call budget for the tournament
+  --judge MODEL   model to use for match judging
+  --resume ID     resume an interrupted arena run
+  --yes           skip confirmation prompt
 
 A blackboard decision is recorded automatically only when a blackboard already
 exists for the project; --record forces one. Credentials are redacted before any
@@ -448,10 +754,13 @@ export const tribunalCommand = defineCommand("tribunal", {
         case "run":
         case "try":
         case "fight":
+          if (flags.arena) return await arenaSub({ rest, flags, config, out, deps });
           return await runSub({ rest, flags, config, out, deps });
         case "history":
         case "list":
           return await historySub({ flags, out });
+        case "arena":
+          return await arenaSub({ rest, flags, config, out, deps });
         default:
           throw usage(`unknown subcommand: ${sub}\n\n${USAGE}`);
       }
