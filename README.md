@@ -135,7 +135,7 @@ and 24). No `npm install` is required to run the CLI or the test suite.
 git clone https://github.com/anand-cpp/AgentFlow.git
 cd AgentFlow
 
-node bin/aflow.js --version      # aflow 0.3.0
+node bin/aflow.js --version      # aflow 1.0.0
 node bin/aflow.js doctor         # environment + reachability check
 ```
 
