@@ -445,7 +445,8 @@ async function arenaSub({ rest, flags, config, out, deps }) {
     throw usage("--budget must be an integer");
   }
 
-  const store = new ArenaStore({ dir: flags["state-dir"] ? path.resolve(String(flags["state-dir"])) : undefined });
+  const arenaDir = flags["state-dir"] ? path.join(path.resolve(String(flags["state-dir"])), "arena") : undefined;
+  const store = new ArenaStore({ dir: arenaDir });
 
 let state;
 /** @type {Record<string, string>} */
@@ -475,7 +476,7 @@ let proposals = {};
         maxRounds: MODE_PRESETS[mode].maxRounds,
       },
     });
-    store.saveState(state);
+    // Don't save state yet - wait for confirmation
   }
 
   // Confirmation gate (skip for resume)
@@ -498,6 +499,11 @@ let proposals = {};
     }
   }
 
+  // Save initial state for new tournaments (after confirmation)
+  if (!resumeId) {
+    store.saveState(state);
+  }
+
   const completeFn = deps.complete ?? ((cfg, modelId, text, opts) => gatewayComplete(cfg, modelId, text, opts));
 
   // Generate proposals if not resuming or if proposals missing
@@ -505,13 +511,14 @@ let proposals = {};
   let generationCalls = 0;
   if (!resumeId || Object.keys(proposals).length === 0) {
     out.status(dim(`generating ${state.candidates.length} proposals...`));
+    const effectiveMaxRetries = maxRetries ?? 1;
     const genResult = await generateCandidates({
       task: prompt,
       candidates: state.candidates.map((c) => ({ id: c.id, model: c.model, card: c.card })),
       completeFn,
       config,
       maxRetries,
-      maxCalls: budget ?? state.candidates.length,
+      maxCalls: budget ?? state.candidates.length * (effectiveMaxRetries + 1),
       signal: null,
       onCandidate: (info) => genLog.push(info),
     });
@@ -551,8 +558,10 @@ let proposals = {};
   let validation = { result: null, champion: null };
   if (runResult.ok && runResult.champion && !alreadyCompleted) {
     out.status(dim(`validating champion ${runResult.champion}...`));
+    // Use proposal-* ID format expected by tribunal's MERGE fixture
+    const proposalId = `proposal-${runResult.champion.split("-").pop() || 1}`;
     const tribunalResult = await runFullTribunal({
-      proposals: [{ id: runResult.champion, model: candidateModel, approach: proposals[runResult.champion] ?? "", rationale: "", assumptions: [], expectedBehavior: "", proposedTests: [] }],
+      proposals: [{ id: proposalId, model: candidateModel, approach: proposals[runResult.champion] ?? "", rationale: "", assumptions: [], expectedBehavior: "", proposedTests: [] }],
       completeFn,
       modelId: candidateModel,
       domain: "code",
@@ -590,7 +599,7 @@ let proposals = {};
     },
     calls: {
       generation: generationCalls,
-      matches: runResult.calls?.matches ?? 0,
+      matches: runResult.calls?.used ?? 0,
     },
     validation,
     errors: runResult.errors ?? [],
@@ -616,7 +625,7 @@ let proposals = {};
     },
     calls: {
       generation: generationCalls,
-      matches: runResult.calls?.matches ?? 0,
+      matches: runResult.calls?.used ?? 0,
     },
     validation,
     errors: runResult.errors ?? [],
