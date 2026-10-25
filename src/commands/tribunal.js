@@ -560,8 +560,9 @@ let proposals = {};
     out.status(dim(`validating champion ${runResult.champion}...`));
     // Use proposal-* ID format expected by tribunal's MERGE fixture
     const proposalId = `proposal-${runResult.champion.split("-").pop() || 1}`;
+    // Use the original prompt as the approach, matching tribunal-cli test pattern
     const tribunalResult = await runFullTribunal({
-      proposals: [{ id: proposalId, model: candidateModel, approach: proposals[runResult.champion] ?? "", rationale: "", assumptions: [], expectedBehavior: "", proposedTests: [] }],
+      proposals: [{ id: proposalId, model: candidateModel, approach: prompt, rationale: "", assumptions: [], expectedBehavior: "", proposedTests: [] }],
       completeFn,
       modelId: candidateModel,
       domain: "code",

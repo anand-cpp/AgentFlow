@@ -243,6 +243,11 @@ function arenaDeps({ failOn = null, unresolved = false, confirm = undefined, log
     if (/adversarial examiner/.test(system)) return { text: JSON.stringify(CRUCIBLE_PASS) };
     if (/neutral senior architect/.test(system)) return { text: JSON.stringify(MERGE) };
     if (/prosecutor/.test(system)) return { text: JSON.stringify(TRIAL) };
+
+    // Oracle stage (no model call, but handle defensively).
+    if (system.includes("ORACLE") || system.includes("oracle")) return { text: "{}" };
+
+    // Fallback for any unrecognized system prompt - return empty object to avoid validation errors.
     return { text: "{}" };
   };
 
