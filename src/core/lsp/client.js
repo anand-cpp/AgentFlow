@@ -272,7 +272,6 @@ export class LspClient {
         this.#pending.delete(id);
         reject(new LspRequestError(`${method} timed out after ${timeoutMs}ms`, { code: "lsp_timeout", method }));
       }, timeoutMs);
-      if (typeof timer.unref === "function") timer.unref();
       this.#pending.set(id, { resolve, reject, method, timer });
       try {
         this.#proc.send({ jsonrpc: "2.0", id, method, params });

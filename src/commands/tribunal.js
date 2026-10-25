@@ -31,6 +31,7 @@ import { redactDeep } from "../core/redact.js";
 import { runFullTribunal } from "../core/tribunal/stage-oracle.js";
 import { isValidDepth } from "../core/tribunal/tribunal-depth.js";
 import { openAudit } from "../core/tribunal/tribunal-audit.js";
+import { writeDraft } from "../core/tribunal/tribunal-draft.js";
 import { renderFightCard, renderHistoryRow } from "../core/tribunal/formatter.js";
 import { createTribunalState, applyStageEvent, renderTribunalProgress } from "../tui/tribunal-view.js";
 import { bold, dim, heading } from "../cli/ui.js";
@@ -292,6 +293,34 @@ async function runSub({ rest, flags, config, out, deps }) {
   }
   live.finish(result);
 
+  // INSUFFICIENT_CONFIDENCE is not a verdict -- it is an incomplete
+  // investigation. Write a draft artifact so the user can review, fix, and
+  // re-run without losing what the tribunal established. --force overrides and
+  // lets the run complete normally.
+  const verdict = result?.oracle?.verdict ?? null;
+  const confidence = typeof result?.oracle?.confidence === "number" ? result.oracle.confidence : null;
+  if (
+    verdict === "INSUFFICIENT_CONFIDENCE" &&
+    flags.force !== true
+  ) {
+    const written = writeDraft(
+      {
+        tribunalId: result.tribunal_id ?? null,
+        verdict,
+        confidence,
+        caveats: Array.isArray(result?.oracle?.caveats) ? result.oracle.caveats : [],
+        findings: Array.isArray(result?.oracle?.findings) ? result.oracle.findings : [],
+      },
+      flags["state-dir"] ? path.resolve(String(flags["state-dir"])) : undefined,
+    );
+    out.warn(
+      dim(
+        `tribunal: insufficient confidence (${confidence ?? "-"}); draft written to ${written.path ?? "(write failed: " + written.error + ")"}; rerun with --force to proceed`,
+      ),
+    );
+    return 1;
+  }
+
   const sessionId = persistRun({ result, proposals, prompt, models, flags, out });
   const decisionId = recordDecision({ result, flags, sessionId, out });
 
@@ -375,6 +404,7 @@ const VALUE_FLAGS = [
   "record",
   "tribunal",
   "depth",
+  "force",
 ];
 
 const USAGE = `aflow tribunal run "<proposal>" [--domain DOMAIN] [--model ID[,ID]]
