@@ -150,7 +150,6 @@ export class McpClient {
         this._pending.delete(id);
         reject(new McpRequestError(`${method} timed out after ${timeoutMs}ms`));
       }, timeoutMs);
-      if (typeof timer.unref === "function") timer.unref();
       this._pending.set(id, { resolve, reject, method, timer });
       try {
         this.transport.send({ jsonrpc: "2.0", id, method, params });
