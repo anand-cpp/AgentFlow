@@ -38,6 +38,8 @@ import { fileURLToPath } from "node:url";
 const ALLOWLIST = new Set([
   path.normalize("src/core/redact.js"),
   path.normalize("test/redact.test.js"),
+  path.normalize("test/redact-edgecases.test.js"),
+  path.normalize("test/gateway-client.test.js"),
   "scripts/scan-secrets.mjs",
   "SECURITY.md",
   "THIRD_PARTY_NOTICES.md",

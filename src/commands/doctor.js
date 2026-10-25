@@ -14,6 +14,7 @@ import { oauthClientConfigured } from "../../open-sse/providers/shared.js";
 import { EventLog, EVENTS, defaultLogPath } from "../core/events.js";
 import { defaultKeysFile, readKeysFile, mergeEnv, configuredProviderNames } from "../core/keys.js";
 import { PROVIDERS } from "../core/gateway-server.js";
+import { defaultProbeCandidates } from "../core/probe-candidates.js";
 import { findGitRoot, validateGitAvailable } from "../core/git/discover.js";
 import { detectInstalledServers } from "../core/lsp/registry.js";
 import { getMcpServers } from "../core/mcp/config.js";
@@ -22,17 +23,6 @@ import { PluginManager } from "../core/plugins/manager.js";
 import { RESERVED_COMMANDS } from "../core/chat.js";
 import { VERSION } from "../core/version.js";
 import { execFile } from "node:child_process";
-
-/**
- * Candidate models worth probing when the user hasn't named one.
- * Chosen to cover distinct providers rather than to be exhaustive — probing
- * 790 models would take minutes and tell you nothing extra.
- */
-const DEFAULT_CANDIDATES = [
-  "oc/muse-spark-1.3-contributor-free",
-  "ocz/deepseek-v4-flash-free",
-  "bzl/auto:free",
-];
 
 function checkNodeVersion() {
   const major = Number(process.versions.node.split(".")[0]);
@@ -245,10 +235,10 @@ function checkOAuthClients() {
  * wizard, because the single most common fresh-install problem is simply not
  * having run it.
  */
-function checkProviderKeys() {
+function checkProviderKeys(merged) {
   const keysFile = defaultKeysFile();
-  const merged = mergeEnv(readKeysFile(keysFile), process.env);
-  const configured = configuredProviderNames(merged, PROVIDERS);
+  const env = merged ?? mergeEnv(readKeysFile(keysFile), process.env);
+  const configured = configuredProviderNames(env, PROVIDERS);
   return {
     name: "provider-keys",
     status: configured.length ? "ok" : "unconfigured",
@@ -342,8 +332,11 @@ async function runDoctor({ config, out, flags, deps = {} }) {
 
   checks.push(checkNodeVersion());
   checks.push(checkConfig());
+  // One merge, shared by the provider-key report and the probe selection, so
+  // the two can never disagree about what is configured.
+  const mergedEnv = mergeEnv(readKeysFile(defaultKeysFile()), process.env);
   checks.push(await checkGit());
-  checks.push(checkProviderKeys());
+  checks.push(checkProviderKeys(mergedEnv));
   checks.push(...checkOAuthClients());
   checks.push(await checkLanguageServers(deps.detectServers ?? detectInstalledServers));
   checks.push(await checkMcpServers(deps.mcpServers ?? (() => getMcpServers(process.cwd()))));
@@ -379,23 +372,34 @@ async function runDoctor({ config, out, flags, deps = {} }) {
       /* version is informational only */
     }
 
+    const defaults = deps.probeCandidates
+      ? deps.probeCandidates()
+      : defaultProbeCandidates(mergedEnv);
     const candidates = config.defaultModel
-      ? [config.defaultModel, ...DEFAULT_CANDIDATES.filter((m) => m !== config.defaultModel)]
-      : DEFAULT_CANDIDATES;
+      ? [config.defaultModel, ...defaults.filter((m) => m !== config.defaultModel)]
+      : defaults;
 
-    out.status(dim(`probing ${candidates.length} model(s)…`));
-    for (const model of candidates) {
-      const result = await probeModelFn(config, model);
-      probes.push(result);
+    if (candidates.length === 0) {
       checks.push({
-        name: model,
-        status: result.status,
-        detail: result.status === "ok"
-          ? `reachable in ${result.elapsedMs}ms`
-          : result.detail,
+        name: "model-probe",
+        status: "unconfigured",
+        detail: "no provider credentials configured, so no model could be probed — run `aflow setup`",
       });
-      log.emit(EVENTS.GATEWAY_PROBE, { model, status: result.status, elapsedMs: result.elapsedMs, detail: result.detail },
-        result.status === "ok" ? "info" : result.status === "empty" ? "warn" : "error");
+    } else {
+      out.status(dim(`probing ${candidates.length} model(s)…`));
+      for (const model of candidates) {
+        const result = await probeModelFn(config, model);
+        probes.push(result);
+        checks.push({
+          name: model,
+          status: result.status,
+          detail: result.status === "ok"
+            ? `reachable in ${result.elapsedMs}ms`
+            : result.detail,
+        });
+        log.emit(EVENTS.GATEWAY_PROBE, { model, status: result.status, elapsedMs: result.elapsedMs, detail: result.detail },
+          result.status === "ok" ? "info" : result.status === "empty" ? "warn" : "error");
+      }
     }
 
     // Count the advertised catalogue for contrast with what actually works.
@@ -419,9 +423,11 @@ async function runDoctor({ config, out, flags, deps = {} }) {
     reachable,
     // The headline finding, stated plainly: advertised vs actually working.
     note:
-      catalogueCount && reachable < probes.length
+      catalogueCount && probes.length && reachable < probes.length
         ? `${catalogueCount} models advertised; ${reachable}/${probes.length} probed actually returned content. A listed model is not a working model — providers without active credentials fail at request time.`
-        : null,
+        : catalogueCount && probes.length === 0
+          ? `${catalogueCount} models advertised; no provider credentials are configured, so nothing could be probed.`
+          : null,
     checks,
     probes,
   };
@@ -448,8 +454,12 @@ async function runDoctor({ config, out, flags, deps = {} }) {
       lines.push("");
       lines.push(bold("Reachability"));
       const okCount = r.reachable;
-      const line = `${r.catalogueCount} models advertised, ${okCount}/${r.probed} probed returned content`;
-      lines.push(okCount === 0 ? red(line) : okCount < r.probed.length ? yellow(line) : green(line));
+      if (r.probed === 0) {
+        lines.push(dim(`${r.catalogueCount} models advertised; no probe ran because no provider is configured`));
+      } else {
+        const line = `${r.catalogueCount} models advertised, ${okCount}/${r.probed} probed returned content`;
+        lines.push(okCount === 0 ? red(line) : okCount < r.probed ? yellow(line) : green(line));
+      }
     }
     if (r.note) {
       lines.push("");

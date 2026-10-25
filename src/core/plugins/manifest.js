@@ -119,7 +119,7 @@ export function validatePluginManifest(manifest) {
     const main = manifest.main;
     if (typeof main !== "string" || main.trim() === "") {
       errors.push("main: must be a non-empty relative path");
-    } else if (path.isAbsolute(main)) {
+    } else if (path.isAbsolute(main) || /^[a-zA-Z]:[\\/]/.test(main) || /^\\\\/.test(main)) {
       errors.push("main: must be a relative path, not absolute");
     } else if (main.split(/[\\/]/).includes("..")) {
       errors.push("main: must not traverse outside the plugin directory");

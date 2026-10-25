@@ -27,6 +27,9 @@ import { EVENTS } from "./events.js";
 /** Why an attempt failed. Determines what happens next. */
 export const FAILURE = {
   RATE_LIMITED: "rate_limited",
+  QUOTA: "quota",
+  AUTH: "auth",
+  INVALID_REQUEST: "invalid_request",
   NO_CREDENTIALS: "no_credentials",
   EMPTY: "empty",
   TIMEOUT: "timeout",
@@ -37,7 +40,15 @@ export const FAILURE = {
 
 // How each failure changes the cascade. This table is the policy.
 const FAILURE_DISPOSITION = {
-  [FAILURE.RATE_LIMITED]: { retry: true, penaliseProvider: false, retryable: true },
+  // A provider that said "slow down" may recover; try elsewhere first. If it
+  // sent Retry-After, the router records a cooldown and will not select it again
+  // until that time.
+  [FAILURE.RATE_LIMITED]: { retry: true, penaliseProvider: false, retryable: true, cooldownFromHeader: true },
+  // Exhausted quota, rejected credentials, and malformed requests are permanent
+  // for this run. Retrying them just burns the remaining candidates' time.
+  [FAILURE.QUOTA]: { retry: false, penaliseProvider: true, skipProvider: true, retryable: false },
+  [FAILURE.AUTH]: { retry: false, penaliseProvider: true, skipProvider: true, retryable: false },
+  [FAILURE.INVALID_REQUEST]: { retry: false, penaliseProvider: false, retryable: false },
   [FAILURE.TIMEOUT]: { retry: true, penaliseProvider: false, retryable: true },
   [FAILURE.SERVER]: { retry: true, penaliseProvider: false, retryable: true },
   [FAILURE.NETWORK]: { retry: true, penaliseProvider: true, retryable: true },
@@ -65,8 +76,15 @@ export function classifyFailure(err) {
   if (/missing api key|no api key|api key (?:not )?(?:required|missing)|unauthorized|401|invalid_api_key|missing.*key/.test(text)) {
     return FAILURE.NO_CREDENTIALS;
   }
-  if (/429|rate.?limit|too many requests|quota|overloaded/.test(text)) return FAILURE.RATE_LIMITED;
-  if (/abort|timeout|etimedout|etimedout|socket hang up|deadline/.test(text)) return FAILURE.TIMEOUT;
+  if (/403|forbidden|authentication failed|auth error|permission denied/.test(text)) return FAILURE.AUTH;
+  // Quota before rate-limit: "quota exceeded" often arrives with a 429, but it
+  // is permanent for the run and must not be retried as a transient slowdown.
+  if (/quota|quota_exceeded|insufficient_quota|billing|out of credits|credit balance/.test(text)) return FAILURE.QUOTA;
+  if (/400|invalid.?request|bad request|invalid.?argument|validation|unsupported (?:model|parameter)/.test(text)) {
+    return FAILURE.INVALID_REQUEST;
+  }
+  if (/429|rate.?limit|too many requests|overloaded/.test(text)) return FAILURE.RATE_LIMITED;
+  if (/abort|timeout|etimedout|socket hang up|deadline/.test(text)) return FAILURE.TIMEOUT;
   if (/econnrefused|enotfound|network|fetch failed|dns|socket|offline|unreachable/.test(text)) return FAILURE.NETWORK;
   if (/50\d|502|503|504|bad gateway|service unavailable|upstream/.test(text)) return FAILURE.SERVER;
   if (/empty|no content|zero.?token|no choices/.test(text)) return FAILURE.EMPTY;
@@ -220,9 +238,19 @@ export function orderCandidates(candidates, health) {
  */
 export class Router {
   /**
-   * @param {{ tiers?: Array, execute?: Function, log?: object, health?: object, providerHealth?: object, now?: () => number }} [options]
+   * @param {{ tiers?: Array, execute?: Function, log?: object, health?: object, providerHealth?: object, limiter?: object, limiterWaitMs?: number, ledger?: object, now?: () => number }} [options]
    */
-  constructor({ tiers, execute, log = null, health = null, providerHealth = null, now = () => Date.now() } = {}) {
+  constructor({
+    tiers,
+    execute,
+    log = null,
+    health = null,
+    providerHealth = null,
+    limiter = null,
+    limiterWaitMs = null,
+    ledger = null,
+    now = () => Date.now(),
+  } = {}) {
     if (!Array.isArray(tiers) || !tiers.length) throw new Error("Router requires at least one tier");
     if (typeof execute !== "function") throw new Error("Router requires an execute function");
 
@@ -233,6 +261,12 @@ export class Router {
     // Optional provider-level circuit breaker. When absent the router behaves
     // exactly as before: the per-model HealthCache is the only health memory.
     this.providerHealth = providerHealth;
+    // Optional rolling-window limiter. A provider with no configured limit is
+    // unlimited *locally*; unknown is not treated as exhausted.
+    this.limiter = limiter;
+    this.limiterWaitMs = limiterWaitMs ?? limiter?.maxWaitMs ?? 5_000;
+    // Optional usage ledger. Records observations only; see usage-ledger.js.
+    this.ledger = ledger;
     this.now = now;
   }
 
@@ -257,7 +291,14 @@ export class Router {
     const all = orderCandidates(this.candidates(), this.health);
     const skippedProviders = new Set();
     const blockedProviders = new Set();
+    const blockReasons = new Map();
+    const cooldownProviders = new Set();
     let tierIndex = null;
+    let dispatchCount = 0;
+
+    const emitFallback = (from, reason, action, extra = {}) => {
+      this.log?.emit(EVENTS.ROUTE_FALLBACK, { from, reason, action, ...extra }, "warn");
+    };
 
     for (let t = 0; t < this.tiers.length; t++) {
       const tier = this.tiers[t];
@@ -276,25 +317,112 @@ export class Router {
           continue;
         }
 
-        // Provider-level circuit breaker. When open, every model on the
-        // provider is equally unreachable, so skip the rest of that provider.
-        if (this.providerHealth && (blockedProviders.has(provider) || !this.providerHealth.canAttempt(provider, this.now()))) {
-          if (!blockedProviders.has(provider)) {
+        // Provider-level circuit breaker and cooldown. A provider that told us
+        // "retry after 30s" is not eligible again until then; an open circuit is
+        // the same answer from a different source.
+        const providerCooldown = this.providerHealth?.getCooldown?.(provider, this.now()) ?? {
+          active: false,
+          until: null,
+          remainingMs: 0,
+          reason: null,
+          source: null,
+        };
+        const alreadyBlocked = blockedProviders.has(provider);
+        if (alreadyBlocked || providerCooldown.active || (this.providerHealth && !this.providerHealth.canAttempt(provider, this.now()))) {
+          const reason = alreadyBlocked
+            ? blockReasons.get(provider) || "circuit_open"
+            : providerCooldown.active
+              ? "cooldown"
+              : "circuit_open";
+          if (!alreadyBlocked) {
             blockedProviders.add(provider);
-            this.log?.emit(
-              EVENTS.ROUTE_FALLBACK,
-              { from: modelId, reason: "circuit_open", action: "skip_provider", provider },
-              "warn"
-            );
+            blockReasons.set(provider, reason);
+            if (providerCooldown.active) cooldownProviders.add(provider);
+            emitFallback(modelId, reason, "skip_provider", {
+              provider,
+              retryAfterMs: providerCooldown.active ? providerCooldown.remainingMs : null,
+            });
           }
-          attempts.push({ model: modelId, provider, tier: tier.name, outcome: "provider_blocked", reason: "circuit_open" });
+          attempts.push({
+            model: modelId,
+            provider,
+            tier: tier.name,
+            outcome: reason === "cooldown" ? "provider_cooldown" : "provider_blocked",
+            reason,
+            retryAfterMs: providerCooldown.active ? providerCooldown.remainingMs : null,
+            cooldownUntil: providerCooldown.active ? providerCooldown.until : null,
+            dispatched: false,
+          });
           continue;
         }
 
+        // Reserve a request slot before executing. With no configured limit this
+        // returns immediately; with one it waits only within the bounded budget.
+        let reservation = null;
+        if (this.limiter) {
+          try {
+            reservation = await this.limiter.acquire(provider, { signal, maxWaitMs: this.limiterWaitMs });
+          } catch (err) {
+            const e = /** @type {Error & { code?: string; retryAfterMs?: number|null }} */ (err);
+            if (e.code === "rate_limit_cancelled" || signal?.aborted) {
+              const cancelled = /** @type {Error & { code: string }} */ (
+                new Error("routing cancelled while waiting for a provider")
+              );
+              cancelled.name = "AbortError";
+              cancelled.code = "cancelled";
+              return {
+                ok: false,
+                cancelled: true,
+                model: null,
+                attempts,
+                failureKinds: ["cancelled"],
+                skippedProviders: [...skippedProviders],
+                blockedProviders: [...blockedProviders],
+                cooldownProviders: [...cooldownProviders],
+                totalMs: this.now() - startedAt,
+                error: cancelled,
+              };
+            }
+            const retryAfterMs = Number.isFinite(err?.retryAfterMs) ? err.retryAfterMs : null;
+            blockedProviders.add(provider);
+            blockReasons.set(provider, "local_rate_limit");
+            attempts.push({
+              model: modelId,
+              provider,
+              tier: tier.name,
+              outcome: "provider_throttled",
+              reason: err?.code || "rate_limit_wait_exceeded",
+              retryAfterMs,
+              dispatched: false,
+              error: String(err?.message || err),
+            });
+            this.ledger?.record?.({
+              provider,
+              model: modelId,
+              outcome: "provider_throttled",
+              dispatched: false,
+              retryCount: dispatchCount,
+              attempt: dispatchCount + 1,
+              quotaSource: this.limiter?.getLimit?.(provider)?.source ?? null,
+              errorCode: err?.code || "rate_limit_wait_exceeded",
+            });
+            emitFallback(modelId, err?.code || "local_rate_limit", "skip_provider", { provider, retryAfterMs });
+            continue;
+          }
+        }
+
+        dispatchCount += 1;
+        const attemptNumber = dispatchCount;
         const attemptStart = this.now();
         let outcome;
         let result = null;
         let error = null;
+        let dispatched = true;
+
+        // Dispatch is the line between "reserved" and "may have reached the
+        // provider". Everything after this point counts against the window even
+        // if it fails, unless the executor explicitly proves it never left.
+        reservation?.dispatch();
 
         try {
           result = await this.execute(modelId, { signal, tier: tier.name });
@@ -305,15 +433,48 @@ export class Router {
         } catch (err) {
           error = err;
           outcome = classifyFailure(err);
+          if (err?.dispatched === false) {
+            dispatched = false;
+            reservation?.release("not_dispatched", { notDispatched: true });
+          }
         }
 
+        if (dispatched) reservation?.complete(outcome);
+
         const elapsedMs = this.now() - attemptStart;
+        const retryAfterMs = Number.isFinite(error?.retryAfterMs) ? error.retryAfterMs : null;
+        let appliedCooldown = null;
+
+        // Only provider feedback from a request that may have reached the
+        // provider creates a cooldown. A local rate limit is a window, and a
+        // request that provably never left the process cannot have been rate
+        // limited by the provider.
+        if (
+          dispatched &&
+          outcome === FAILURE.RATE_LIMITED &&
+          retryAfterMs != null &&
+          retryAfterMs > 0 &&
+          this.providerHealth?.setCooldown
+        ) {
+          appliedCooldown = this.providerHealth.setCooldown(provider, {
+            retryAfterMs,
+            reason: outcome,
+            source: error?.retryAfterSource || "provider",
+            meta: { model: modelId },
+          });
+        }
+
         const record = {
           model: modelId,
           provider,
           tier: tier.name,
           outcome,
           elapsedMs,
+          attempt: attemptNumber,
+          retryCount: attemptNumber - 1,
+          dispatched,
+          retryAfterMs,
+          cooldownUntil: appliedCooldown?.until ?? null,
           error: error ? String(error.message || error) : null,
         };
         attempts.push(record);
@@ -328,6 +489,24 @@ export class Router {
 
         this.log?.emit(EVENTS.ROUTE_ATTEMPT, record, outcome === "ok" ? "info" : "warn");
 
+        // Ledger observations are per dispatch attempt, not per user turn. A
+        // retry is one more request, and a request that never left the process
+        // is recorded as such rather than counted as usage.
+        this.ledger?.record?.({
+          provider,
+          model: modelId,
+          outcome,
+          dispatched,
+          retryCount: attemptNumber - 1,
+          attempt: attemptNumber,
+          usage: outcome === "ok" ? (result?.usage ?? result?.value?.usage ?? null) : null,
+          costUsd: result?.costUsd ?? null,
+          pricingSource: result?.pricingSource ?? null,
+          quotaSource: this.limiter?.getLimit?.(provider)?.source ?? null,
+          elapsedMs,
+          errorCode: error?.code ?? null,
+        });
+
         if (outcome === "ok") {
           this.health.markOk(modelId, elapsedMs);
           this.providerHealth?.onSuccess(provider, { model: modelId, elapsedMs });
@@ -341,6 +520,7 @@ export class Router {
             attempts,
             skippedProviders: [...skippedProviders],
             blockedProviders: [...blockedProviders],
+            cooldownProviders: [...cooldownProviders],
             // The executor's value, so callers get the answer without the
             // router needing to know what a completion looks like.
             value: result,
@@ -358,15 +538,21 @@ export class Router {
         const disp = dispositionFor(outcome);
         this.health.markFailure(modelId, outcome, { skipProvider: disp.skipProvider });
         this.providerHealth?.onFailure(provider, outcome, { model: modelId, elapsedMs });
-        if (disp.skipProvider) {
+
+        if (appliedCooldown?.active) {
+          blockedProviders.add(provider);
+          blockReasons.set(provider, "cooldown");
+          cooldownProviders.add(provider);
+          emitFallback(modelId, outcome, "cooldown_provider", {
+            provider,
+            retryAfterMs: appliedCooldown.remainingMs,
+            cooldownUntil: appliedCooldown.until,
+          });
+        } else if (disp.skipProvider) {
           skippedProviders.add(provider);
-          this.log?.emit(
-            EVENTS.ROUTE_FALLBACK,
-            { from: modelId, reason: outcome, action: "skip_provider", provider },
-            "warn"
-          );
+          emitFallback(modelId, outcome, "skip_provider", { provider });
         } else {
-          this.log?.emit(EVENTS.ROUTE_FALLBACK, { from: modelId, reason: outcome, action: "try_next" }, "warn");
+          emitFallback(modelId, outcome, "try_next");
         }
       }
     }
@@ -377,6 +563,7 @@ export class Router {
       "error"
     );
 
+    const error = buildNoRouteError(attempts, this.now());
     return {
       ok: false,
       model: null,
@@ -384,13 +571,16 @@ export class Router {
       // Every attempt failed for a reason the operator can act on, so say which.
       failureKinds: [
         ...new Set(
-          attempts.map((a) => a.outcome).filter((o) => o !== "ok" && o !== "provider_skipped" && o !== "provider_blocked")
+          attempts
+            .map((a) => a.outcome)
+            .filter((o) => o !== "ok" && o !== "provider_skipped" && o !== "provider_blocked" && o !== "provider_cooldown")
         ),
       ],
       skippedProviders: [...skippedProviders],
       blockedProviders: [...blockedProviders],
+      cooldownProviders: [...cooldownProviders],
       totalMs: this.now() - startedAt,
-      error: buildNoRouteError(attempts),
+      error,
     };
   }
 }
@@ -428,27 +618,49 @@ export function isEmptyResult(result) {
  * The failure-kind tally is the useful part: one dead gateway and one
  * unconfigured provider need very different responses.
  */
-export function buildNoRouteError(attempts) {
+export function buildNoRouteError(attempts, now = Date.now()) {
   const kinds = new Set(
-    attempts.map((a) => a.outcome).filter((o) => o !== "ok" && o !== "provider_skipped" && o !== "provider_blocked")
+    attempts
+      .map((a) => a.outcome)
+      .filter((o) => o !== "ok" && o !== "provider_skipped" && o !== "provider_blocked" && o !== "provider_cooldown")
   );
   const n = attempts.length;
   const parts = [];
 
-  if (kinds.has(FAILURE.NO_CREDENTIALS)) {
-    parts.push("no active credentials for one or more providers");
+  if (kinds.has(FAILURE.NO_CREDENTIALS) || kinds.has(FAILURE.AUTH)) {
+    parts.push("authentication failed or credentials missing for one or more providers");
   }
-  if (kinds.has(FAILURE.EMPTY)) {
-    parts.push("providers responded 200 with no content");
-  }
+  if (kinds.has(FAILURE.QUOTA)) parts.push("provider quota exhausted");
+  if (kinds.has(FAILURE.INVALID_REQUEST)) parts.push("provider rejected the request as invalid");
+  if (kinds.has(FAILURE.EMPTY)) parts.push("providers responded 200 with no content");
   if (kinds.has(FAILURE.RATE_LIMITED)) parts.push("rate limited");
+  if (kinds.has("provider_throttled") || attempts.some((a) => a.reason === "local_rate_limit")) {
+    parts.push("local request-rate limit reached");
+  }
   if (kinds.has(FAILURE.TIMEOUT) || kinds.has(FAILURE.NETWORK)) parts.push("network unreachable");
-  if (attempts.some((a) => a.outcome === "provider_blocked")) parts.push("provider circuit open");
+  if (attempts.some((a) => a.outcome === "provider_blocked" && a.reason === "circuit_open")) parts.push("provider circuit open");
+  if (attempts.some((a) => a.outcome === "provider_cooldown" || a.reason === "cooldown")) {
+    parts.push("providers cooling down after provider feedback");
+  }
 
   const detail = parts.length ? parts.join("; ") : "no candidate succeeded";
-  const err = /** @type {Error & { attempts: Array, failureKinds: string[] }} */ (new Error(`routing failed after ${n} attempt(s): ${detail}`));
+  const err = /** @type {Error & { attempts: Array, failureKinds: string[], retryAt: number|null }} */ (
+    new Error(`routing failed after ${n} attempt(s): ${detail}`)
+  );
   err.attempts = attempts;
   err.failureKinds = [...kinds];
+
+  // The earliest moment any cooling-down provider becomes eligible. This is
+  // evidence from a header, not an estimate, so it is safe to surface.
+  const retryTimes = attempts
+    .map((a) => a.cooldownUntil)
+    .filter((t) => Number.isFinite(t));
+  err.retryAt = retryTimes.length ? Math.min(...retryTimes) : null;
+  if (err.retryAt !== null) {
+    const waitMs = Math.max(0, err.retryAt - now);
+    parts.push(`earliest retry in ${Math.ceil(waitMs / 1000)}s`);
+    err.message = `routing failed after ${n} attempt(s): ${parts.join("; ")}`;
+  }
   return err;
 }
 

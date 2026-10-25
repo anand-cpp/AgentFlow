@@ -42,6 +42,7 @@ const DEFAULT_OPTIONS = {
   baseBackoffMs: 30_000,
   backoffMultiplier: 2,
   openAfterFailures: 3,
+  maxCooldownMs: 24 * 60 * 60 * 1000,
   now: () => Date.now(),
   jitter: (v) => v,
 };
@@ -168,6 +169,7 @@ export class ProviderHealth {
     this.backoffMultiplier = o.backoffMultiplier;
     this.maxBackoffMs = o.maxBackoffMs;
     this.openAfterFailures = o.openAfterFailures;
+    this.maxCooldownMs = o.maxCooldownMs;
     this._providers = new Map();
   }
 
@@ -198,6 +200,10 @@ export class ProviderHealth {
       lastProbeAt: null,
       lastOutcome: null,
       lastFailureType: null,
+      cooldownUntil: null,
+      cooldownReason: null,
+      cooldownSource: null,
+      cooldownSetAt: null,
     };
   }
 
@@ -220,11 +226,16 @@ export class ProviderHealth {
         lastProbeAt: null,
         lastOutcome: null,
         lastFailureType: null,
+        cooldownUntil: null,
+        cooldownRemainingMs: 0,
+        cooldownReason: null,
+        cooldownSource: null,
         backoffMs: 0,
         history: [],
       };
     }
     const cb = rec.cb.stateInfo;
+    const cooldown = this.getCooldown(provider);
     return {
       provider: rec.provider,
       status: rec.status,
@@ -240,6 +251,10 @@ export class ProviderHealth {
       lastProbeAt: rec.lastProbeAt,
       lastOutcome: rec.lastOutcome,
       lastFailureType: rec.lastFailureType,
+      cooldownUntil: cooldown.until,
+      cooldownRemainingMs: cooldown.remainingMs,
+      cooldownReason: cooldown.reason,
+      cooldownSource: cooldown.source,
       backoffMs: cb.backoffMs,
       history: rec.history.slice(-this.maxHistory),
     };
@@ -250,7 +265,88 @@ export class ProviderHealth {
     return rec.cb.shouldProbe(now);
   }
 
+  /**
+   * Read the provider-scoped cooldown established by provider feedback.
+   *
+   * An expired cooldown is cleared on read, so `canAttempt` returns true without
+   * needing a separate sweep. The returned object is always defined; `active`
+   * is the only field callers need to branch on.
+   */
+  getCooldown(provider, now = this.now()) {
+    const key = provider == null ? "" : String(provider);
+    const rec = key ? this._providers.get(key) : null;
+    if (!rec || rec.cooldownUntil == null) {
+      return { active: false, until: null, remainingMs: 0, reason: null, source: null };
+    }
+    if (now >= rec.cooldownUntil) {
+      this.clearCooldown(key);
+      return { active: false, until: null, remainingMs: 0, reason: null, source: null };
+    }
+    return {
+      active: true,
+      until: rec.cooldownUntil,
+      remainingMs: Math.max(0, rec.cooldownUntil - now),
+      reason: rec.cooldownReason,
+      source: rec.cooldownSource,
+    };
+  }
+
+  /**
+   * Apply a provider-scoped cooldown from external evidence (Retry-After).
+   *
+   * `retryAfterMs` is clamped to `maxCooldownMs` so a broken or hostile header
+   * cannot park a provider forever. A zero/past value clears the cooldown
+   * instead of creating a no-op one.
+   *
+   * @param {string} provider
+   * @param {{ retryAfterMs?: number|null, until?: number|null, reason?: string|null, source?: string|null, meta?: object }} [opts]
+   */
+  setCooldown(provider, { retryAfterMs = null, until = null, reason = FAILURE_CLASS.RATE_LIMITED, source = "provider", meta = {} } = {}) {
+    const rec = this._ensure(provider);
+    const now = this.now();
+    const requested = Number.isFinite(until)
+      ? Number(until)
+      : Number.isFinite(Number(retryAfterMs))
+        ? now + Math.max(0, Number(retryAfterMs))
+        : now;
+    if (!Number.isFinite(requested) || requested <= now) {
+      this.clearCooldown(provider);
+      return this.getCooldown(provider, now);
+    }
+    const cap = now + this.maxCooldownMs;
+    const clamped = requested > cap;
+    rec.cooldownUntil = clamped ? cap : requested;
+    rec.cooldownReason = reason ?? FAILURE_CLASS.RATE_LIMITED;
+    rec.cooldownSource = source ?? "provider";
+    rec.cooldownSetAt = now;
+    this._pushHistory(rec, {
+      ts: now,
+      type: "cooldown",
+      ok: false,
+      meta: redactDeep({
+        reason: rec.cooldownReason,
+        source: rec.cooldownSource,
+        retryAfterMs: Number.isFinite(Number(retryAfterMs)) ? Number(retryAfterMs) : null,
+        until: rec.cooldownUntil,
+        clamped,
+        ...(meta && typeof meta === "object" ? meta : {}),
+      }),
+    });
+    return this.getCooldown(provider, now);
+  }
+
+  clearCooldown(provider) {
+    const key = provider == null ? "" : String(provider);
+    const rec = key ? this._providers.get(key) : null;
+    if (!rec) return;
+    rec.cooldownUntil = null;
+    rec.cooldownReason = null;
+    rec.cooldownSource = null;
+    rec.cooldownSetAt = null;
+  }
+
   canAttempt(provider, now = this.now()) {
+    if (this.getCooldown(provider, now).active) return false;
     const rec = this._ensure(provider);
     return rec.cb.canAttempt(now);
   }
@@ -267,6 +363,7 @@ export class ProviderHealth {
     const rec = this._ensure(provider);
     const now = this.now();
     rec.cb.onSuccess();
+    this.clearCooldown(provider);
     rec.status = PROVIDER_STATUS.HEALTHY;
     rec.lastSuccessAt = now;
     rec.lastOutcome = FAILURE_CLASS.SUCCESS;
@@ -346,6 +443,10 @@ export class ProviderHealth {
         lastProbeAt: rec.lastProbeAt,
         lastOutcome: rec.lastOutcome,
         lastFailureType: rec.lastFailureType,
+        cooldownUntil: rec.cooldownUntil,
+        cooldownReason: rec.cooldownReason,
+        cooldownSource: rec.cooldownSource,
+        cooldownSetAt: rec.cooldownSetAt,
         backoffMs: cb.backoffMs,
         history: rec.history.slice(-this.maxHistory).map((h) => redactDeep(h)),
       };
@@ -364,6 +465,12 @@ export class ProviderHealth {
       rec.lastProbeAt = data.lastProbeAt ?? null;
       rec.lastOutcome = data.lastOutcome ?? null;
       rec.lastFailureType = data.lastFailureType ?? null;
+      rec.cooldownUntil = Number.isFinite(data.cooldownUntil)
+        ? Math.min(Number(data.cooldownUntil), this.now() + this.maxCooldownMs)
+        : null;
+      rec.cooldownReason = rec.cooldownUntil == null ? null : (data.cooldownReason ?? null);
+      rec.cooldownSource = rec.cooldownUntil == null ? null : (data.cooldownSource ?? null);
+      rec.cooldownSetAt = rec.cooldownUntil == null ? null : (data.cooldownSetAt ?? null);
       rec.history = Array.isArray(data.history) ? data.history.slice(-this.maxHistory) : [];
       rec.cb.state = data.circuitState || CIRCUIT_STATE.CLOSED;
       rec.cb.consecutiveFailures = data.consecutiveFailures || 0;

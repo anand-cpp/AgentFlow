@@ -23,6 +23,7 @@ import { Readable, Writable } from "node:stream";
 
 import { ChatSession, parseSlash, canonicalCommand, SLASH_HELP } from "../src/core/chat.js";
 import { SessionStore } from "../src/core/sessions.js";
+import { UsageLedger } from "../src/core/usage-ledger.js";
 import { chatCommand } from "../src/commands/chat.js";
 
 function scratch(prefix) {
@@ -217,6 +218,130 @@ test("a failed user turn stays in the session and surfaces an error", async () =
   const userTurns = persisted.entries.filter((e) => e.kind === "conversation" && e.role === "user");
   assert.equal(userTurns.length, 1);
   assert.equal(userTurns[0].content, "are you there?");
+});
+
+// ---------------------------------------------------------------------------
+// engine: free-first ordering
+// ---------------------------------------------------------------------------
+
+test("chat tries free candidates first when no model was chosen explicitly", async () => {
+  const sessions = new SessionStore({ dir: scratch("aflow-chat-") });
+  const stream = mockStream("free answer");
+  const chat = new ChatSession({
+    sessions,
+    config: { preferFree: true, modelHints: { "acme/paid": { costClass: "paid" } } },
+    catalogue: ["acme/paid", "openrouter/free:free", "groq/fast"],
+    stream,
+  });
+  await chat.init({ forceNew: true });
+
+  const result = await chat.send("ping");
+  assert.equal(result.ok, true);
+  assert.deepEqual(stream.calls.map((c) => c.modelId), ["openrouter/free:free"]);
+});
+
+test("an explicitly chosen model is not displaced by a cheaper one", async () => {
+  const sessions = new SessionStore({ dir: scratch("aflow-chat-") });
+  const stream = mockStream("explicit answer");
+  const chat = new ChatSession({
+    sessions,
+    config: { preferFree: true, modelHints: { "acme/paid": { costClass: "paid" } } },
+    modelId: "acme/paid",
+    catalogue: ["openrouter/free:free", "acme/paid"],
+    stream,
+  });
+  await chat.init({ forceNew: true });
+
+  await chat.send("ping");
+  assert.deepEqual(stream.calls.map((c) => c.modelId), ["acme/paid"]);
+});
+
+test("chat preserves catalogue order when free-first is disabled", async () => {
+  const sessions = new SessionStore({ dir: scratch("aflow-chat-") });
+  const stream = mockStream("catalogue answer");
+  const chat = new ChatSession({
+    sessions,
+    config: { preferFree: false, allowPaidFallback: true, modelHints: { "acme/paid": { costClass: "paid" } } },
+    catalogue: ["acme/paid", "openrouter/free:free"],
+    stream,
+  });
+  await chat.init({ forceNew: true });
+
+  await chat.send("ping");
+  assert.deepEqual(stream.calls.map((c) => c.modelId), ["acme/paid"]);
+});
+
+test("paid fallback is disabled by default and refuses with an actionable error", async () => {
+  const sessions = new SessionStore({ dir: scratch("aflow-chat-") });
+  const stream = mockStream("should not run");
+  const chat = new ChatSession({
+    sessions,
+    config: { preferFree: true, modelHints: { "acme/paid": { costClass: "paid" } } },
+    catalogue: ["acme/paid"],
+    stream,
+  });
+  await chat.init({ forceNew: true });
+
+  const result = await chat.send("ping");
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "no_model");
+  assert.match(result.error.message, /paid fallback is disabled/);
+  assert.deepEqual(stream.calls, [], "no paid request may be dispatched");
+});
+
+test("paid fallback runs only when explicitly enabled", async () => {
+  const sessions = new SessionStore({ dir: scratch("aflow-chat-") });
+  const stream = mockStream("paid answer");
+  const chat = new ChatSession({
+    sessions,
+    config: { preferFree: true, allowPaidFallback: true, modelHints: { "acme/paid": { costClass: "paid" } } },
+    catalogue: ["acme/paid"],
+    stream,
+  });
+  await chat.init({ forceNew: true });
+
+  const result = await chat.send("ping");
+  assert.equal(result.ok, true);
+  assert.deepEqual(stream.calls.map((c) => c.modelId), ["acme/paid"]);
+});
+
+test("each turn persists one usage entry with observed tokens", async () => {
+  const sessions = new SessionStore({ dir: scratch("aflow-chat-") });
+  const chat = new ChatSession({ sessions, config: {}, modelId: "a/one", stream: mockStream("Hello") });
+  await chat.init({ forceNew: true });
+
+  const first = await chat.send("hi");
+  const second = await chat.send("again");
+  assert.equal(first.usageSummary.requests, 1);
+  assert.equal(second.usageSummary.requests, 2);
+
+  const persisted = sessions.read(chat.getInfo().sessionId);
+  const usage = persisted.entries.filter((e) => e.kind === "usage");
+  assert.equal(usage.length, 2, "one batch per turn, not one entry per request");
+  assert.equal(usage[0].requests.length, 1);
+  assert.equal(usage[0].requests[0].outcome, "ok");
+  assert.equal(usage[0].requests[0].dispatched, true);
+  assert.deepEqual(usage[0].requests[0].tokens, { prompt: null, completion: null, total: 5 });
+  assert.equal(usage[0].requests[0].usageSource, "provider");
+  assert.equal(usage[1].requests.length, 1);
+});
+
+test("usage persistence continues after bounded ledger evicts old records", async () => {
+  const sessions = new SessionStore({ dir: scratch("aflow-chat-") });
+  // A tiny ledger so eviction happens quickly: after 3 records, the oldest is dropped.
+  const usage = new UsageLedger({ now: () => 1_000, maxRecords: 3 });
+  const chat = new ChatSession({ sessions, config: {}, modelId: "a/one", stream: mockStream("Hello"), usage });
+  await chat.init({ forceNew: true });
+
+  // Send 5 turns -- enough to evict the first 2 usage records from the ledger.
+  for (let i = 0; i < 5; i++) await chat.send(`turn ${i}`);
+
+  const persisted = sessions.read(chat.getInfo().sessionId);
+  const usageEntries = persisted.entries.filter((e) => e.kind === "usage");
+  // Every turn should have persisted its usage, even after eviction.
+  assert.equal(usageEntries.length, 5, "one usage entry per turn despite ledger eviction");
+  const totalRequests = usageEntries.reduce((sum, e) => sum + e.requests.length, 0);
+  assert.equal(totalRequests, 5, "all 5 usage requests persisted, none lost to eviction");
 });
 
 // ---------------------------------------------------------------------------

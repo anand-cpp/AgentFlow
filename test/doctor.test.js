@@ -104,6 +104,7 @@ test("a reachable gateway is ok", async (t) => {
       ping: async () => ({ ok: true, elapsedMs: 4 }),
       getVersion: async () => ({ currentVersion: "1.2.3" }),
       probeModel: async (_c, model) => ({ model, status: "ok", reachable: true, elapsedMs: 3 }),
+      probeCandidates: () => ["mock-a", "mock-b", "mock-c"],
       listModels: async () => [{ id: "a" }, { id: "b" }],
       detectServers,
     },
@@ -113,6 +114,29 @@ test("a reachable gateway is ok", async (t) => {
   assert.equal(gatewayCheck(h.last).status, "ok");
   assert.equal(h.last.catalogueCount, 2);
   assert.equal(h.last.reachable, 3);
+});
+
+test("a reachable gateway with no configured providers reports no probe instead of failing", async (t) => {
+  const h = harness(t);
+  const code = await h.run(
+    async () => ({ ok: true, elapsedMs: 4 }),
+    {
+      getVersion: async () => ({ currentVersion: "1.2.3" }),
+      probeModel: async () => {
+        throw new Error("doctor must not probe without a configured provider");
+      },
+      probeCandidates: () => [],
+      listModels: async () => [{ id: "a" }],
+    },
+  );
+
+  assert.equal(code, 0);
+  const summary = h.get().summary;
+  const check = summary.checks.find((c) => c.name === "model-probe");
+  assert.equal(check.status, "unconfigured");
+  assert.equal(summary.probed, 0);
+  assert.match(summary.note, /no provider credentials/);
+  assert.match(h.get().text, /no probe ran because no provider is configured/);
 });
 
 test("language servers are reported without failing the command", async (t) => {

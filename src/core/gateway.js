@@ -5,19 +5,37 @@
 // module means every command shares auth, timeout, and error handling.
 
 import { redactDeep } from "../core/redact.js";
+import { parseRetryAfter } from "./rate-limit.js";
 
 export class GatewayError extends Error {
   /**
    * @param {string} [message]
-   * @param {{ status?: number|null, code?: string|null, detail?: *|null }} [opts]
+   * @param {{ status?: number|null, code?: string|null, detail?: *|null, retryAfterMs?: number|null, retryAfter?: string|null, retryAfterSource?: string|null }} [opts]
    */
-  constructor(message, { status, code, detail } = {}) {
+  constructor(message, { status, code, detail, retryAfterMs = null, retryAfter = null, retryAfterSource = null } = {}) {
     super(message);
     this.name = "GatewayError";
     this.status = status ?? null;
     this.code = code ?? null;
     this.detail = detail ?? null;
+    // Provider feedback, when the gateway forwarded it. Kept on the error so
+    // routing can apply a cooldown without re-parsing a response it no longer has.
+    this.retryAfterMs = retryAfterMs ?? null;
+    this.retryAfter = retryAfter ?? null;
+    this.retryAfterSource = retryAfterSource ?? null;
   }
+}
+
+/** Parse a Retry-After header into GatewayError fields, without inventing one. */
+function retryFields(headers, now = Date.now()) {
+  const raw = headers?.get?.("retry-after") ?? null;
+  if (raw == null) return {};
+  const parsed = parseRetryAfter(raw, now);
+  return {
+    retryAfter: raw,
+    retryAfterMs: parsed.ms,
+    retryAfterSource: parsed.source,
+  };
 }
 
 function buildHeaders({ apiKey, json }) {
@@ -74,6 +92,7 @@ async function request(config, pathname, { method = "GET", body, timeoutMs, json
       status: res.status,
       code: err.code || "http_error",
       detail: redactDeep(parsed),
+      ...retryFields(res.headers),
     });
   }
 
@@ -351,6 +370,7 @@ export async function streamComplete(
       status: res.status,
       code: e.code || "http_error",
       detail: redactDeep(parsed),
+      ...retryFields(res.headers),
     });
   }
 

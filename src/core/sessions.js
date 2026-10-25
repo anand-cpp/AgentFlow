@@ -62,12 +62,18 @@ export const ENTRY_KIND = {
   BLACKBOARD_REF: "blackboard_ref",
   CHECKPOINT: "checkpoint",
   TRIBUNAL_RUN: "tribunal_run",
+  ARENA_RUN: "arena_run",
   // Context packets and provider transitions are recorded as entries so a
   // session is a complete, replayable record of a cross-provider handoff: the
   // packet the continuation ran on (context) and the provider/model switch that
   // happened and why (provider_transition).
   CONTEXT: "context",
   PROVIDER_TRANSITION: "provider_transition",
+  // One batch of request observations from the usage ledger. Kept separate from
+  // conversation entries so token/cost evidence can be summarised without
+  // replaying prompts, and so a retry is counted as a request rather than as a
+  // second assistant turn.
+  USAGE: "usage",
 };
 
 const ENTRY_KINDS = new Set(Object.values(ENTRY_KIND));

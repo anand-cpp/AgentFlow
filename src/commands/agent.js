@@ -32,6 +32,9 @@ import { builtinSpecs } from "../core/agents/definitions.js";
 import { AgentRegistry, TOOL_SCOPE } from "../core/agents/registry.js";
 import { AgentRuntime } from "../core/agents/runtime.js";
 import { ProviderHealth } from "../core/provider-health.js";
+import { RollingWindowLimiter, rateLimitsFromRegistry } from "../core/rate-limit.js";
+import { UsageLedger } from "../core/usage-ledger.js";
+import { PROVIDERS } from "../core/gateway-server.js";
 import { resolveWorkspaceRoot } from "../core/agents/workspace.js";
 import { createRealTools } from "../core/agents/real-tools.js";
 import { complete, listModels } from "../core/gateway.js";
@@ -391,6 +394,12 @@ if (!sessionId) {
 // Router and every health read, so a circuit that opens mid-run is visible to
 // the whole run rather than to a copy the CLI cannot reach.
 const health = new ProviderHealth({});
+const limiter = new RollingWindowLimiter({
+  limits: rateLimitsFromRegistry(PROVIDERS),
+  windowMs: config.requestRateWindowMs,
+  maxWaitMs: config.maxRateLimitWaitMs,
+});
+const usageLedger = new UsageLedger({});
 
 // One runtime per run. It builds its own Router from the resolved plan, which is
 // what keeps the health cache alive across iterations of a single task.
@@ -412,6 +421,8 @@ const runtime = new AgentRuntime({
   log,
   config,
   providerHealth: health,
+  limiter,
+  usageLedger,
   approver: makeApprover(flags),
   workspaceRoot: workspace,
   blackboard,
@@ -428,7 +439,7 @@ const result = await runtime.run({
 // hand the exit code back as a resolved promise nobody reads -- and this function
 // would always look like it succeeded.
 await out.init(
-  { agentId: agent.id, task, sessionId, workspace: workspace.describe(), result },
+  { agentId: agent.id, task, sessionId, workspace: workspace.describe(), usage: usageLedger.summary(), result },
   (r) => {
     const res = r.result;
     const lines = [heading(bold(`aflow agent run ${r.agentId}`)), ""];
@@ -445,6 +456,17 @@ await out.init(
     lines.push(
       `${bold("outcome")}  ${facts.join(dim(", "))}   ${dim(`${res.iterations} iteration(s), ${res.toolCalls} tool call(s), ${res.model ?? "no model"}`)}`,
     );
+
+    // Observed, not estimated: the ledger has no token counts unless a provider
+    // returned them, and no cost unless a pricing source was supplied.
+    if (r.usage?.requests) {
+      const tokens =
+        r.usage.tokens.total == null ? "tokens unknown" : `${r.usage.tokens.total} tokens observed`;
+      const cost = r.usage.cost.usd == null ? "cost unknown" : `$${r.usage.cost.usd} observed`;
+      lines.push(
+        `${bold("usage")}    ${r.usage.requests} request(s), ${r.usage.retries} retr${r.usage.retries === 1 ? "y" : "ies"}, ${tokens}, ${cost}`,
+      );
+    }
 
     if (res.error) lines.push(`${bold("error")}     ${red(String(res.error.message ?? res.error))}`);
     // Printed because it is the fact that makes the rest of the output auditable:
