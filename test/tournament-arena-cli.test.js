@@ -115,7 +115,7 @@ const CRUCIBLE_PASS = {
   summary: "the proposal held",
 };
 
-const MERGE = {
+const _MERGE = {
   schema_version: 1,
   decision: "SYNTHESIZED",
   hybrid_solution: {
@@ -241,7 +241,31 @@ function arenaDeps({ failOn = null, unresolved = false, confirm = undefined, log
     // Tribunal stages (the champion's final validation).
     if (/hostile but fair reviewer/.test(system)) return { text: JSON.stringify(SELF_REVIEW) };
     if (/adversarial examiner/.test(system)) return { text: JSON.stringify(CRUCIBLE_PASS) };
-    if (/neutral senior architect/.test(system)) return { text: JSON.stringify(MERGE) };
+    if (/neutral senior architect/.test(system)) {
+      // Extract proposal ID from prompt (format: "### Proposal A (id: cand-1)")
+      const idMatch = prompt.match(/### Proposal [A-Z] \(id: (\S+)\)/);
+      const proposalId = idMatch?.[1] ?? "cand-1";
+      const dynamicMerge = {
+        schema_version: 1,
+        decision: "SYNTHESIZED",
+        hybrid_solution: {
+          content: "THE HYBRID",
+          elements: [
+            {
+              element_id: "e1",
+              source_proposal_ids: [proposalId],
+              rationale: "from the champion",
+              addresses_findings: [],
+            },
+          ],
+        },
+        findings_resolution: [],
+        discarded_elements: [],
+        synthesis_notes: "merged",
+        insufficiency_reason: null,
+      };
+      return { text: JSON.stringify(dynamicMerge) };
+    }
     if (/prosecutor/.test(system)) return { text: JSON.stringify(TRIAL) };
 
     // Oracle stage (no model call, but handle defensively).
@@ -290,9 +314,9 @@ test("a quick arena runs four candidates, then validates the champion through Tr
     const attacks = log.filter((entry) => entry.system === ATTACK_SYSTEM_PROMPT);
     assert.equal(attacks.length, 6);
 
-    assert.match(out.last().text, /final validation/);
+    assert.match(out.last().text, /final validation/i);
     assert.match(out.last().text, /TRIBUNAL FIGHT CARD/);
-    assert.match(out.last().text, /aflow arena/);
+    assert.match(out.last().text, /Arena tournament completed/);
     assert.doesNotMatch(out.last().text, /undefined/);
 
     // Raw judge artifacts live in the match record, not in the bracket state.
