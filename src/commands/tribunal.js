@@ -643,9 +643,9 @@ let proposals = {};
         lines.push(dim(`Champion: ${r.champion} (${r.championModel})`));
         lines.push(dim(`Tournament: ${r.tournament.agents} agents, ${r.tournament.rounds.length} rounds, ${r.tournament.matchesRun} matches`));
         lines.push(dim(`Calls: ${r.calls.generation} generation, ${r.calls.matches} matches`));
-        if (r.validation.result) {
+        if (r.validation.oracle) {
           lines.push("", heading(bold("Final validation")));
-          lines.push(renderFightCard(r.validation.result));
+          lines.push(renderFightCard(r.validation.oracle));
         }
         lines.push("", dim(`Recorded in session ${r.sessionId}`));
         if (r.resumed) lines.push(dim("Resumed from previous run"));
@@ -672,9 +672,9 @@ let proposals = {};
       lines.push(dim(`Champion: ${r.champion} (${r.championModel})`));
       lines.push(dim(`Tournament: ${r.tournament.agents} agents, ${r.tournament.rounds.length} rounds, ${r.tournament.matchesRun} matches`));
       lines.push(dim(`Calls: ${r.calls.generation} generation, ${r.calls.matches} matches`));
-      if (r.validation.result) {
+      if (r.validation.oracle) {
         lines.push("", heading(bold("Final validation")));
-        lines.push(renderFightCard(r.validation.result));
+        lines.push(renderFightCard(r.validation.oracle));
       }
       lines.push("", dim(`Recorded in session ${r.sessionId}`));
       if (r.resumed) lines.push(dim("Resumed from previous run"));
