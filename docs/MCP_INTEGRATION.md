@@ -132,10 +132,38 @@ never turn doctor red.
 
 ## Custom servers
 
-Any process that speaks JSON-RPC 2.0 over stdio works — the integration tests
+Any process that speaks JSON-RPC 2.0 over stdio works â€” the integration tests
 drive a hand-written
 [`test/mcp/fixtures/mock-mcp-server.js`](../test/mcp/fixtures/mock-mcp-server.js)
 through the real manager. To add one, create an executable, emit one JSON-RPC
 response line per request line on stdout, and answer `initialize` with your
 capabilities. `ping` should return an empty result; `shutdown` should exit
 cleanly.
+
+## Secret redaction
+
+Before any tool argument is transmitted to an MCP server, values whose keys
+contain `key`, `secret`, or `token` (case-insensitive) are replaced with
+`***REDACTED***`. This applies at both the CLI level (`aflow mcp call`) and
+the agent runtime. The redaction happens on the client side before JSON-RPC
+transmission, preventing accidental credential exposure in logs or transcripts.
+
+## Argument schema validation
+
+Every tool's `inputSchema` (as returned by `tools/list`) is enforced at call
+time. If the caller supplies arguments that violate the schema (missing required
+fields, wrong types, enum violations), the call fails fast with a descriptive
+error before the request is sent to the server. If a tool has no
+`inputSchema`, any JSON-serializable arguments are accepted.
+
+## Enhanced error handling
+
+- **Schema validation errors** throw before the JSON-RPC request is sent, with a
+  clear message about the missing or invalid argument.
+- **Unknown tool errors** (`unknown tool: mcp__<server>__<tool>`) are returned
+  when the tool was not discovered (server failed to initialize or tools were
+  not listed).
+- **Tool-level errors** (`isError: true`) always surface as thrown errors in the
+  agent runtime, never silent passes.
+- **Timeout errors** (`${method} timed out after Nms`) are returned if the
+  server does not respond within the configured deadline.
