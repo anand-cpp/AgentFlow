@@ -40,11 +40,16 @@ export function configuredProviders(providers = PROVIDERS, env = process.env) {
 /**
  * Flatten PROVIDERS into picker items, local first then alphabetically.
  *
+ * Each item includes a `status` field that explicitly indicates the
+ * credential/configuration state: "configured" means the provider has
+ * at least one environment key present; "unconfigured" means none are
+ * present; "available" is used for the local ollama provider.
+ *
  * @param {object} [options]
  * @param {Set<string>|string[]} [options.configured]  Providers with credentials.
  * @param {string|null} [options.currentModel]         Active `provider/model` id.
  * @param {object} [options.providers]                 Override the registry (tests).
- * @returns {Array<{label:string,value:string,description:string,disabled:boolean,provider:string,local:boolean}>}
+ * @returns {Array<{label:string,value:string,description:string,disabled:boolean,provider:string,local:boolean,status:string}>}
  */
 export function buildModelItems(options = {}) {
   const providers = options.providers || PROVIDERS;
@@ -61,7 +66,8 @@ export function buildModelItems(options = {}) {
   });
 
   for (const [provider, spec] of entries) {
-    const enabled = configured.size === 0 || configured.has(provider);
+    const hasConfig = configured.size === 0 || configured.has(provider);
+    const status = provider === LOCAL_PROVIDER ? "available" : (hasConfig ? "configured" : "unconfigured");
     for (const model of spec.models || []) {
       const id = `${provider}/${model}`;
       const bits = [];
@@ -73,22 +79,24 @@ export function buildModelItems(options = {}) {
         label: `${prefix}${model}`,
         value: id,
         description: `${spec.label} · ${bits.join(" · ")}`,
-        disabled: !enabled,
+        disabled: !hasConfig,
         provider,
         local: provider === LOCAL_PROVIDER,
+        status,
       });
     }
     // Ollama advertises zero fixed models (they are whatever is pulled); give it
     // a placeholder row so local users are not left with an empty group.
     if ((spec.models || []).length === 0 && spec.label) {
-      const enabled2 = configured.size === 0 || configured.has(provider);
+      const hasConfig2 = configured.size === 0 || configured.has(provider);
       items.push({
         label: `  (any pulled model)`,
         value: `${provider}/`,
         description: `${spec.label} · auto`,
-        disabled: !enabled2,
+        disabled: !hasConfig2,
         provider,
         local: provider === LOCAL_PROVIDER,
+        status: provider === LOCAL_PROVIDER ? "available" : (hasConfig2 ? "configured" : "unconfigured"),
       });
     }
   }
