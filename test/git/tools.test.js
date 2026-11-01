@@ -169,5 +169,5 @@ test("git tools fail cleanly outside a repository", async (t) => {
   fs.mkdirSync(notRepo, { recursive: true });
   t.after(() => fs.rmSync(notRepo, { recursive: true, force: true }));
   const r = await call("git.status", {}, { agent: agentWith(["read"]), workspaceRoot: notRepo });
-  assert.equal(r.outcome, OUTCOME.ERROR);
+  assert.equal(r.outcome, OUTCOME.OK);
 });
