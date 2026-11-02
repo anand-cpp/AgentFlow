@@ -125,5 +125,15 @@ export async function getDocumentSymbols(client, filePath, { timeoutMs } = {}) {
   return out;
 }
 
-export default { getHover, getDefinition, getCompletions, getDocumentSymbols, formatHover, normaliseLocation };
+export async function getReferences(client, filePath, line, character, { timeoutMs } = {}) {
+  const result = await client.request("textDocument/references", docPos(filePath, line, character), { timeoutMs });
+  const items = Array.isArray(result) ? result : result ?? [];
+  return items.map((item) => ({
+    file: uriToPath(item.uri ?? item.targetUri ?? ""),
+    line: item.range?.start?.line ?? 0,
+    character: item.range?.start?.character ?? 0,
+  }));
+}
+
+export default { getHover, getDefinition, getCompletions, getDocumentSymbols, formatHover, normaliseLocation, getReferences };
 

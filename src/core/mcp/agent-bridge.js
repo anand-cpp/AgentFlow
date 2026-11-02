@@ -57,7 +57,8 @@ export function adaptTool(entry) {
       if (res?.isError) {
         throw new Error(contentToText(res?.content) || "MCP tool reported an error");
       }
-      },
+      return contentToText(res?.content);
+    },
     // metadata so runtime bridge can route back
     _mcp: { server: entry.server, tool: entry.name, bridge: entry.bridge },
   };

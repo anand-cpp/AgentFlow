@@ -90,7 +90,7 @@ test("discovered MCP tools execute inside a real agent run", async (t) => {
   const echoEntry = result.toolResults.find((r) => r.tool === "mcp__mock__echo");
   assert.ok(echoEntry);
   assert.equal(echoEntry.outcome, "ok");
-  assert.match(echoEntry.output?.text, /echo: through the runtime/);
+  assert.match(echoEntry.output, /echo: through the runtime/);
   void tools;
 });
 

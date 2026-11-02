@@ -110,12 +110,12 @@ export function scrubEnv(env = process.env) {
  * The scope prefix is matched against the known vocabulary rather than split on
  * the first colon, so `network:https://api.example.com` keeps its URL intact.
  */
-const ENTRY_RE = new RegExp(`^(${Object.values(TOOL_SCOPE).join("|")}):(.+)$`);
+const ENTRY_RE = new RegExp(`^(${Object.values(TOOL_SCOPE).join("|")}):?(.+)?$`);
 
 export function parseEntry(entry) {
   const m = ENTRY_RE.exec(String(entry ?? "").trim());
   if (!m) return null;
-  return { scope: m[1], value: m[2].trim() };
+  return { scope: m[1], value: m[2] ? m[2].replace(/^:/, "").trim() : undefined };
 }
 
 function tokenize(command) {
@@ -193,6 +193,10 @@ function entryMatches(entry, call, toolScope) {
 
   if (entry.scope === TOOL_SCOPE.READ || entry.scope === TOOL_SCOPE.SEARCH || entry.scope === TOOL_SCOPE.WRITE) {
     return pathWithin(entry.value, String(args.path || ""));
+  }
+
+  if (entry.scope === TOOL_SCOPE.MCP) {
+    return true;
   }
 
   // An unknown scope has no matching semantics, so it authorises nothing.

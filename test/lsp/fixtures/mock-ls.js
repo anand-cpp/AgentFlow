@@ -84,13 +84,24 @@ function handle(message) {
     case "textDocument/hover":
       send({ jsonrpc: "2.0", id, result: { contents: { kind: "markdown", value: "**mock hover**" } } });
       break;
-    case "textDocument/definition":
+case "textDocument/definition":
       send({
         jsonrpc: "2.0",
         id,
         result: { uri: params.textDocument.uri, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } } },
       });
       break;
+    case "textDocument/references": {
+      const text = docs.get(params.textDocument.uri) ?? "";
+      const idx = typeof text === "string" ? text.indexOf("REF") : -1;
+      const line = idx !== -1 ? text.slice(0, idx).split("\n").length - 1 : 0;
+      send({
+        jsonrpc: "2.0",
+        id,
+        result: [{ uri: params.textDocument.uri, range: { start: { line, character: 0 }, end: { line, character: 5 } } }],
+      });
+      break;
+    }
     case "textDocument/completion":
       send({ jsonrpc: "2.0", id, result: { isIncomplete: false, items: [{ label: "mockSymbol", kind: 6, detail: "mock" }] } });
       break;
