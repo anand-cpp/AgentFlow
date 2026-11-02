@@ -44,7 +44,7 @@ export function contentToText(content) {
 export function adaptTool(entry) {
   return {
     name: entry.fullName,
-    scope: TOOL_SCOPE.READ,
+    scope: TOOL_SCOPE.MCP,
     description: `[mcp:${entry.server}] ${entry.description || entry.name}`,
     inputSchema: entry.inputSchema || { type: "object", properties: {} },
     resultSchema: { type: "object" },
@@ -57,8 +57,7 @@ export function adaptTool(entry) {
       if (res?.isError) {
         throw new Error(contentToText(res?.content) || "MCP tool reported an error");
       }
-      return { text: contentToText(res?.content), raw: res };
-    },
+      },
     // metadata so runtime bridge can route back
     _mcp: { server: entry.server, tool: entry.name, bridge: entry.bridge },
   };
