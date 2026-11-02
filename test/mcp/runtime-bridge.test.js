@@ -52,7 +52,7 @@ test("discovered MCP tools execute inside a real agent run", async (t) => {
 
   const tools = await bridge.discoverTools();
   assert.ok(tools.has("mcp__mock__echo"));
-  assert.equal(tools.get("mcp__mock__echo").scope, TOOL_SCOPE.READ);
+  assert.equal(tools.get("mcp__mock__echo").scope, TOOL_SCOPE.MCP);
 
   const prompts = [];
   const complete = async (_c, modelId, prompt) => {
@@ -70,7 +70,7 @@ test("discovered MCP tools execute inside a real agent run", async (t) => {
     id: "assistant",
     purpose: "use MCP tools",
     instructions: "You can call namespaced MCP tools.",
-    tools: { scopes: [TOOL_SCOPE.READ], allow: ["read:*"] },
+    tools: { scopes: [TOOL_SCOPE.READ, TOOL_SCOPE.MCP], allow: ["read:*", "mcp"] },
   });
   const runtime = new AgentRuntime({
     registry: new AgentRegistry([agent]),
@@ -114,7 +114,7 @@ test("a server failure is contained: the run reports it, not a crash", async (t)
     id: "assistant",
     purpose: "attempt tools",
     instructions: "Try MCP tools.",
-    tools: { scopes: [TOOL_SCOPE.READ], allow: ["read:*"] },
+    tools: { scopes: [TOOL_SCOPE.READ, TOOL_SCOPE.MCP], allow: ["read:*", "mcp"] },
   });
   let calls = 0;
   const complete = async (_c, modelId) => {

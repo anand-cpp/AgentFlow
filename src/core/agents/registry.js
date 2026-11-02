@@ -56,6 +56,7 @@ export const TOOL_SCOPE = {
   TEST: "test",
   PACKAGE: "package",
   RELEASE: "release",
+  MCP: "mcp",
 };
 
 const TOOL_SCOPES = new Set(Object.values(TOOL_SCOPE));
