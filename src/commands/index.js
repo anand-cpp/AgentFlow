@@ -112,10 +112,6 @@ defineCommandMeta("todo", {
   summary: "persistent task tracking for development tasks",
   valueFlags: ["list", "task", "title"],
 });
-defineCommandMeta("skill-scan", {
-  summary: "scan a skill source with SkillSpector before activation",
-  valueFlags: [],
-});
 defineCommandMeta("tribunal", {
   summary: "run the five-stage self-adversarial tribunal on a proposal",
   valueFlags: ["prompt", "domain", "models", "model", "limit", "retries", "state-dir", "project", "record", "tribunal", "depth"],
