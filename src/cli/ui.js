@@ -35,11 +35,49 @@ const CODES = {
   bgGray: 100,
 };
 
+// ── Hex / 256-color support ─────────────────────────────────────────────
+
+/** Parse a hex color string "#RRGGBB" into [r, g, b]. Returns null if invalid. */
+function parseHex(color) {
+  const m = String(color).match(/^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/);
+  if (!m) return null;
+  return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+}
+
+/** Convert an RGB triple to the nearest ANSI 256-color index. */
+function rgbToAnsi256(r, g, b) {
+  // Greyscale ramp: 232-255
+  if (r === g && g === b) {
+    if (r < 8) return 16;
+    if (r > 248) return 231;
+    return Math.round((r - 8) / 247 * 24) + 232;
+  }
+  // Colour cube: 16-231 (6×6×6)
+  return 16 +
+    Math.round(r / 255 * 5) * 36 +
+    Math.round(g / 255 * 5) * 6 +
+    Math.round(b / 255 * 5);
+}
+
+/** Resolve a style spec to an ANSI SGR parameter string. */
+function resolveStyle(spec) {
+  if (typeof spec !== "string") return null;
+  const named = CODES[spec];
+  if (named !== undefined) return String(named);
+  // Hex color → foreground 38;5;<index>
+  const rgb = parseHex(spec);
+  if (rgb) return `38;5;${rgbToAnsi256(rgb[0], rgb[1], rgb[2])}`;
+  // ANSI 256 index given as a bare number string
+  const idx = Number(spec);
+  if (!isNaN(idx) && idx >= 0 && idx <= 255) return `38;5;${idx}`;
+  return null;
+}
+
 export function paint(text, ...styles) {
   if (!colorEnabled) return String(text);
   const codes = styles
-    .map((s) => CODES[s])
-    .filter((c) => c !== undefined)
+    .map((s) => resolveStyle(s))
+    .filter((c) => c !== null)
     .join(";");
   if (!codes) return String(text);
   return `\u001b[${codes}m${text}\u001b[0m`;

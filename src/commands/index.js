@@ -35,6 +35,10 @@ defineCommandMeta("chat", {
 defineCommandMeta("config", {
   summary: "show effective configuration and where each value came from",
 });
+defineCommandMeta("connectors", {
+  summary: "browse and connect to 100+ AI model providers",
+  valueFlags: ["filter", "provider", "connect"],
+});
 defineCommandMeta("dashboard", {
   summary: "open the interactive terminal dashboard",
   valueFlags: ["interval"],
@@ -95,6 +99,17 @@ defineCommandMeta("setup", {
 });
 defineCommandMeta("status", {
   summary: "show gateway health and version",
+});
+defineCommandMeta("tui", {
+  summary: "launch the interactive full-screen terminal workspace",
+});
+defineCommandMeta("security", {
+  summary: "security orchestration — scans, findings, remediation, delivery gate",
+  valueFlags: ["target", "timeout-ms", "profile"],
+});
+defineCommandMeta("todo", {
+  summary: "persistent task tracking for development tasks",
+  valueFlags: ["list", "task", "title"],
 });
 defineCommandMeta("tribunal", {
   summary: "run the five-stage self-adversarial tribunal on a proposal",
