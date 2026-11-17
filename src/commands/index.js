@@ -11,7 +11,7 @@
 // spec (including `run`) through `defineCommand` when it is imported.
 
 import { defineCommandMeta, loadCommand } from "../cli/registry.js";
-import "./commands/skill-scan.js";
+import "./skill-scan.js";
 
 defineCommandMeta("agent", {
   summary: "run and inspect the built-in agents",
