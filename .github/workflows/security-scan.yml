@@ -1,0 +1,50 @@
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 2 * * *"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      - name: Install Trivy
+        run: |
+          wget -qO- https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_linux_amd64.tar.gz | tar xz -C /tmp
+          sudo mv /tmp/trivy /usr/local/bin/
+
+      - name: Run Semgrep security scan
+        run: semgrep --config p/security-audit --timeout 120 . || true
+
+      - name: Run Trivy filesystem scan
+        run: trivy fs --skip-dirs node_modules,.git,dist,build --format json --output trivy-scan-results.json . || true
+
+      - name: Upload scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-scan-results
+          path: trivy-scan-results.json
+          retention-days: 7
