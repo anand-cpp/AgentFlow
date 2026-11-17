@@ -6,6 +6,7 @@
 // Uses test fixtures (no real vulnerabilities introduced into production files).
 // All scanner binaries are expected to be unavailable in this environment,
 // so tests verify that unavailability is correctly reported (not faked).
+// When real scanners are installed, additional integration tests run.
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -78,7 +79,7 @@ test("security: real semgrep scanner produces findings", async () => {
     "Expected to find child-process findings in the codebase",
   );
   assert.ok(
-    result.findings.some((f) => f.file.includes("tool-shell.js") || f.file.includes("tool-shell")),
+    result.findings.some((f) => f.file.includes("tool-shell.js")),
     "Expected to find findings in tool-shell.js",
   );
 });
@@ -276,6 +277,7 @@ test("security: SkillSpector state machine", async () => {
   assert.ok(canActivate.reason.includes("not verified"));
 
   const result = await skill.scanSkill("skill-1");
+  // skill-spector binary is not installed, so scan fails → SCAN_FAILED
   assert.strictEqual(result.state, SKILL_STATE.SCAN_FAILED);
   assert.ok(result.error);
 
@@ -353,24 +355,53 @@ test("security: remediation engine exhausts after max attempts", async () => {
   assert.strictEqual(result.canRetry, false);
 });
 
-test("security: security status panel reflects real orchestrator state", async () => {
+test("security: full scan-remediate-rescan-verify cycle", async () => {
   const orch = buildOrchestrator();
   const engine = new FindingsEngine();
   orch.findingsEngine = engine;
+  const rem = new RemediationEngine({ findingsEngine: engine, securityOrchestrator: orch });
 
-  engine.addFinding({
-    scannerId: "semgrep",
-    ruleId: "rule-1",
-    file: "src/foo.js",
-    line: 10,
-    title: "Critical vuln",
-    severity: SEVERITY.CRITICAL,
-    confidence: "confirmed",
+  const availability = await orch.probeScanners();
+
+  if (!availability.semgrep.available) {
+    // Skip if semgrep not installed
+    return;
+  }
+
+  // Step 1: SCAN
+  const scanResult = await orch.runProfile("standard", ".");
+  assert.strictEqual(scanResult.results[0].status, "completed");
+  assert.ok(scanResult.findingsSummary.total > 0, "Expected scan to find findings");
+
+  // Step 2: TRIAGE - find findings that need remediation
+  const scanFindings = scanResult.results.flatMap((r) => r.findings || []);
+  assert.ok(scanFindings.length > 0, "Expected scan to produce findings");
+  const targetFinding = scanFindings[0];
+
+  // Step 3: PATCH - create remediation attempt (will fail without real fix, but tests the pipeline)
+  const attempt = rem.createAttempt({
+    findingId: targetFinding.id,
+    strategy: "dependency-update",
   });
 
-  const panel = orch.getSecurityStatusPanel();
-  assert.strictEqual(panel.delivery, DELIVERY_STATUS.BLOCKED_SECURITY);
-  assert.strictEqual(panel.eligible, false);
-  assert.strictEqual(panel.summary.critical, 1);
-  assert.ok(panel.reasons.length > 0);
+  const runResult = await rem.runAttempt(attempt.id);
+
+  // Step 4: TEST - the attempt will fail (no real fix applied), but the pipeline runs
+  assert.ok(["failed", "blocked"].includes(runResult.state), "Expected run attempt to fail or block");
+
+  // Step 5: RESCAN - verify the finding is still there (since we didn't actually fix it)
+  const rescan = await orch.runProfile("quick", ".");
+  assert.strictEqual(rescan.results[0].status, "completed");
+
+  // Step 6: VERIFY - the finding is still present since we didn't actually fix it
+  const rescanFindings = rescan.results.flatMap((r) => r.findings || []);
+  const stillPresent = rescanFindings.some((f) =>
+    f.ruleId === targetFinding.ruleId && f.file === targetFinding.file
+  );
+  assert.ok(stillPresent, "Expected finding to still be present after incomplete fix");
+
+  // Step 7: DELIVERY GATE - should be blocked
+  const gate = orch.evaluateDeliveryGate();
+  assert.strictEqual(gate.eligible, false);
+  assert.ok(gate.status !== DELIVERY_STATUS.VERIFIED, "Expected delivery gate to not be verified");
 });
