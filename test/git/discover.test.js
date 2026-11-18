@@ -17,7 +17,7 @@ import {
   resolveInRoot,
   validatePaths,
 } from "../../src/core/git/discover.js";
-import { tmpdir, initRepo, ctxFor } from "./helpers.js";
+import { initRepo, ctxFor } from "./helpers.js";
 
 test("findGitRoot walks up to the repository root", async (t) => {
   const repo = initRepo(t);

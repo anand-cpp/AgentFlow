@@ -7,31 +7,27 @@
 // orchestrator and todo engine state.
 
 import { defineCommand } from "../cli/registry.js";
-import { Output } from "../cli/output.js";
-import { bold, dim, red } from "../cli/ui.js";
+import { dim } from "../cli/ui.js";
 import {
   renderWorkspaceLines,
   initialWorkspaceState,
 } from "../tui/workspace.js";
-import { terminalDims } from "../tui/layout.js";
-import { setTheme, listThemeIds, getActiveTheme } from "../tui/theme-engine.js";
-import { selectFromList, textInput, confirm } from "../tui/interact.js";
+import { setTheme, listThemeIds } from "../tui/theme-engine.js";
+import { selectFromList } from "../tui/interact.js";
 import {
   createDefaultCommands,
-  renderPalette,
   filterCommands,
-  PaletteCommand,
 } from "../tui/command-palette.js";
 import { SecurityOrchestrator, SCAN_PROFILES } from "../security/orchestrator.js";
 import { SemgrepScanner } from "../security/scanners/semgrep.js";
 import { OsvScanner } from "../security/scanners/osv.js";
 import { TrivyScanner } from "../security/scanners/trivy.js";
 import { TodoEngine } from "../security/todo.js";
-import { ModeRegistry, nextMode, MODE, MODE_PRIVILEGE, MODE_DESCRIPTIONS } from "../core/modes/index.js";
+import { ModeRegistry, nextMode, MODE_PRIVILEGE, MODE_DESCRIPTIONS } from "../core/modes/index.js";
 
 const TTY = process.stdout.isTTY && process.stdin.isTTY;
 
-export async function run({ args, flags, config, out }) {
+export async function run({ out }) {
   if (!TTY) {
     out.error("aflow tui requires an interactive terminal (stdout is not a TTY)");
     out.error(dim("Use `aflow chat`, `aflow route`, `aflow doctor`, etc. instead."));
@@ -46,12 +42,6 @@ export async function run({ args, flags, config, out }) {
 
   // Build the real todo engine linked to the orchestrator
   const todoEngine = new TodoEngine({ securityOrchestrator: orch });
-
-  // Generate an initial backend-style task list so the TODO panel has content
-  const taskList = todoEngine.generateTaskList("backend", {
-    source: "cli",
-    projectRoot: process.cwd(),
-  });
 
   const state = initialWorkspaceState();
   state.securityOrchestrator = orch;
@@ -134,7 +124,7 @@ export async function run({ args, flags, config, out }) {
   let running = true;
 
   const draw = () => {
-    const lines = renderWorkspaceLines(state, dims);
+    const lines = renderWorkspaceLines(state, dim);
     process.stdout.write("\u001b[H" + lines.join("\n"));
   };
 

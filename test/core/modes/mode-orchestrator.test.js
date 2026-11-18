@@ -4,10 +4,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ModeRegistry, ModeRuntime, ModeOrchestrator } from "../../../src/core/modes/index.js";
-import { MODE } from "../../../src/core/modes/index.js";
 import { SubtaskResult, OrchestrationResult } from "../../../src/core/modes/index.js";
 
-function makeComplete(planText) {
+function makeComplete() {
   let callCount = 0;
   return async (_config, _modelId, _prompt, _opts) => {
     callCount += 1;

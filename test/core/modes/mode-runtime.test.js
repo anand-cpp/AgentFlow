@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ModeRegistry, ModeRuntime } from "../../../src/core/modes/index.js";
-import { MODE } from "../../../src/core/modes/index.js";
 
 /** Minimal complete function that returns a canned response. */
 function makeComplete(responseText) {

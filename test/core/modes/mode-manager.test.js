@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ModeRegistry, VALID_MODES } from "../../../src/core/modes/index.js";
-import { MODE } from "../../../src/core/modes/index.js";
 
 // Minimal event log stub
 class EventLogStub {
