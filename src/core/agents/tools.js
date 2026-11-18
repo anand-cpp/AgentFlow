@@ -115,7 +115,9 @@ const ENTRY_RE = new RegExp(`^(${Object.values(TOOL_SCOPE).join("|")}):?(.+)?$`)
 export function parseEntry(entry) {
   const m = ENTRY_RE.exec(String(entry ?? "").trim());
   if (!m) return null;
-  return { scope: m[1], value: m[2] ? m[2].replace(/^:/, "").trim() : undefined };
+  const value = m[2] ? m[2].replace(/^:/, "").trim() : undefined;
+  if (!value) return null;
+  return { scope: m[1], value };
 }
 
 function tokenize(command) {
