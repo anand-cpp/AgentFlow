@@ -8,6 +8,7 @@ import crypto from "node:crypto";
 import { createInvitationToken } from "./session.js";
 
 const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes default
+const NONCE_TTL_MS = 5 * 60 * 1000; // nonces expire after 5 minutes
 
 /** Worker identity. */
 export function createWorkerIdentity({ workerId, sessionId, publicKey = null } = {}) {
@@ -74,11 +75,56 @@ export function createNonce() {
   return crypto.randomBytes(16).toString("hex");
 }
 
+/**
+ * NonceTracker — replay protection for worker requests.
+ *
+ * Tracks used nonces so each nonce can only be accepted once within its TTL.
+ * Expired nonces are garbage-collected on check.
+ */
+export class NonceTracker {
+  constructor({ ttlMs = NONCE_TTL_MS } = {}) {
+    this.ttlMs = ttlMs;
+    this._nonces = new Map(); // nonce -> expiry timestamp
+  }
+
+  /** Record a nonce as used. Returns false if the nonce was already used. */
+  use(nonce, now = Date.now()) {
+    if (this._nonces.has(nonce)) return false;
+    this._nonces.set(nonce, now + this.ttlMs);
+    return true;
+  }
+
+  /** Check whether a nonce is fresh (not yet used). Does not mark it as used. */
+  isFresh(nonce, _now = Date.now()) {
+    if (this._nonces.has(nonce)) return false;
+    return true;
+  }
+
+  /** Garbage-collect expired nonces. Returns the count removed. */
+  gc(now = Date.now()) {
+    let removed = 0;
+    for (const [nonce, expiry] of this._nonces) {
+      if (now > expiry) {
+        this._nonces.delete(nonce);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
+  /** Number of tracked (non-expired) nonces. */
+  size(now = Date.now()) {
+    this.gc(now);
+    return this._nonces.size;
+  }
+}
+
 export default {
   createWorkerIdentity,
   issueInvitation,
   validateInvitation,
   revokeInvitation,
   createNonce,
+  NonceTracker,
   TOKEN_TTL_MS,
 };
