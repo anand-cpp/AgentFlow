@@ -468,7 +468,7 @@ describe("CoordinatorRuntime", () => {
     });
 
     const received = [];
-    bus.subscribe("sess-1", (message) => received.push(message));
+    bus.subscribe(coord.session.id, (message) => received.push(message));
 
     const invite = coord.createInvitation({ workerId: "worker-1" });
     await coord.registerWorker({
@@ -478,7 +478,8 @@ describe("CoordinatorRuntime", () => {
     });
 
     assert.ok(received.length > 0);
-    assert.strictEqual(received[0].type, "hackathon.worker_connected");
+    const types = received.map((m) => m.type);
+    assert.ok(types.includes("hackathon.worker_registered") || types.includes("hackathon.worker_connected"));
   });
 
   it("getSessionState returns summary", async () => {

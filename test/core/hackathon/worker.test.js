@@ -31,7 +31,7 @@ describe("WorkerRuntime", () => {
     const worker = new WorkerRuntime({
       workerId: "worker-1",
       sessionId: coord.session.id,
-      coord,
+      coordinator: coord,
     });
 
     const invite = coord.createInvitation({ workerId: "worker-1" });
@@ -61,7 +61,7 @@ describe("WorkerRuntime", () => {
     const worker = new WorkerRuntime({
       workerId: "worker-1",
       sessionId: coord.session.id,
-      coord,
+      coordinator: coord,
     });
     const invite = coord.createInvitation({ workerId: "worker-1" });
     await worker.register({ invitationToken: invite.data.token });
@@ -82,7 +82,8 @@ describe("WorkerRuntime", () => {
     });
     assert.strictEqual(receive.ok, true);
 
-    const task = worker.getCurrentTask();
+    const task = worker.getTasks().find((t) => t.taskId === "task-1");
+    assert.ok(task);
     assert.strictEqual(task.taskId, "task-1");
     assert.strictEqual(task.state, "assigned");
 
@@ -102,7 +103,7 @@ describe("WorkerRuntime", () => {
     const worker = new WorkerRuntime({
       workerId: "worker-1",
       sessionId: coord.session.id,
-      coord,
+      coordinator: coord,
     });
     const invite = coord.createInvitation({ workerId: "worker-1" });
     await worker.register({ invitationToken: invite.data.token });
@@ -143,7 +144,7 @@ describe("WorkerRuntime", () => {
     const worker = new WorkerRuntime({
       workerId: "worker-1",
       sessionId: coord.session.id,
-      coord,
+      coordinator: coord,
     });
     const invite = coord.createInvitation({ workerId: "worker-1" });
     await worker.register({ invitationToken: invite.data.token });
@@ -184,6 +185,20 @@ describe("WorkerRuntime", () => {
       workerId: "worker-1",
       sessionId: "sess-1",
     });
+    await worker.receiveTask({
+      task: {
+        taskId: "task-1",
+        title: "A",
+        objective: "a",
+        assignedWorkerId: "worker-1",
+        requiredCapabilities: [],
+        dependencies: [],
+        requiredTests: [],
+        filesOwned: [],
+      },
+      leaseId: "lease-1",
+    });
+    await worker.acceptTask({ taskId: "task-1" });
     const result = await worker.reportBlocked({
       taskId: "task-1",
       reason: "waiting on dependency",
@@ -214,7 +229,7 @@ describe("WorkerRuntime", () => {
     const worker = new WorkerRuntime({
       workerId: "worker-1",
       sessionId: coord.session.id,
-      coord,
+      coordinator: coord,
     });
     const invite = coord.createInvitation({ workerId: "worker-1" });
     await worker.register({ invitationToken: invite.data.token });

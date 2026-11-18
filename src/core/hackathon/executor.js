@@ -102,9 +102,11 @@ export class SessionExecutor {
 
     // Periodic dispatch tick: schedule ready tasks to available workers.
     this._dispatchTimer = setInterval(() => this._dispatchTick(), this.dispatchIntervalMs);
+    this._dispatchTimer.unref?.();
 
     // Periodic lease expiry check.
     this._leaseTimer = setInterval(() => this._leaseCheckTick(), this.leaseCheckIntervalMs);
+    this._leaseTimer.unref?.();
 
     // Run an initial dispatch immediately.
     this._dispatchTick();

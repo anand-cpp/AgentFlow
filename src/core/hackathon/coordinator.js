@@ -125,6 +125,9 @@ export class CoordinatorRuntime {
 
     // Record in session event history (bounded).
     if (this.session) {
+      if (!Array.isArray(this.session.events)) {
+        this.session.events = [];
+      }
       this.session.events.push(event.toJSON());
       const MAX_EVENTS = 1000;
       if (this.session.events.length > MAX_EVENTS) {
@@ -394,6 +397,8 @@ export class CoordinatorRuntime {
     const timer = setTimeout(() => {
       this._checkWorkerHeartbeat(workerId);
     }, this.heartbeatTimeoutMs);
+    // unref so the monitor timer does not keep the process alive after tests exit.
+    timer.unref?.();
     this._heartbeatTimers.set(workerId, timer);
   }
 

@@ -166,6 +166,7 @@ export class WorkerRuntime {
     this._heartbeatTimer = setInterval(async () => {
       await this._sendHeartbeat();
     }, this.heartbeatIntervalMs);
+    this._heartbeatTimer.unref?.();
   }
 
   /** Stop the heartbeat loop. */
