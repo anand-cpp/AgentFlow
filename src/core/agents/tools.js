@@ -116,7 +116,9 @@ export function parseEntry(entry) {
   const m = ENTRY_RE.exec(String(entry ?? "").trim());
   if (!m) return null;
   const value = m[2] ? m[2].replace(/^:/, "").trim() : undefined;
-  if (!value) return null;
+  // MCP scope entries with empty value match all MCP tools; other scopes
+  // require a non-empty value (e.g. "read:" is invalid but "mcp" means all).
+  if (!value && m[1] !== TOOL_SCOPE.MCP) return null;
   return { scope: m[1], value };
 }
 
@@ -151,7 +153,7 @@ function pathWithin(parent, child) {
   };
   const a = segments(parent);
   const b = segments(child);
-  if (!b.length) return false;
+  if (!b.length) return true; // empty child path is within any parent
   if (b.length < a.length) return false;
   return a.every((seg, i) => b[i] === seg);
 }
