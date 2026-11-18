@@ -33,7 +33,7 @@ jobs:
 
       - name: Install Trivy
         run: |
-          wget -qO- https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_linux_amd64.tar.gz | tar xz -C /tmp
+          wget -qO- https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz | tar xz -C /tmp
           sudo mv /tmp/trivy /usr/local/bin/
 
       - name: Run Semgrep security scan

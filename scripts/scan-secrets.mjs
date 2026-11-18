@@ -40,6 +40,7 @@ const ALLOWLIST = new Set([
   path.normalize("test/redact.test.js"),
   path.normalize("test/redact-edgecases.test.js"),
   path.normalize("test/gateway-client.test.js"),
+  path.normalize("test/security/fixtures/insecure-code.js"),
   "scripts/scan-secrets.mjs",
   "SECURITY.md",
   "THIRD_PARTY_NOTICES.md",
