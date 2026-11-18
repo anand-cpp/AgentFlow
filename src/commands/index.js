@@ -13,6 +13,7 @@
 import { defineCommandMeta, loadCommand } from "../cli/registry.js";
 import "./skill-scan.js";
 import "./mode.js";
+import "./hackathon.js";
 
 defineCommandMeta("agent", {
   summary: "run and inspect the built-in agents",
@@ -120,6 +121,10 @@ defineCommandMeta("tribunal", {
 defineCommandMeta("fight", {
   summary: "alias for: aflow tribunal run",
   valueFlags: ["prompt", "domain", "models", "model", "limit", "retries", "state-dir", "project", "record", "tribunal"],
+});
+defineCommandMeta("hackathon", {
+  summary: "distributed multi-computer coordination (Hackathon Mode)",
+  valueFlags: ["leader-id", "workspace"],
 });
 
 export { loadCommand };
