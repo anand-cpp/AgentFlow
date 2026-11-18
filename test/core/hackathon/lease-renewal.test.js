@@ -34,6 +34,9 @@ describe("Lease renewal", () => {
     assert.ok(lease1);
     const originalExpiry = lease1.expiresAt;
 
+    // Force at least 1ms between creation and renewal so timestamps differ.
+    await new Promise((resolve) => setTimeout(resolve, 1));
+
     // Renew the lease.
     const renewed = await coord.renewLease({ taskId: "task-1", workerId: "worker-1" });
     assert.strictEqual(renewed.ok, true);

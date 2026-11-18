@@ -122,10 +122,6 @@ defineCommandMeta("fight", {
   summary: "alias for: aflow tribunal run",
   valueFlags: ["prompt", "domain", "models", "model", "limit", "retries", "state-dir", "project", "record", "tribunal"],
 });
-defineCommandMeta("hackathon", {
-  summary: "distributed multi-computer coordination (Hackathon Mode)",
-  valueFlags: ["leader-id", "workspace"],
-});
 
 export { loadCommand };
 export { defineCommand, getCommand, getCommands, commandNames, valueFlagNames } from "../cli/registry.js";

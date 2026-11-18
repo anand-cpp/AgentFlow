@@ -62,7 +62,6 @@ describe("Coordinator recovery integration", () => {
     const sessionId = coord1.session.id;
 
     // Phase 2: Simulate leader restart - recover from disk.
-    const coord2 = new CoordinatorRuntime({ stateDir: dir });
     const result = await recoverCoordinator({
       stateDir: dir,
       sessionId,
