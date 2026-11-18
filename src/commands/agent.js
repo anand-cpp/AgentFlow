@@ -31,6 +31,7 @@ import { defineCommand } from "../cli/registry.js";
 import { builtinSpecs } from "../core/agents/definitions.js";
 import { AgentRegistry, TOOL_SCOPE } from "../core/agents/registry.js";
 import { AgentRuntime } from "../core/agents/runtime.js";
+import { ModeRegistry, ModeRuntime, getDefaultMode } from "../core/modes/index.js";
 import { ProviderHealth } from "../core/provider-health.js";
 import { RollingWindowLimiter, rateLimitsFromRegistry } from "../core/rate-limit.js";
 import { UsageLedger } from "../core/usage-ledger.js";
@@ -318,6 +319,20 @@ if (!task) throw usage('nothing to do: aflow agent run <id> "the task"');
 const reg = registry();
 const agent = reg.get(id);
 
+// Mode selection: --mode wraps the agent in a ModeRuntime with mode-scoped
+// permissions. When omitted, the agent runs under its own definition
+// (existing behavior). Default mode for the system is Plan; the TUI starts
+// in Plan mode and the CLI defaults to the agent's own policy unless --mode
+// is given.
+let mode = null;
+let modeRuntime = null;
+if (flags.mode) {
+  const modeReg = new ModeRegistry();
+  modeReg.initialize({ mode: flags.mode });
+  mode = modeReg.getMode();
+  modeRuntime = modeReg;
+}
+
 // Resolved once, here, and validated before anything is dispatched. The model
 // never names this: containment has to be a fact about the run, not a value the
 // model supplied, or an agent that wanted a wider root would simply ask for one.
@@ -403,36 +418,52 @@ const usageLedger = new UsageLedger({});
 
 // One runtime per run. It builds its own Router from the resolved plan, which is
 // what keeps the health cache alive across iterations of a single task.
-const runtime = new AgentRuntime({
-  registry: reg,
-  // The real implementations, keyed by the same names the registry's allowlist
-  // refers to. Passing an empty Map here -- which is what this used to do --
-  // meant every tool call resolved to "no such tool", so the whole permission
-  // waterfall was unreachable from the CLI.
-  tools: createRealTools(),
-  complete: (cfg, modelId, prompt, opts) => complete(cfg, modelId, prompt, opts),
-  catalogue,
-  // The user's declared capability metadata. Without it an agent that requires
-  // `tool_calling` can never be routed -- inference cannot reach that fact --
-  // so the CLI refused to run tool-using agents no matter how healthy the
-  // gateway was. Declared here rather than inferred so the source of every
-  // capability decision stays inspectable.
-  hints: modelHints(config),
-  log,
-  config,
-  providerHealth: health,
-  limiter,
-  usageLedger,
-  approver: makeApprover(flags),
-  workspaceRoot: workspace,
-  blackboard,
-  sessions,
-});
+let runtime;
+if (modeRuntime) {
+  // ModeRuntime wraps AgentRuntime with mode-scoped permissions, bounds, and
+  // model requirements. The mode registry has already been initialized with
+  // the requested mode; the ModeRuntime applies its policy to every run.
+  runtime = new ModeRuntime({
+    modeRegistry: modeRuntime,
+    registry: reg,
+    tools: createRealTools(),
+    complete: (cfg, modelId, prompt, opts) => complete(cfg, modelId, prompt, opts),
+    catalogue,
+    hints: modelHints(config),
+    log,
+    config,
+    providerHealth: health,
+    limiter,
+    usageLedger,
+    approver: makeApprover(flags),
+    workspaceRoot: workspace,
+    blackboard,
+    sessions,
+  });
+} else {
+  runtime = new AgentRuntime({
+    registry: reg,
+    tools: createRealTools(),
+    complete: (cfg, modelId, prompt, opts) => complete(cfg, modelId, prompt, opts),
+    catalogue,
+    hints: modelHints(config),
+    log,
+    config,
+    providerHealth: health,
+    limiter,
+    usageLedger,
+    approver: makeApprover(flags),
+    workspaceRoot: workspace,
+    blackboard,
+    sessions,
+  });
+}
 
 const result = await runtime.run({
   agentId: agent.id,
   task,
   sessionId,
+  extra: mode ? { _mode: mode } : null,
 });
 
 // Awaited, not returned. `out.init` returns a promise, so a bare `return` would
@@ -540,7 +571,7 @@ function formatValue(value) {
 
 export const agentCommand = defineCommand("agent", {
     summary: "run and inspect the built-in agents",
-    valueFlags: ["task", "session", "state-dir", "blackboard-dir", "project", "workspace", "log-file"],
+    valueFlags: ["task", "session", "state-dir", "blackboard-dir", "project", "workspace", "log-file", "mode"],
     usage: `aflow agent [list]
     aflow agent show <id>
     aflow agent run <id> "<task>" [--session ID] [--workspace PATH] [--yes | --deny]

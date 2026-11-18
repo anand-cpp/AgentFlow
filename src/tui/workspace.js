@@ -14,6 +14,7 @@ import { renderPalette, filterCommands, createDefaultCommands } from "./command-
 import { renderTribunal } from "./tribunal-viz.js";
 import { renderFlowline } from "./neural-flowline.js";
 import { renderBlackboard } from "./blackboard-panel.js";
+import { MODE_NAMES, MODE_DESCRIPTIONS, MODE_PRIVILEGE } from "../core/modes/index.js";
 
 /** Workspace application state. */
 export function initialWorkspaceState() {
@@ -47,6 +48,10 @@ export function initialWorkspaceState() {
     todoEngine: null,
     securityStatus: null,
     todoState: null,
+    // Operating mode: Plan is the default (read-only, safest).
+    // Tab cycles Plan → Build → Orchestrate → Auto → Plan.
+    mode: "plan",
+    modePrevious: null,
   };
 }
 
@@ -163,8 +168,17 @@ function renderHeader(state, region) {
   const agentChip = paintToken("agent", "mutedText") + ": " + (state.currentAgentId || "—");
   const modelChip = paintToken("model", "mutedText") + ": " + (state.currentModelId || "—");
 
-  const statusLine = gray(sessionChip.padEnd(20)) + gray(agentChip.padEnd(18)) + gray(modelChip);
+  // Mode indicator — active mode shown prominently with privilege color.
+  const mode = state.mode || "plan";
+  const modeName = MODE_NAMES[mode] || mode;
+  const privilege = MODE_PRIVILEGE[mode] || 1;
+  const modeColor = privilege >= 3 ? red : privilege >= 2 ? yellow : green;
+  const modeChip = paintToken("MODE", "mutedText") + ": " + modeColor(modeName.toUpperCase()) + " " + dim(MODE_DESCRIPTIONS[mode] || "");
+
+  const statusLine = gray(sessionChip.padEnd(22)) + gray(agentChip.padEnd(18)) + gray(modelChip);
   lines.push(statusLine);
+  lines.push(modeChip);
+  lines.push(dim("  Tab to cycle modes · Ctrl+P palette · Ctrl+T themes · / commands · Ctrl+Q quit · F1 help"));
   return lines;
 }
 

@@ -27,6 +27,7 @@ import { SemgrepScanner } from "../security/scanners/semgrep.js";
 import { OsvScanner } from "../security/scanners/osv.js";
 import { TrivyScanner } from "../security/scanners/trivy.js";
 import { TodoEngine } from "../security/todo.js";
+import { ModeRegistry, nextMode, MODE, MODE_PRIVILEGE, MODE_DESCRIPTIONS } from "../core/modes/index.js";
 
 const TTY = process.stdout.isTTY && process.stdin.isTTY;
 
@@ -56,6 +57,16 @@ export async function run({ args, flags, config, out }) {
   state.securityOrchestrator = orch;
   state.todoEngine = todoEngine;
 
+  // Mode registry backed by the TUI session. Mode persists across the TUI
+  // session and is restored from the session store if available.
+  const modeReg = new ModeRegistry();
+  modeReg.initialize({ mode: state.mode, sessionId: state.currentSessionId });
+  state.mode = modeReg.getMode();
+
+  // Pending mode-switch confirmation (for privilege escalation).
+  // { from, to } set when Tab triggers an escalation; confirmed by a second Tab.
+  state.modeSwitchPending = null;
+
   // Initialize command palette with real handlers
   const ctx = {
     onNewSession: () => {
@@ -84,6 +95,36 @@ export async function run({ args, flags, config, out }) {
     onDoctor: () => { state.notifications.push({ message: "Run: aflow doctor", variant: "info" }); state.paletteOpen = false; state.paletteQuery = ""; },
     onQuit: () => { running = false; process.stdout.write("\u001b[?1049l\u001b[?25h\u001b[0m"); process.exit(0); },
   };
+
+  // Perform a mode switch, updating both the UI state and the mode registry.
+  // Context (session, blackboard, messages, approvals) is preserved because it
+  // all lives in `state`, which is not reset by a mode switch.
+  async function performModeSwitch(from, to) {
+    state.modeSwitchPending = null;
+
+    // Switch in the registry (handles escalation approval if an approver were wired;
+    // in the TUI we already confirmed via double-Tab).
+    const result = await modeReg.switchTo(to, { sessionId: state.currentSessionId });
+    if (!result.ok) {
+      state.notifications.push({ message: `mode switch failed: ${result.error}`, variant: "error" });
+      draw();
+      return;
+    }
+
+    state.mode = to;
+    state.modePrevious = from;
+
+    // Re-read security status under the new mode policy (scanner coverage may differ).
+    if (state.securityOrchestrator) {
+      state.securityStatus = state.securityOrchestrator.getSecurityStatusPanel();
+    }
+
+    state.notifications.push({
+      message: `Mode: ${from.toUpperCase()} → ${to.toUpperCase()} (${MODE_DESCRIPTIONS[to] || ""})`,
+      variant: to === "plan" ? "info" : to === "build" ? "info" : "warning",
+    });
+    draw();
+  }
 
   state.paletteCommands = createDefaultCommands(ctx);
 
@@ -143,11 +184,53 @@ export async function run({ args, flags, config, out }) {
     // Help: F1
     if (key.name === "f1") {
       state.notifications.push({
-        message: "Help: Ctrl+P palette · Ctrl+T themes · / commands · Ctrl+Q quit · F1 help",
+        message: "Help: Ctrl+P palette · Ctrl+T themes · / commands · Ctrl+Q quit · F1 help · Tab cycle modes",
         variant: "info",
       });
       draw();
       return;
+    }
+
+    // Tab: cycle operating modes (Plan → Build → Orchestrate → Auto → Plan).
+    // Tab does NOT switch modes while the user is typing in the command input
+    // (filterText non-empty) or while the palette is open.
+    if (key.name === "tab") {
+      if (state.paletteOpen || (state.filterText || "").length > 0) {
+        // Preserve normal input/autocomplete behavior: do not cycle modes.
+        return;
+      }
+
+      const from = state.mode;
+      const to = nextMode(from);
+
+      // Pending confirmation for a privilege-escalation switch.
+      if (state.modeSwitchPending) {
+        if (state.modeSwitchPending.to === to) {
+          // Confirm the switch.
+          state.modeSwitchPending = null;
+          return performModeSwitch(from, to);
+        }
+        // Different mode requested or unrelated keypress: cancel pending.
+        state.modeSwitchPending = null;
+        draw();
+        return;
+      }
+
+      // Check for privilege escalation.
+      const fromPriv = MODE_PRIVILEGE[from] || 1;
+      const toPriv = MODE_PRIVILEGE[to] || 1;
+      if (toPriv > fromPriv) {
+        // Require confirmation: set pending state, notify user.
+        state.modeSwitchPending = { from, to };
+        state.notifications.push({
+          message: `Privilege escalation: ${from.toUpperCase()} → ${to.toUpperCase()}. Press Tab again to confirm, or any other key to cancel.`,
+          variant: "warning",
+        });
+        draw();
+        return;
+      }
+
+      return performModeSwitch(from, to);
     }
 
     // Security scan: Ctrl+S
