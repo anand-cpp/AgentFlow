@@ -267,6 +267,12 @@ export class CoordinatorRuntime {
     // Start heartbeat monitoring for this worker.
     this._startHeartbeatMonitor(workerId);
 
+    // Sync workers map to session for persistence.
+    this.session.workers = {};
+    for (const [wid, rec] of this.workers) {
+      this.session.workers[wid] = { ...rec };
+    }
+
     // Persist session.
     if (this.stateDir) {
       await persistSession(this.stateDir, this.session);
