@@ -61,7 +61,7 @@ export class SessionExecutor {
   } = {}) {
     this.coordinator = coordinator;
     this.scheduler = scheduler || (coordinator ? coordinator.scheduler : new Scheduler({ maxConcurrency: maxConcurrentTasks }));
-    this.taskGraph = taskGraph || new TaskGraph();
+    this.taskGraph = taskGraph || (coordinator ? coordinator.taskGraph : new TaskGraph());
     this.workers = workers; // workerId -> { runtime, capabilities, connected }
     this.maxConcurrentTasks = maxConcurrentTasks;
     this.maxConcurrentWorkers = maxConcurrentWorkers;
