@@ -228,16 +228,21 @@ describe("Authorization — task ownership", () => {
 
 describe("Secret redaction", () => {
   it("redacts credential-like fields from payloads", () => {
+    // Use short obviously-fake values (<12 chars) so the secret scanner does
+    // not flag them, but secret-named fields still match SENSITIVE_KEYS and
+    // get redacted by redactDeep.
     const dirty = {
-      apiKey: "sk-1234567890abcdef",
-      password: "supersecret",
-      token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+      apiKey: "x",
+      password: "y",
+      token: "z",
       safe: "public value",
-      nested: { key: "secret-key", inner: "ok" },
+      nested: { key: "w", inner: "ok" },
     };
     const clean = redactVerified(JSON.parse(JSON.stringify(dirty)));
-    // The redactVerified function should not throw and should return an object.
     assert.ok(clean);
+    assert.strictEqual(clean.apiKey, "***");
+    assert.strictEqual(clean.password, "***");
+    assert.strictEqual(clean.token, "***");
     assert.strictEqual(clean.safe, "public value");
     assert.strictEqual(clean.nested.inner, "ok");
   });

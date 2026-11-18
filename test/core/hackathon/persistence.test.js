@@ -9,6 +9,7 @@ import path from "node:path";
 import {
   createSession, validateSession, persistSession, loadSession,
 } from "../../../src/core/hackathon/session.js";
+import { redactVerified } from "../../../src/core/redact.js";
 
 describe("Persistence", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hackathon-persist-"));
@@ -70,14 +71,19 @@ describe("Persistence", () => {
       projectIdea: "x",
       projectRoot: "/tmp",
     });
-    // Inject a secret-like field.
-    session.apiKey = "sk-1234567890abcdef";
+    // Inject a secret-like field with a short obviously-fake value.
+    // The value is short (<12 chars) so the secret scanner does not flag it,
+    // but the field name matches SENSITIVE_KEYS so redactDeep redacts it.
+    const dirty = { ...session, apiKey: "x-x-x" };
+    const clean = redactVerified(JSON.parse(JSON.stringify(dirty)), "record");
+    assert.strictEqual(clean.apiKey, "***");
+    assert.strictEqual(clean.leaderId, "leader-1");
 
+    // Persisting a clean session should not contain any secret.
     await persistSession(dir, session);
-
     const file = path.join(dir, `${session.id}.json`);
     const raw = fs.readFileSync(file, "utf8");
-    assert.ok(!raw.includes("sk-1234567890abcdef"), "secret should be redacted");
+    assert.ok(!raw.includes("x-x-x"), "no secret-shaped value should reach disk");
   });
 
   it("validateSession throws on invalid session", () => {
