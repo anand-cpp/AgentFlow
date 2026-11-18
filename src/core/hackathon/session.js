@@ -33,11 +33,14 @@ export const WORKER_STATUS = {
 export const TASK_STATUS = {
   PENDING: "pending",
   ASSIGNED: "assigned",
+  ACCEPTED: "accepted",
+  RUNNING: "running",
   IN_PROGRESS: "in_progress",
   BLOCKED: "blocked",
   COMPLETED: "completed",
   FAILED: "failed",
   CANCELLED: "cancelled",
+  EXPIRED: "expired",
 };
 
 export const LEASE_STATUS = {
