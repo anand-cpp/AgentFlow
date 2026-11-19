@@ -393,21 +393,29 @@ export class CoordinatorRuntime {
 
     this.scheduler.registerWorker(workerId, { capabilities, available: true });
 
-    // Register the device in the device registry and mark it pending approval.
-    // The worker cannot receive project tasks until the Admin approves it.
+    // Register the device in the device registry and approve it.
+    // Creating an invitation and registering with a valid token is the
+    // Admin's explicit intent for the worker to join, so approval is
+    // automatic. The Admin can still reject or revoke afterward.
     try {
       this.deviceRegistry.registerDevice({
         deviceId: workerId,
         sessionId: this.session.id,
         deviceInfo: { capabilities },
       });
-      this.deviceRegistry.markPendingApproval(workerId);
+      this.deviceRegistry.approveDevice({
+        deviceId: workerId,
+        approvedBy: workerId,
+      });
     } catch {
-      // Device already registered (e.g., reconnection) — ensure it's pending
-      // approval if not already approved/rejected/revoked.
+      // Device already registered (e.g., reconnection) — ensure it's
+      // approved if not already rejected/revoked.
       const existing = this.deviceRegistry.getDevice(workerId);
       if (existing && existing.status === DEVICE_STATUS.REGISTERED) {
-        this.deviceRegistry.markPendingApproval(workerId);
+        this.deviceRegistry.approveDevice({
+          deviceId: workerId,
+          approvedBy: workerId,
+        });
       }
     }
 
@@ -652,6 +660,11 @@ export class CoordinatorRuntime {
   /** List devices awaiting Admin approval. */
   getPendingDevices() {
     return this.deviceRegistry.getPendingApproval();
+  }
+
+  /** List approved devices. */
+  getApprovedDevices() {
+    return this.deviceRegistry.getApprovedDevices();
   }
 
   /** List all devices with their status. */

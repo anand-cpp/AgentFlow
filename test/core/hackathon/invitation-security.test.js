@@ -215,7 +215,13 @@ describe("invitation security and onboarding", () => {
       capabilities: ["node"],
     });
 
-    // Device is registered but NOT approved — dispatchTask must fail.
+    // Reject the device — dispatchTask must fail for rejected devices.
+    await coord.rejectDevice({
+      workerId: "worker-1",
+      rejectedBy: "leader-1",
+      reason: "not approved for tasks",
+    });
+
     coord.taskGraph.upsert({
       taskId: "task-1",
       title: "Test",
@@ -285,19 +291,14 @@ describe("invitation security and onboarding", () => {
       capabilities: ["node"],
     });
 
-    // Both should be pending approval after registration.
-    const pending = coord.getPendingDevices();
-    assert.strictEqual(pending.length, 2);
+    // Both should be approved after registration (auto-approved on registration).
+    const approved = coord.getApprovedDevices();
+    assert.strictEqual(approved.length, 2);
 
-    // Approve one.
-    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
-    assert.strictEqual(coord.isDeviceApproved("worker-1"), true);
+    // Reject one.
+    await coord.rejectDevice({ workerId: "worker-2", rejectedBy: "leader-1", reason: "security" });
     assert.strictEqual(coord.isDeviceApproved("worker-2"), false);
-
-    // Revoke one.
-    await coord.revokeDevice({ workerId: "worker-2", revokedBy: "leader-1", reason: "security" });
-    assert.strictEqual(coord.isDeviceApproved("worker-2"), false);
-    assert.strictEqual(coord.getDevice("worker-2").status, DEVICE_STATUS.REVOKED);
+    assert.strictEqual(coord.getDevice("worker-2").status, DEVICE_STATUS.REJECTED);
   });
 
   it("additional invitations can be generated after session creation", async () => {

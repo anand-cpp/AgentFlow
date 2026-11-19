@@ -20,6 +20,7 @@ describe("Lease renewal", () => {
       token: invite.data.token,
       capabilities: ["node"],
     });
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
     coord.taskGraph.upsert({
       taskId: "task-1",
       title: "A",
@@ -66,6 +67,7 @@ describe("Lease renewal", () => {
       token: invite2.data.token,
       capabilities: ["node"],
     });
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
     coord.taskGraph.upsert({
       taskId: "task-1",
       title: "A",
@@ -93,6 +95,7 @@ describe("Lease renewal", () => {
       token: invite.data.token,
       capabilities: ["node"],
     });
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
     coord.taskGraph.upsert({
       taskId: "task-1",
       title: "A",

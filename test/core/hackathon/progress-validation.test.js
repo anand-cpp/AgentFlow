@@ -19,6 +19,7 @@ describe("Progress validation", () => {
       token: invite.data.token,
       capabilities: ["node"],
     });
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
     coord.taskGraph.upsert({
       taskId: "task-1",
       title: "A",
@@ -75,6 +76,7 @@ describe("Progress validation", () => {
       token: invite.data.token,
       capabilities: ["node"],
     });
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
     coord.taskGraph.upsert({
       taskId: "task-1",
       title: "A",
@@ -150,6 +152,7 @@ describe("Progress validation", () => {
       token: invite.data.token,
       capabilities: ["node"],
     });
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
     coord.taskGraph.upsert({
       taskId: "task-1",
       title: "A",

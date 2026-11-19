@@ -108,7 +108,8 @@ export class DeviceRegistry {
     if (!approvedBy) throw new Error("approvedBy required");
     const record = this.devices.get(deviceId);
     if (!record) throw new Error(`unknown device: ${deviceId}`);
-    if (record.status !== DEVICE_STATUS.PENDING_APPROVAL) {
+    if (record.status !== DEVICE_STATUS.REGISTERED &&
+        record.status !== DEVICE_STATUS.PENDING_APPROVAL) {
       throw new Error(
         `device ${deviceId} is ${record.status}, not pending approval`,
       );
@@ -134,9 +135,11 @@ export class DeviceRegistry {
     if (!rejectedBy) throw new Error("rejectedBy required");
     const record = this.devices.get(deviceId);
     if (!record) throw new Error(`unknown device: ${deviceId}`);
-    if (record.status !== DEVICE_STATUS.PENDING_APPROVAL) {
+    if (record.status !== DEVICE_STATUS.REGISTERED &&
+        record.status !== DEVICE_STATUS.PENDING_APPROVAL &&
+        record.status !== DEVICE_STATUS.APPROVED) {
       throw new Error(
-        `device ${deviceId} is ${record.status}, not pending approval`,
+        `device ${deviceId} is ${record.status}, cannot reject`,
       );
     }
 

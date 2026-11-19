@@ -70,7 +70,13 @@ describe("hackathon CLI status/tasks/workers", () => {
 
     const result = await run({
       args: ["start", "test project"],
-      flags: { "leader-id": "leader-1", workspace: "/tmp" },
+      flags: {
+        "leader-id": "leader-1",
+        workspace: "/tmp",
+        "duration-hours": "24",
+        "elapsed-hours": "2",
+        teammates: "5",
+      },
       config: {},
       out: testOut,
     });
