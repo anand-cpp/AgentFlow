@@ -1288,6 +1288,32 @@ export class CoordinatorRuntime {
     return 8; // optional_enhancement
   }
 
+  /** Pause the session (no new task dispatching). */
+  pauseSession() {
+    if (!this.session) {
+      return { ok: false, error: new Error("no active session") };
+    }
+    if (this.session.status === SESSION_STATUS.PAUSED) {
+      return { ok: true, message: "already paused" };
+    }
+    this.session.status = SESSION_STATUS.PAUSED;
+    this.session.updatedAt = new Date().toISOString();
+    return { ok: true, status: SESSION_STATUS.PAUSED };
+  }
+
+  /** Resume the session (task dispatching resumes). */
+  resumeSession() {
+    if (!this.session) {
+      return { ok: false, error: new Error("no active session") };
+    }
+    if (this.session.status === SESSION_STATUS.ACTIVE) {
+      return { ok: true, message: "already active" };
+    }
+    this.session.status = SESSION_STATUS.ACTIVE;
+    this.session.updatedAt = new Date().toISOString();
+    return { ok: true, status: SESSION_STATUS.ACTIVE };
+  }
+
   /** Shutdown the coordinator. Stop all heartbeat monitors. */
   async shutdown() {
     this._running = false;

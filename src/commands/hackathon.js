@@ -368,6 +368,8 @@ export async function run({ args, flags, _config, out }) {
       const completed = tasks.filter((t) => t.state === TASK_STATUS.COMPLETED).length;
       const failed = tasks.filter((t) => t.state === TASK_STATUS.FAILED).length;
       const inProgress = tasks.filter((t) => t.state === TASK_STATUS.RUNNING).length;
+      const deadline = coord.getDeadlineStatus();
+      const devices = coord.getDevices();
 
       const lines = [];
       lines.push(bold("aflow hackathon — session report"));
@@ -382,8 +384,248 @@ export async function run({ args, flags, _config, out }) {
       lines.push(`  in progress: ${cyan(inProgress)}`);
       lines.push(`  workers:     ${state.workerCount} (${state.connectedWorkers} connected)`);
       lines.push("");
+      if (deadline) {
+        lines.push(bold("time budget"));
+        lines.push(`  remaining:   ${dim(`${deadline.remainingHours} hours`)}`);
+        lines.push(`  worker budget: ${dim(`${Math.round(deadline.workerBudgetHours)} hours`)}`);
+        lines.push(`  reserve:     ${dim(`${Math.round(deadline.reserveHours)} hours`)}`);
+        lines.push(`  percentage:  ${dim(`${deadline.percentageRemaining}%`)}`);
+        lines.push("");
+      }
+      lines.push(bold("devices"));
+      lines.push(`  total:      ${dim(devices.length)}`);
+      lines.push(`  approved:   ${dim(devices.filter((d) => d.status === "approved").length)}`);
+      lines.push(`  pending:    ${dim(devices.filter((d) => d.status === "pending_approval").length)}`);
+      lines.push(`  rejected:   ${dim(devices.filter((d) => d.status === "rejected").length)}`);
+      lines.push(`  revoked:    ${dim(devices.filter((d) => d.status === "revoked").length)}`);
+      lines.push("");
 
       await out.init({ sessionId, state }, () => lines.join("\n"));
+      return 0;
+    }
+
+    case "dashboard": {
+      const [sessionId] = rest;
+      if (!sessionId) {
+        throw usage('which session: aflow hackathon dashboard <session-id>');
+      }
+
+      const coord = new CoordinatorRuntime();
+      const result = await coord.loadExistingSession(sessionId);
+      if (!result.ok) {
+        await out.init({ error: result.error }, () => `hackathon dashboard failed: ${result.error.message}\n`);
+        return 1;
+      }
+
+      const state = coord.getSessionState();
+      const tasks = coord.getTasks();
+      const workers = coord.getWorkers();
+      const devices = coord.getDevices();
+      const deadline = coord.getDeadlineStatus();
+      const policy = coord.getExecutionPolicy();
+
+      const completed = tasks.filter((t) => t.state === TASK_STATUS.COMPLETED).length;
+      const failed = tasks.filter((t) => t.state === TASK_STATUS.FAILED).length;
+      const inProgress = tasks.filter((t) => t.state === TASK_STATUS.RUNNING).length;
+      const blocked = tasks.filter((t) => t.state === TASK_STATUS.BLOCKED).length;
+      const pending = tasks.filter((t) => t.state === TASK_STATUS.PENDING).length;
+
+      const lines = [];
+      lines.push(bold("aflow hackathon — admin dashboard"));
+      lines.push("");
+      lines.push(bold("session"));
+      lines.push(`  id:     ${cyan(state.sessionId)}`);
+      lines.push(`  status: ${statusColor(state.status)}`);
+      lines.push(`  root:   ${dim(coord.session.projectRoot)}`);
+      lines.push("");
+      lines.push(bold("time budget"));
+      if (deadline) {
+        lines.push(`  total:        ${dim(`${deadline.totalDurationHours} hours`)}`);
+        lines.push(`  elapsed:      ${dim(`${deadline.elapsedHours} hours`)}`);
+        lines.push(`  remaining:    ${dim(`${deadline.remainingHours} hours`)}`);
+        lines.push(`  worker budget: ${dim(`${Math.round(deadline.workerBudgetHours)} hours`)}`);
+        lines.push(`  reserve:      ${dim(`${Math.round(deadline.reserveHours)} hours`)}`);
+        lines.push(`  policy:       ${dim(policy.label)} (${policy.description})`);
+        lines.push(`  accept optional: ${dim(String(policy.acceptOptional))}`);
+      } else {
+        lines.push(dim("no time budget configured"));
+      }
+      lines.push("");
+      lines.push(bold("task summary"));
+      lines.push(`  total:       ${dim(state.taskCount)}`);
+      lines.push(`  completed:   ${green(completed)}`);
+      lines.push(`  failed:      ${red(failed)}`);
+      lines.push(`  in progress: ${cyan(inProgress)}`);
+      lines.push(`  blocked:     ${yellow(blocked)}`);
+      lines.push(`  pending:     ${dim(pending)}`);
+      lines.push("");
+      lines.push(bold("devices"));
+      for (const d of devices) {
+        const approved = d.status === "approved" ? green(d.status) : d.status === "pending_approval" ? yellow(d.status) : red(d.status);
+        lines.push(`  ${approved.padEnd(18)} ${dim(d.deviceId)}  ${(d.deviceInfo?.capabilities || []).join(", ")}`);
+      }
+      if (!devices.length) lines.push(dim("no devices"));
+      lines.push("");
+      lines.push(bold("workers"));
+      for (const w of workers) {
+        const wstatus = workerStatusColor(w.status).padEnd(14);
+        lines.push(`  ${wstatus} ${dim(w.workerId)}  task: ${dim(w.currentTaskId || "—")}  caps: ${(w.capabilities || []).join(", ")}`);
+      }
+      if (!workers.length) lines.push(dim("no workers"));
+      lines.push("");
+
+      await out.init({ sessionId, state }, () => lines.join("\n"));
+      return 0;
+    }
+
+    case "approve": {
+      const [sessionId, workerId] = rest;
+      if (!sessionId || !workerId) {
+        throw usage('usage: aflow hackathon approve <session-id> <worker-id>');
+      }
+
+      const coord = new CoordinatorRuntime();
+      const result = await coord.loadExistingSession(sessionId);
+      if (!result.ok) {
+        await out.init({ error: result.error }, () => `hackathon approve failed: ${result.error.message}\n`);
+        return 1;
+      }
+
+      const r = await coord.approveDevice({ workerId, approvedBy: flags["leader-id"] || "leader-1" });
+      if (!r.ok) {
+        await out.init({ error: r.error }, () => `approve failed: ${r.error.message}\n`);
+        return 1;
+      }
+
+      const lines = [];
+      lines.push(bold("aflow hackathon — device approved"));
+      lines.push("");
+      lines.push(`  worker: ${cyan(workerId)}`);
+      lines.push(`  session: ${cyan(sessionId)}`);
+      lines.push(`  approved by: ${dim(r.data.device.approvedBy)}`);
+      lines.push("");
+
+      await out.init({ sessionId, workerId }, () => lines.join("\n"));
+      return 0;
+    }
+
+    case "reject": {
+      const [sessionId, workerId] = rest;
+      if (!sessionId || !workerId) {
+        throw usage('usage: aflow hackathon reject <session-id> <worker-id>');
+      }
+
+      const coord = new CoordinatorRuntime();
+      const result = await coord.loadExistingSession(sessionId);
+      if (!result.ok) {
+        await out.init({ error: result.error }, () => `hackathon reject failed: ${result.error.message}\n`);
+        return 1;
+      }
+
+      const r = await coord.rejectDevice({ workerId, rejectedBy: flags["leader-id"] || "leader-1", reason: flags.reason || "rejected by admin" });
+      if (!r.ok) {
+        await out.init({ error: r.error }, () => `reject failed: ${r.error.message}\n`);
+        return 1;
+      }
+
+      const lines = [];
+      lines.push(bold("aflow hackathon — device rejected"));
+      lines.push("");
+      lines.push(`  worker: ${cyan(workerId)}`);
+      lines.push(`  session: ${cyan(sessionId)}`);
+      lines.push(`  reason: ${dim(r.data.device.rejectionReason || "—")}`);
+      lines.push("");
+
+      await out.init({ sessionId, workerId }, () => lines.join("\n"));
+      return 0;
+    }
+
+    case "revoke": {
+      const [sessionId, workerId] = rest;
+      if (!sessionId || !workerId) {
+        throw usage('usage: aflow hackathon revoke <session-id> <worker-id>');
+      }
+
+      const coord = new CoordinatorRuntime();
+      const result = await coord.loadExistingSession(sessionId);
+      if (!result.ok) {
+        await out.init({ error: result.error }, () => `hackathon revoke failed: ${result.error.message}\n`);
+        return 1;
+      }
+
+      const r = await coord.revokeDevice({ workerId, revokedBy: flags["leader-id"] || "leader-1", reason: flags.reason || "revoked by admin" });
+      if (!r.ok) {
+        await out.init({ error: r.error }, () => `revoke failed: ${r.error.message}\n`);
+        return 1;
+      }
+
+      const lines = [];
+      lines.push(bold("aflow hackathon — device revoked"));
+      lines.push("");
+      lines.push(`  worker: ${cyan(workerId)}`);
+      lines.push(`  session: ${cyan(sessionId)}`);
+      lines.push(`  reason: ${dim(r.data.device.revokedReason || "—")}`);
+      lines.push("");
+
+      await out.init({ sessionId, workerId }, () => lines.join("\n"));
+      return 0;
+    }
+
+    case "pause": {
+      const [sessionId] = rest;
+      if (!sessionId) {
+        throw usage('which session: aflow hackathon pause <session-id>');
+      }
+
+      const coord = new CoordinatorRuntime();
+      const result = await coord.loadExistingSession(sessionId);
+      if (!result.ok) {
+        await out.init({ error: result.error }, () => `hackathon pause failed: ${result.error.message}\n`);
+        return 1;
+      }
+
+      const r = coord.pauseSession();
+      if (!r.ok) {
+        await out.init({ error: r.error }, () => `pause failed: ${r.error.message}\n`);
+        return 1;
+      }
+
+      const lines = [];
+      lines.push(bold("aflow hackathon — session paused"));
+      lines.push("");
+      lines.push(`  session: ${cyan(sessionId)}`);
+      lines.push("");
+
+      await out.init({ sessionId }, () => lines.join("\n"));
+      return 0;
+    }
+
+    case "resume": {
+      const [sessionId] = rest;
+      if (!sessionId) {
+        throw usage('which session: aflow hackathon resume <session-id>');
+      }
+
+      const coord = new CoordinatorRuntime();
+      const result = await coord.loadExistingSession(sessionId);
+      if (!result.ok) {
+        await out.init({ error: result.error }, () => `hackathon resume failed: ${result.error.message}\n`);
+        return 1;
+      }
+
+      const r = coord.resumeSession();
+      if (!r.ok) {
+        await out.init({ error: r.error }, () => `resume failed: ${r.error.message}\n`);
+        return 1;
+      }
+
+      const lines = [];
+      lines.push(bold("aflow hackathon — session resumed"));
+      lines.push("");
+      lines.push(`  session: ${cyan(sessionId)}`);
+      lines.push("");
+
+      await out.init({ sessionId }, () => lines.join("\n"));
       return 0;
     }
 
@@ -400,10 +642,21 @@ export async function run({ args, flags, _config, out }) {
       lines.push("  aflow hackathon tasks <session>       list tasks");
       lines.push("  aflow hackathon stop <session>        cancel all tasks");
       lines.push("  aflow hackathon report <session>      show progress report");
+      lines.push("  aflow hackathon dashboard <session>   admin dashboard");
+      lines.push("  aflow hackathon approve <session> <worker>  approve a device");
+      lines.push("  aflow hackathon reject <session> <worker>   reject a device");
+      lines.push("  aflow hackathon revoke <session> <worker>   revoke a device");
+      lines.push("  aflow hackathon pause <session>     pause session execution");
+      lines.push("  aflow hackathon resume <session>    resume session execution");
       lines.push("");
       lines.push(dim("flags:"));
       lines.push(`  ${dim("--leader-id")}    leader identity for new sessions`);
       lines.push(`  ${dim("--workspace")}    workspace root for new sessions`);
+      lines.push(`  ${dim("--duration-hours")} total hackathon duration in hours`);
+      lines.push(`  ${dim("--elapsed-hours")}  hours already elapsed`);
+      lines.push(`  ${dim("--teammates")}      number of teammates excluding Admin PC`);
+      lines.push(`  ${dim("--reserve-fraction")} fraction reserved for integration (default 0.1)`);
+      lines.push(`  ${dim("--reason")}         reason for reject/revoke`);
       lines.push("");
       lines.push(dim("entry point: Ctrl+P in the TUI (command palette)"));
       lines.push(dim("Tab cycle: Plan → Build → Orchestrate → Auto (unchanged)"));
@@ -420,7 +673,7 @@ export async function run({ args, flags, _config, out }) {
 
 defineCommand("hackathon", {
   summary: "distributed multi-computer coordination (Hackathon Mode)",
-  valueFlags: ["leader-id", "workspace", "duration-hours", "elapsed-hours", "teammates", "reserve-fraction"],
+  valueFlags: ["leader-id", "workspace", "duration-hours", "elapsed-hours", "teammates", "reserve-fraction", "reason"],
   usage: `aflow hackathon start "<idea>"
     aflow hackathon join <session-code>
     aflow hackathon status <session-id>
@@ -428,6 +681,12 @@ defineCommand("hackathon", {
     aflow hackathon tasks <session-id>
     aflow hackathon stop <session-id>
     aflow hackathon report <session-id>
+    aflow hackathon dashboard <session-id>
+    aflow hackathon approve <session-id> <worker-id>
+    aflow hackathon reject <session-id> <worker-id>
+    aflow hackathon revoke <session-id> <worker-id>
+    aflow hackathon pause <session-id>
+    aflow hackathon resume <session-id>
 
   start   create a new Hackathon session as leader
   join    join an existing session as a worker (TUI Ctrl+P)
@@ -435,12 +694,19 @@ defineCommand("hackathon", {
   workers list connected workers and capabilities
   tasks   list tasks and their execution state
   stop    cancel all active tasks in a session
-  report  show progress and delivery gate summary
+  report  show progress summary
+  dashboard show admin dashboard (time budget, tasks, devices, workers)
+  approve approve a device for project-task access
+  reject  reject a device (deny project-task access)
+  revoke  revoke a device (immediate isolation)
+  pause   pause session execution (no new task dispatching)
+  resume  resume session execution
 
   --duration-hours    total hackathon duration in hours (interactive if omitted)
   --elapsed-hours     hours already elapsed (interactive if omitted)
   --teammates         number of teammates excluding Admin PC (interactive if omitted)
-  --reserve-fraction  fraction of remaining time reserved for integration (default 0.1)
+  --reserve-fraction  fraction reserved for integration (default 0.1)
+  --reason            reason for reject/revoke
   --leader-id         leader identity for new sessions (default: leader-1)
   --workspace         workspace root for new sessions (default: cwd)
 
