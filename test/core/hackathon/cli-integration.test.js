@@ -15,7 +15,13 @@ describe("hackathon CLI integration", () => {
     };
     const result = await run({
       args: ["start", "build a todo app"],
-      flags: { "leader-id": "leader-1", workspace: "/tmp" },
+      flags: {
+        "leader-id": "leader-1",
+        workspace: "/tmp",
+        "duration-hours": "24",
+        "elapsed-hours": "2",
+        teammates: "5",
+      },
       config: {},
       out,
     });

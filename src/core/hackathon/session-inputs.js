@@ -9,6 +9,11 @@
 
 import { bold, dim, yellow } from "../../cli/ui.js";
 
+/** Whether the current environment supports interactive prompts. */
+export const isInteractive = Boolean(
+  process.stdin.isTTY && process.stdout.isTTY,
+);
+
 /** Read a line from stdin (interactive prompt). */
 export async function prompt(question) {
   const readline = await import("node:readline/promises");
@@ -69,6 +74,25 @@ export class SessionInputs {
  * Returns a SessionInputs instance.
  */
 export async function collectSessionInputs(flags = {}) {
+  // In non-interactive environments (no TTY), all three inputs must be
+  // provided via flags. Hanging on prompt() would block CI forever.
+  const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  if (!interactive) {
+    const missing = [];
+    if (flags["duration-hours"] === undefined) missing.push("--duration-hours");
+    if (flags["elapsed-hours"] === undefined) missing.push("--elapsed-hours");
+    if (flags.teammates === undefined) missing.push("--teammates");
+    if (missing.length > 0) {
+      throw new Error(
+        `Non-interactive environment requires ${missing.join(
+          ", ",
+        )} flags for session creation. Run: aflow hackathon start "<idea>" ${missing.join(
+          " <value> ",
+        )} <value>`,
+      );
+    }
+  }
+
   let totalDurationHours;
   let elapsedHours;
   let teammateCount;

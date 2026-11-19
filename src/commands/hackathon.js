@@ -18,7 +18,12 @@ import { bold, dim, cyan, red, green, yellow } from "../cli/ui.js";
 import { CoordinatorRuntime } from "../core/hackathon/coordinator.js";
 import { LocalBus } from "../core/hackathon/transport.js";
 import { SESSION_STATUS, TASK_STATUS, WORKER_STATUS } from "../core/hackathon/session.js";
-import { collectSessionInputs, prompt, renderSessionSummary } from "../core/hackathon/session-inputs.js";
+import {
+  collectSessionInputs,
+  isInteractive,
+  prompt,
+  renderSessionSummary,
+} from "../core/hackathon/session-inputs.js";
 
 function usage(message) {
   const err = /** @type {Error & { usage: boolean }} */ (new Error(message));
@@ -95,9 +100,15 @@ export async function run({ args, flags, _config, out }) {
       process.stdout.write("\n");
 
       // Ask the user to confirm before creating the session and generating invitations.
-      process.stdout.write(bold("Create this session and generate invitations? [y/N] "));
-      const confirmAnswer = await prompt("");
-      if ((confirmAnswer || "").trim().toLowerCase() !== "y") {
+      // In non-interactive environments (CI, scripts), auto-confirm since all
+      // inputs were explicitly provided via flags.
+      let confirmed = true;
+      if (isInteractive) {
+        process.stdout.write(bold("Create this session and generate invitations? [y/N] "));
+        const confirmAnswer = await prompt("");
+        confirmed = (confirmAnswer || "").trim().toLowerCase() === "y";
+      }
+      if (!confirmed) {
         await out.init({}, () => "Session creation cancelled.\n");
         return 0;
       }
