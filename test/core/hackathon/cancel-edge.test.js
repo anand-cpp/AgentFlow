@@ -62,6 +62,7 @@ describe("Task cancellation edge cases", () => {
       token: invite.data.token,
       capabilities: ["node"],
     });
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
     coord.taskGraph.upsert({
       taskId: "task-1",
       title: "A",
@@ -94,6 +95,7 @@ describe("Task cancellation edge cases", () => {
       token: invite.data.token,
       capabilities: ["node"],
     });
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
     coord.taskGraph.upsert({
       taskId: "task-1",
       title: "A",
