@@ -4,9 +4,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import fs from "node:fs";
-import path from "node:path";
-import { ScannerAdapter, ScanResult, Finding, SEVERITY, CONFIDENCE, SCANNER_STATUS, VERIFICATION_STATUS } from "./base.js";
+import { ScannerAdapter, Finding, SEVERITY, CONFIDENCE, VERIFICATION_STATUS } from "./base.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -20,7 +18,7 @@ export class SemgrepScanner extends ScannerAdapter {
     try {
       await execFileAsync("semgrep", ["--version"], { timeout: 10000 });
       return { available: true };
-    } catch (err) {
+    } catch {
       return { available: false, reason: "semgrep binary not found or not executable" };
     }
   }
@@ -43,7 +41,7 @@ export class SemgrepScanner extends ScannerAdapter {
     return { stdout, stderr };
   }
 
-  parseOutput(output, options = {}) {
+  parseOutput(output) {
     const { stdout } = output;
     const findings = [];
 

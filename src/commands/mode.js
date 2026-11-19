@@ -13,8 +13,7 @@
 // switches.
 
 import { defineCommand } from "../cli/registry.js";
-import { Output } from "../cli/output.js";
-import { bold, dim, red, green, yellow, cyan } from "../cli/ui.js";
+import { bold, dim, green, yellow, cyan } from "../cli/ui.js";
 import {
   MODE,
   MODE_NAMES,
@@ -33,7 +32,7 @@ function normalizeMode(input) {
   const key = String(input).trim().toLowerCase();
   if (VALID_MODE_NAMES.has(key)) return key;
   // Also accept capitalized forms: "Plan" -> "plan"
-  const capitalized = key.charAt(0).toUpperCase() + key.slice(1);
+  const _capitalized = key.charAt(0).toUpperCase() + key.slice(1);
   const byName = Object.entries(MODE_NAMES).find(([, name]) => name.toLowerCase() === key);
   if (byName) return byName[0];
   return null;
@@ -100,7 +99,7 @@ export async function run({ args, flags, config, out }) {
       const lines = [];
       lines.push(bold("aflow mode — available operating modes"));
       lines.push("");
-      const header = ["mode", "description", "scopes", "maxSubagents", "securityGate"];
+      const _header = ["mode", "description", "scopes", "maxSubagents", "securityGate"];
       const rows = [];
       for (const m of MODE_CYCLE) {
         const p = getModePolicy(m);

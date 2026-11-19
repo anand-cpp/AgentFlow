@@ -5,15 +5,13 @@
 // existing AgentFlow CLI architecture.
 
 import { defineCommand } from "../cli/registry.js";
-import { Output } from "../cli/output.js";
 import { bold, dim, red, green, yellow, cyan } from "../cli/ui.js";
-import { SecurityOrchestrator, SCAN_PROFILES, DELIVERY_STATUS } from "../security/orchestrator.js";
+import { SecurityOrchestrator, SCAN_PROFILES } from "../security/orchestrator.js";
 import { SemgrepScanner } from "../security/scanners/semgrep.js";
 import { OsvScanner } from "../security/scanners/osv.js";
 import { TrivyScanner } from "../security/scanners/trivy.js";
-import { FindingsEngine } from "../security/findings/engine.js";
 
-const TABLE_WIDTH = 80;
+const _TABLE_WIDTH = 80;
 
 function buildOrchestrator() {
   const orch = new SecurityOrchestrator({ defaultProfile: SCAN_PROFILES.STANDARD });
@@ -44,7 +42,7 @@ function renderFinding(finding) {
   return lines.join("\n");
 }
 
-export async function run({ args, flags, config, out }) {
+export async function run({ args, flags, _config, out }) {
   const [sub = "help"] = args;
   const orch = buildOrchestrator();
 

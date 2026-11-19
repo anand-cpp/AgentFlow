@@ -4,7 +4,6 @@
 // Tasks integrate with the security orchestration lifecycle.
 
 import { defineCommand } from "../cli/registry.js";
-import { Output } from "../cli/output.js";
 import { bold, dim, green, red, yellow, cyan } from "../cli/ui.js";
 import { TodoEngine } from "../security/todo.js";
 
@@ -16,7 +15,7 @@ function getTodoEngine() {
 }
 
 function renderTask(task, index) {
-  const statusIcon = {
+  const _statusIcon = {
     pending: "○",
     in_progress: "◐",
     completed: "✓",
@@ -45,7 +44,7 @@ function renderTask(task, index) {
   return lines.join("\n");
 }
 
-export async function run({ args, flags, config, out }) {
+export async function run({ args, flags, _config, out }) {
   const engine = getTodoEngine();
   const [sub = "show"] = args;
 

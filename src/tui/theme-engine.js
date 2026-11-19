@@ -36,7 +36,7 @@ function registerTheme(theme) {
 
 // Register all themes from each collection.
 function registerAll(collection) {
-  for (const [key, value] of Object.entries(collection)) {
+  for (const [, value] of Object.entries(collection)) {
     if (value && value.colors && value.name) {
       registerTheme(value);
     }
@@ -51,7 +51,7 @@ registerAll(developer);
 // ── Active theme state ──────────────────────────────────────────────────
 
 let activeThemeId = DEFAULT_THEME_NAME.toLowerCase().replace(/\s+/g, "-");
-let userThemeId = null; // explicitly chosen theme, if any
+let _userThemeId = null; // explicitly chosen theme, if any
 
 /** Get the currently active theme object. */
 export function getActiveTheme() {
@@ -87,14 +87,14 @@ export function setTheme(id) {
   const theme = getThemeById(id);
   if (!theme) return false;
   activeThemeId = id.toLowerCase().replace(/\s+/g, "-");
-  userThemeId = activeThemeId;
+  _userThemeId = activeThemeId;
   return true;
 }
 
 /** Reset to the default theme. */
 export function resetTheme() {
   activeThemeId = DEFAULT_THEME_NAME.toLowerCase().replace(/\s+/g, "-");
-  userThemeId = null;
+  _userThemeId = null;
 }
 
 /** Resolve a semantic token name to its color spec under the active theme. */

@@ -15,9 +15,7 @@ import path from "node:path";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import findingsEngineModule from "../findings/engine.js";
-import { SecurityOrchestrator } from "../orchestrator.js";
-
-const { FindingsEngine, SEVERITY, VERIFICATION_STATUS } = findingsEngineModule;
+const { _FindingsEngine, _SEVERITY, _VERIFICATION_STATUS } = findingsEngineModule;
 
 const execFileAsync = promisify(execFile);
 
@@ -265,7 +263,7 @@ export class RemediationEngine {
       };
     }
 
-    const [, pkgName, currentVersion] = match;
+    const [, pkgName, _currentVersion] = match;
     const fixedVersion = finding.evidence?.fixedVersion;
 
     if (!fixedVersion) {
@@ -324,7 +322,7 @@ export class RemediationEngine {
   /** Run npm install to update a dependency. */
   async _npmInstall(pkgName, version, options = {}) {
     try {
-      const { stdout, stderr } = await execFileAsync(
+      const { stdout, _stderr } = await execFileAsync(
         "npm",
         ["install", `${pkgName}@${version}`, "--save-dev", "--no-audit", "--no-fund"],
         {
@@ -354,7 +352,7 @@ export class RemediationEngine {
   /** Apply a user-provided patch command. */
   async _applyCommandPatch(attempt, options = {}) {
     try {
-      const { stdout, stderr } = await execFileAsync(
+      const { stdout, _stderr } = await execFileAsync(
         "sh",
         ["-c", attempt.patchCommand],
         {
@@ -397,7 +395,7 @@ export class RemediationEngine {
   /** Run regression tests. */
   async _runTests(attempt, options = {}) {
     try {
-      const { stdout, stderr } = await execFileAsync(
+      const { stdout, _stderr } = await execFileAsync(
         "node",
         ["scripts/run-tests.mjs"],
         {
@@ -406,7 +404,7 @@ export class RemediationEngine {
         }
       );
 
-      const output = stdout + stderr;
+      const output = stdout + _stderr;
       const passed = !output.includes("✖ failing tests") && !output.includes("fail");
 
       return {
@@ -460,8 +458,8 @@ export class RemediationEngine {
   }
 
   /** Verify if the finding was resolved by the rescan. */
-  async _verifyFinding(attempt, rescanResult, options = {}) {
-    const originalFinding = this.findingsEngine.getById(attempt.findingId);
+  async _verifyFinding(attempt, rescanResult, _options = {}) {
+    const _originalFinding = this.findingsEngine.getById(attempt.findingId);
 
     if (rescanResult.status !== "completed") {
       return {

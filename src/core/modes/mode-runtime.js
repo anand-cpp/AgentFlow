@@ -8,8 +8,7 @@
 import { AgentRuntime } from "../agents/runtime.js";
 import { AgentRegistry, CAPABILITY, TOOL_SCOPE } from "../agents/registry.js";
 import { builtinSpecs } from "../agents/definitions.js";
-import { createRealTools } from "../agents/real-tools.js";
-import { getModePolicy } from "./mode-policy.js";
+
 import { EVENTS } from "../events.js";
 
 /** Filter built-in agents to those allowed by the mode policy. */
@@ -19,7 +18,7 @@ function filterAgentsByPolicy(allAgents, allowedIds) {
 }
 
 /** Build a mode-scoped tool policy from a ModePolicy. */
-function buildToolPolicy(modePolicy, agentTools) {
+function buildToolPolicy(modePolicy, _agentTools) {
   const scopes = [...modePolicy.scopes];
   const allow = [...modePolicy.allow];
   const ask = [...modePolicy.ask];
@@ -164,8 +163,8 @@ class ModeRuntime {
 
     const guards = [...(this.runtimeOptions.guards || []), modeGuard];
 
-    const bounds = buildBounds(policy);
-    const modelRequirements = buildModelRequirements(policy);
+    const _bounds = buildBounds(policy);
+    const _modelRequirements = buildModelRequirements(policy);
 
     const runtime = new AgentRuntime({
       ...this.runtimeOptions,
@@ -190,7 +189,7 @@ class ModeRuntime {
   /** Create a guard that enforces mode-specific tool restrictions. */
   _makeModeGuard(policy) {
     return async (call, ctx) => {
-      const { agent, tool } = ctx;
+      const { _agent, tool } = ctx;
       if (!tool) return undefined; // let the pipeline decide
 
       const toolScope = tool.scope;

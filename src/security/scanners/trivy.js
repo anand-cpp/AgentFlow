@@ -4,8 +4,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import fs from "node:fs";
-import { ScannerAdapter, ScanResult, Finding, SEVERITY, CONFIDENCE, SCANNER_STATUS, VERIFICATION_STATUS } from "./base.js";
+import { ScannerAdapter, Finding, SEVERITY, CONFIDENCE, VERIFICATION_STATUS } from "./base.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -19,7 +18,7 @@ export class TrivyScanner extends ScannerAdapter {
     try {
       await execFileAsync("trivy", ["--version"], { timeout: 10000 });
       return { available: true };
-    } catch (err) {
+    } catch {
       return { available: false, reason: "trivy binary not found or not executable" };
     }
   }
@@ -46,7 +45,7 @@ export class TrivyScanner extends ScannerAdapter {
     return { stdout, stderr };
   }
 
-  parseOutput(output, options = {}) {
+  parseOutput(output) {
     const { stdout } = output;
     const findings = [];
 

@@ -5,7 +5,7 @@
 // Uses real tribunal data (no mocks, no simulated status).
 
 import { paintToken } from "./theme-engine.js";
-import { bold, dim, width, truncate, pad } from "../cli/ui.js";
+import { dim, truncate } from "../cli/ui.js";
 
 /** Stage order and their semantic color tokens. */
 export const TRIBUNAL_STAGES = [

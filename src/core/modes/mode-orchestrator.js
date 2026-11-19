@@ -12,10 +12,7 @@
 //   - Subagents never inherit unrestricted permissions; each gets the mode's
 //     policy applied to its tool set.
 
-import { AgentRuntime } from "../agents/runtime.js";
-import { AgentRegistry } from "../agents/registry.js";
-import { builtinSpecs } from "../agents/definitions.js";
-import { EVENTS } from "../events.js";
+
 
 /** Outcome of one delegated subtask. */
 export class SubtaskResult {

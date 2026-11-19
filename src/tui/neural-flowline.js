@@ -5,7 +5,7 @@
 // Never simulates model health or execution activity.
 
 import { paintToken } from "./theme-engine.js";
-import { bold, dim, width, truncate } from "../cli/ui.js";
+import { dim } from "../cli/ui.js";
 
 /** Pipeline node definitions with semantic color tokens. */
 export const PIPELINE_NODES = [
@@ -35,8 +35,8 @@ export function renderFlowline(state = {}, opts = {}) {
   lines.push("");
 
   const nodes = [...PIPELINE_NODES];
-  const totalWidth = nodes.length * 3 + (nodes.length - 1) * ARROW.length;
-  const available = w - 4;
+  const _totalWidth = nodes.length * 3 + (nodes.length - 1) * ARROW.length;
+  const _available = w - 4;
 
   // Build the pipeline line
   let pipeline = "";

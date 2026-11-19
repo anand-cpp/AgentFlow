@@ -1,8 +1,7 @@
 // Connector Browser — terminal UI for browsing 100+ AI model providers.
 // Renders a searchable, filterable list of providers with connection status.
 
-import { setColor, bold, dim, green, red, yellow, cyan, gray, paint, width, truncate, pad, heading } from "../cli/ui.js";
-import { drawBox, drawSelectList, drawStatusLine } from "../tui/components.js";
+import { bold, dim, green, yellow, cyan, gray, paint, heading } from "../cli/ui.js";
 import { PROVIDERS, PROVIDER_MODELS } from "../../open-sse/providers/index.js";
 
 let selectedIndex = 0;

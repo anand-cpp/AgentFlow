@@ -83,7 +83,7 @@ export class ModeRegistry {
     }
 
     const previousMode = current.mode;
-    const switched = current.switchTo(newMode, { sessionId: sessionId ?? current.sessionId });
+    const _switched = current.switchTo(newMode, { sessionId: sessionId ?? current.sessionId });
 
     // Record the switch in the event log.
     if (this.eventLog) {

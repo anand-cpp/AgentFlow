@@ -89,6 +89,8 @@ export const red = (t) => paint(t, "red");
 export const green = (t) => paint(t, "green");
 export const yellow = (t) => paint(t, "yellow");
 export const cyan = (t) => paint(t, "cyan");
+export const magenta = (t) => paint(t, "magenta");
+export const orange = (t) => paint(t, "orange");
 export const gray = (t) => paint(t, "gray");
 export const bgRed = (t) => paint(t, "bgRed");
 export const bgGreen = (t) => paint(t, "bgGreen");

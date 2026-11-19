@@ -31,7 +31,7 @@ import { defineCommand } from "../cli/registry.js";
 import { builtinSpecs } from "../core/agents/definitions.js";
 import { AgentRegistry, TOOL_SCOPE } from "../core/agents/registry.js";
 import { AgentRuntime } from "../core/agents/runtime.js";
-import { ModeRegistry, ModeRuntime, getDefaultMode } from "../core/modes/index.js";
+import { ModeRegistry, ModeRuntime } from "../core/modes/index.js";
 import { ProviderHealth } from "../core/provider-health.js";
 import { RollingWindowLimiter, rateLimitsFromRegistry } from "../core/rate-limit.js";
 import { UsageLedger } from "../core/usage-ledger.js";

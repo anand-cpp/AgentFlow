@@ -6,11 +6,6 @@
 //
 // Zero runtime dependencies: plain Node builtins only.
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
-
 /** Severity scale used across all normalized findings. */
 export const SEVERITY = {
   CRITICAL: "critical",
@@ -215,12 +210,12 @@ export class ScannerAdapter {
   }
 
   /** Subclass implements the actual scanner invocation. */
-  async executeScanner(target, options = {}) {
+  async executeScanner(target, _options = {}) {
     throw new Error(`executeScanner not implemented for ${this.id}`);
   }
 
   /** Subclass parses raw scanner output into Finding[]. */
-  parseOutput(output, options = {}) {
+  parseOutput(output, _options = {}) {
     throw new Error(`parseOutput not implemented for ${this.id}`);
   }
 

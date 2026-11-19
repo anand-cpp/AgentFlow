@@ -5,10 +5,10 @@
 // existing subsystems: sessions, models, agents, themes, tribunal, blackboard,
 // git, mcp, plugins, settings.
 
-import { fuzzyMatch, filterFuzzy } from "./interact.js";
-import { drawBox, drawInput, drawSelectList } from "./components.js";
+import { filterFuzzy } from "./interact.js";
+import { drawBox, drawInput } from "./components.js";
 import { paintToken } from "./theme-engine.js";
-import { bold, dim, width, truncate, pad } from "../cli/ui.js";
+import { dim } from "../cli/ui.js";
 
 /** A command palette entry. */
 export class PaletteCommand {
@@ -25,7 +25,6 @@ export class PaletteCommand {
 
 /** Built-in command palette commands. */
 export function createDefaultCommands(ctx = {}) {
-  const { sessions, agents, models, themes, blackboard, git, mcp, plugins, settings, tribunal } = ctx;
 
   return [
     new PaletteCommand({
