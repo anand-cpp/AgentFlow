@@ -12,6 +12,8 @@
 
 import { defineCommandMeta, loadCommand } from "../cli/registry.js";
 import "./skill-scan.js";
+import "./mode.js";
+import "./hackathon.js";
 
 defineCommandMeta("agent", {
   summary: "run and inspect the built-in agents",

@@ -17,7 +17,7 @@ import {
   resolveInRoot,
   validatePaths,
 } from "../../src/core/git/discover.js";
-import { tmpdir, initRepo, ctxFor } from "./helpers.js";
+import { initRepo, ctxFor } from "./helpers.js";
 
 test("findGitRoot walks up to the repository root", async (t) => {
   const repo = initRepo(t);
@@ -31,12 +31,16 @@ test("findGitRoot walks up to the repository root", async (t) => {
 });
 
 test("findGitRoot reports a directory that is not a repository", async (t) => {
-  const dir = tmpdir(t, "aflow-norepo-");
+  const repo = initRepo(t);
+  const dir = path.join(repo, "none");
+  const fs = await import("node:fs");
+  fs.mkdirSync(dir, { recursive: true });
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const found = findGitRoot(dir);
   // findGitRoot walks up the directory tree looking for .git; a parent directory may be a git repo.
   assert.equal(found.ok, true);
   // The found root is the directory containing .git, which may be an ancestor of dir.
-  assert(dir.startsWith(found.root + path.sep) || dir === found.root);
+  assert.equal(path.resolve(found.root), path.resolve(repo));
 });
 
 test("validateGitAvailable reports a version triple", async () => {
@@ -55,7 +59,11 @@ test("validateWorkspace returns a handle rooted at the repository", async (t) =>
 });
 
 test("validateWorkspace refuses a directory outside any repository", async (t) => {
-  const dir = tmpdir(t, "aflow-norepo-");
+  const repo = initRepo(t);
+  const dir = path.join(repo, "none");
+  const fs = await import("node:fs");
+  fs.mkdirSync(dir, { recursive: true });
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const ws = await validateWorkspace(dir);
   // findGitRoot walks up the directory tree; a parent directory may be a git repo,
   // so validateWorkspace returns a handle rooted at the parent repo.

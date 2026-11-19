@@ -1,8 +1,7 @@
 // `aflow connectors` — terminal UI for browsing and connecting to 100+ providers.
 
 import { defineCommand } from "../cli/registry.js";
-import { Output } from "../cli/output.js";
-import { setColor, bold, dim, green, red, yellow, cyan, gray, paint } from "../cli/ui.js";
+import { bold, dim, green, red, yellow } from "../cli/ui.js";
 import {
   resetState,
   setFilter,
@@ -10,11 +9,9 @@ import {
   renderConnectorList,
   renderConnectorDetail,
   renderConnectScreen,
-  selectedIndex,
-  scrollOffset,
-  viewMode,
 } from "../tui/connector-browser.js";
-import { PROVIDERS, PROVIDER_MODELS } from "../../open-sse/providers/index.js";
+import { PROVIDERS } from "../../open-sse/providers/index.js";
+import { heading } from "../cli/ui.js";
 
 let currentView = "list";
 let currentProviderId = null;
@@ -43,7 +40,7 @@ async function readKey() {
   });
 }
 
-export async function run({ args, flags, config, out }) {
+export async function run({ _args, _flags, _config, out }) {
   const ttY = process.stdout.isTTY && process.stdin.isTTY;
   if (!ttY) {
     // Non-TTY: just list providers as JSON or text
@@ -59,6 +56,8 @@ export async function run({ args, flags, config, out }) {
   resetState();
   currentView = "list";
   currentProviderId = null;
+  let selectedIndex = 0;
+  let scrollOffset = 0;
 
   try {
     while (true) {

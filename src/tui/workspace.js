@@ -6,14 +6,14 @@
 //
 // Zero runtime dependencies: hand-rolled ANSI rendering only.
 
-import { paint, bold, dim, cyan, gray, green, red, yellow, width, truncate, pad, terminalWidth } from "../cli/ui.js";
-import { drawBox, drawSelectList, drawInput, drawStatusLine, drawToast } from "./components.js";
-import { computeLayout, REGIONS, terminalDims, contentArea } from "./layout.js";
-import { getActiveTheme, paintToken, listThemeIds, setTheme } from "./theme-engine.js";
-import { renderPalette, filterCommands, createDefaultCommands } from "./command-palette.js";
+import { dim, cyan, gray, green, red, yellow, width, truncate, pad } from "../cli/ui.js";
+import { drawInput } from "./components.js";
+import { computeLayout, REGIONS } from "./layout.js";
+import { getActiveTheme, paintToken } from "./theme-engine.js";
+import { renderPalette, filterCommands } from "./command-palette.js";
 import { renderTribunal } from "./tribunal-viz.js";
-import { renderFlowline } from "./neural-flowline.js";
 import { renderBlackboard } from "./blackboard-panel.js";
+import { MODE_NAMES, MODE_DESCRIPTIONS, MODE_PRIVILEGE } from "../core/modes/index.js";
 
 /** Workspace application state. */
 export function initialWorkspaceState() {
@@ -47,6 +47,10 @@ export function initialWorkspaceState() {
     todoEngine: null,
     securityStatus: null,
     todoState: null,
+    // Operating mode: Plan is the default (read-only, safest).
+    // Tab cycles Plan → Build → Orchestrate → Auto → Plan.
+    mode: "plan",
+    modePrevious: null,
   };
 }
 
@@ -58,7 +62,7 @@ function padBlock(lines, w) {
 /** Render the full workspace frame as an array of lines (one per terminal row). */
 export function renderWorkspaceLines(state, opts = {}) {
   const { cols, rows } = opts;
-  const theme = getActiveTheme();
+  const _theme = getActiveTheme();
   const layout = computeLayout({ cols, rows });
 
   // Refresh security status from real orchestrator
@@ -150,8 +154,7 @@ export function renderWorkspace(state, opts = {}) {
 }
 
 /** Render header region. */
-function renderHeader(state, region) {
-  const { w } = region;
+function renderHeader(state, _region) {
   const lines = [];
   const brand = paintToken("AgentFlow", "accent", "bold");
   const version = dim("v1.0.0");
@@ -163,14 +166,22 @@ function renderHeader(state, region) {
   const agentChip = paintToken("agent", "mutedText") + ": " + (state.currentAgentId || "—");
   const modelChip = paintToken("model", "mutedText") + ": " + (state.currentModelId || "—");
 
-  const statusLine = gray(sessionChip.padEnd(20)) + gray(agentChip.padEnd(18)) + gray(modelChip);
+  // Mode indicator — active mode shown prominently with privilege color.
+  const mode = state.mode || "plan";
+  const modeName = MODE_NAMES[mode] || mode;
+  const privilege = MODE_PRIVILEGE[mode] || 1;
+  const modeColor = privilege >= 3 ? red : privilege >= 2 ? yellow : green;
+  const modeChip = paintToken("MODE", "mutedText") + ": " + modeColor(modeName.toUpperCase()) + " " + dim(MODE_DESCRIPTIONS[mode] || "");
+
+  const statusLine = gray(sessionChip.padEnd(22)) + gray(agentChip.padEnd(18)) + gray(modelChip);
   lines.push(statusLine);
+  lines.push(modeChip);
+  lines.push(dim("  Tab to cycle modes · Ctrl+P palette · Ctrl+T themes · / commands · Ctrl+Q quit · F1 help"));
   return lines;
 }
 
 /** Render sidebar region. */
-function renderSidebar(state, region) {
-  const { w } = region;
+function renderSidebar(state, _region) {
   const lines = [];
   lines.push(paintToken("NAVIGATION", "accent", "bold"));
   lines.push("");
@@ -289,8 +300,7 @@ function renderInspector(state, region) {
 }
 
 /** Render security panel in the inspector. */
-function renderSecurityPanel(securityStatus, opts = {}) {
-  const { w } = opts;
+function renderSecurityPanel(securityStatus, _opts = {}) {
   const lines = [];
 
   if (!securityStatus) {
@@ -339,8 +349,7 @@ function renderSecurityPanel(securityStatus, opts = {}) {
 }
 
 /** Render TODO panel. */
-function renderTodoPanel(todoState, opts = {}) {
-  const { w } = opts;
+function renderTodoPanel(todoState, _opts = {}) {
   const lines = [];
 
   if (!todoState) {

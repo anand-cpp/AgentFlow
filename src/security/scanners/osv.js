@@ -5,8 +5,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs";
-import path from "node:path";
-import { ScannerAdapter, ScanResult, Finding, SEVERITY, CONFIDENCE, SCANNER_STATUS, VERIFICATION_STATUS } from "./base.js";
+import { ScannerAdapter, Finding, SEVERITY, CONFIDENCE, VERIFICATION_STATUS } from "./base.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -20,7 +19,7 @@ export class OsvScanner extends ScannerAdapter {
     try {
       await execFileAsync("osv-scanner", ["--version"], { timeout: 10000 });
       return { available: true };
-    } catch (err) {
+    } catch {
       return { available: false, reason: "osv-scanner binary not found or not executable" };
     }
   }
@@ -40,7 +39,7 @@ export class OsvScanner extends ScannerAdapter {
     return { stdout, stderr };
   }
 
-  parseOutput(output, options = {}) {
+  parseOutput(output) {
     const { stdout } = output;
     const findings = [];
 
@@ -67,7 +66,7 @@ export class OsvScanner extends ScannerAdapter {
     const results = parsed.results || [];
     for (const result of results) {
       const packages = result.packages || [];
-      const source = result.source || { type: "lockfile", path: target };
+      const source = result.source || { type: "lockfile", path: null };
       const targetPath = source.path || null;
 
       for (const pkg of packages) {

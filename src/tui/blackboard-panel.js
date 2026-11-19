@@ -4,7 +4,7 @@
 // Uses real Blackboard data (no mocks).
 
 import { paintToken } from "./theme-engine.js";
-import { bold, dim, width, truncate, pad } from "../cli/ui.js";
+import { dim, truncate } from "../cli/ui.js";
 
 /** Task status color mapping. */
 function statusColor(status) {

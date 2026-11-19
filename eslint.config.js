@@ -58,6 +58,9 @@ export default [
       // ESM plugin sources evaluated inside the loader's vm sandbox, so the
       // host toolchain must not lint or typecheck them as part of this
       // package -- `module.exports` is correct there and an error here.
-      "test/plugins/fixtures/**"],
+      "test/plugins/fixtures/**",
+      // Insecure test fixture -- intentionally contains unsafe code patterns
+      // for scanner testing. Not host code.
+      "test/security/fixtures/insecure-code.js"],
   },
 ];

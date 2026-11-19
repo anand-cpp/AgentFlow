@@ -4,6 +4,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
 
 import { runTool, OUTCOME } from "../../src/core/agents/tools.js";
 import { defineAgent } from "../../src/core/agents/registry.js";
@@ -164,7 +165,7 @@ test("a READ-only grant cannot run a WRITE git tool", async (t) => {
 test("git tools fail cleanly outside a repository", async (t) => {
   // A temp directory that is not a repo (initRepo's parent, but a sibling).
   const repo = initRepo(t);
-  const notRepo = `${repo}-not-repo`;
+  const notRepo = path.join(repo, "not-repo");
   const fs = await import("node:fs");
   fs.mkdirSync(notRepo, { recursive: true });
   t.after(() => fs.rmSync(notRepo, { recursive: true, force: true }));

@@ -81,7 +81,7 @@ export class Task {
   }
 
   get canStart() {
-    return this.status === TASK_STATUS.PENDING && this.dependsOn.every((d) => {
+    return this.status === TASK_STATUS.PENDING && this.dependsOn.every(() => {
       // dependsOn references task IDs that must be completed
       return true; // resolved by TodoEngine
     });
@@ -209,7 +209,7 @@ export class TodoEngine {
   }
 
   /** Generate a task list for a given task type. */
-  generateTaskList(taskType, sourceEvent = null, context = {}) {
+  generateTaskList(taskType, sourceEvent = null, _context = {}) {
     const templates = this._getTaskTemplates(taskType);
     const tasks = templates.map((t) => new Task({
       ...t,
@@ -297,8 +297,6 @@ export class TodoEngine {
       backend: [...base, { title: "Inspect API architecture", category: TASK_CATEGORY.REQUIREMENTS, verification: TASK_VERIFICATION.MANUAL }, { title: "Validate authentication", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.MANUAL }, { title: "Validate authorization", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.MANUAL }, { title: "Validate input", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.MANUAL }, { title: "Implement endpoint", category: TASK_CATEGORY.IMPLEMENTATION, verification: TASK_VERIFICATION.MANUAL }, { title: "Run integration tests", category: TASK_CATEGORY.TESTING, verification: TASK_VERIFICATION.AUTO_TEST }, { title: "Run SAST", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.SECURITY_SCAN }, { title: "Run dependency scans", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.SECURITY_SCAN }, { title: "Verify error handling", category: TASK_CATEGORY.VERIFICATION, verification: TASK_VERIFICATION.MANUAL }],
 
       skill: [...base, { title: "Discover source", category: TASK_CATEGORY.REQUIREMENTS, verification: TASK_VERIFICATION.MANUAL }, { title: "Inspect repository", category: TASK_CATEGORY.REQUIREMENTS, verification: TASK_VERIFICATION.MANUAL }, { title: "Run SkillSpector", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.SECURITY_SCAN }, { title: "Review findings", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.MANUAL }, { title: "Obtain approval", category: TASK_CATEGORY.VERIFICATION, verification: TASK_VERIFICATION.MANUAL }, { title: "Test in sandbox", category: TASK_CATEGORY.TESTING, verification: TASK_VERIFICATION.AUTO_TEST }, { title: "Verify permissions", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.MANUAL }, { title: "Activate after verification", category: TASK_CATEGORY.DELIVERY, verification: TASK_VERIFICATION.MANUAL }],
-
-      container: [...base, { title: "Inspect Dockerfile", category: TASK_CATEGORY.REQUIREMENTS, verification: TASK_VERIFICATION.MANUAL }, { title: "Check base image", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.MANUAL }, { title: "Scan image", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.SECURITY_SCAN }, { title: "Check secrets", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.SECURITY_SCAN }, { title: "Check configurations", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.MANUAL }, { title: "Verify startup", category: TASK_CATEGORY.TESTING, verification: TASK_VERIFICATION.AUTO_TEST }, { title: "Re-scan final image", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.SECURITY_SCAN }],
 
       container: [...base, { title: "Inspect Dockerfile", category: TASK_CATEGORY.REQUIREMENTS, verification: TASK_VERIFICATION.MANUAL }, { title: "Check base image", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.MANUAL }, { title: "Scan image", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.SECURITY_SCAN }, { title: "Check secrets", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.SECURITY_SCAN }, { title: "Check configurations", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.MANUAL }, { title: "Verify startup", category: TASK_CATEGORY.TESTING, verification: TASK_VERIFICATION.AUTO_TEST }, { title: "Re-scan final image", category: TASK_CATEGORY.SECURITY, verification: TASK_VERIFICATION.SECURITY_SCAN }],
     };

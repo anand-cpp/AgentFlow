@@ -20,7 +20,7 @@ test("openWorkspace resolves a repository root", async (t) => {
 
 test("openWorkspace reports a directory that is not a repository", async (t) => {
   const repo = initRepo(t);
-  const notRepo = `${repo}-none`;
+  const notRepo = path.join(repo, "none");
   const fs = await import("node:fs");
   fs.mkdirSync(notRepo, { recursive: true });
   t.after(() => fs.rmSync(notRepo, { recursive: true, force: true }));
@@ -93,7 +93,7 @@ test("gitSlash defaults to status and returns a string", async (t) => {
 
 test("gitSlash on a non-repository explains the failure", async (t) => {
   const repo = initRepo(t);
-  const notRepo = `${repo}-none`;
+  const notRepo = path.join(repo, "none");
   const fs = await import("node:fs");
   fs.mkdirSync(notRepo, { recursive: true });
   t.after(() => fs.rmSync(notRepo, { recursive: true, force: true }));

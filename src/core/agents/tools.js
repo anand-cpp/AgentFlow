@@ -115,7 +115,11 @@ const ENTRY_RE = new RegExp(`^(${Object.values(TOOL_SCOPE).join("|")}):?(.+)?$`)
 export function parseEntry(entry) {
   const m = ENTRY_RE.exec(String(entry ?? "").trim());
   if (!m) return null;
-  return { scope: m[1], value: m[2] ? m[2].replace(/^:/, "").trim() : undefined };
+  const value = m[2] ? m[2].replace(/^:/, "").trim() : undefined;
+  // MCP scope entries with empty value match all MCP tools; other scopes
+  // require a non-empty value (e.g. "read:" is invalid but "mcp" means all).
+  if (!value && m[1] !== TOOL_SCOPE.MCP) return null;
+  return { scope: m[1], value };
 }
 
 function tokenize(command) {
@@ -149,7 +153,7 @@ function pathWithin(parent, child) {
   };
   const a = segments(parent);
   const b = segments(child);
-  if (!b.length) return false;
+  if (!b.length) return true; // empty child path is within any parent
   if (b.length < a.length) return false;
   return a.every((seg, i) => b[i] === seg);
 }

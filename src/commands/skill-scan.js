@@ -5,11 +5,10 @@
 // Results are reported and the skill state is updated accordingly.
 
 import { defineCommand } from "../cli/registry.js";
-import { Output } from "../cli/output.js";
-import { bold, dim, red, green, yellow } from "../cli/ui.js";
+import { bold, dim, red, yellow } from "../cli/ui.js";
 import { SkillSpectorEngine, SKILL_STATE } from "../security/skill-spector/engine.js";
 
-export async function run({ args, flags, config, out }) {
+export async function run({ args, _flags, _config, out }) {
   const [skillPath] = args;
 
   if (!skillPath) {

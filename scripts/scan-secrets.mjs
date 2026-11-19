@@ -40,10 +40,20 @@ const ALLOWLIST = new Set([
   path.normalize("test/redact.test.js"),
   path.normalize("test/redact-edgecases.test.js"),
   path.normalize("test/gateway-client.test.js"),
+  path.normalize("test/security/fixtures/insecure-code.js"),
   "scripts/scan-secrets.mjs",
   "SECURITY.md",
   "THIRD_PARTY_NOTICES.md",
   "AUDIT/LICENSE_AUDIT.md",
+  // Old versions of these test files contained short synthetic strings that
+  // happened to match scanner rule shapes (e.g. "sk-1234567890abcdef"). They
+  // were never real credentials -- they were test values I authored. The
+  // current versions use short obviously-fake values (<12 chars) that do not
+  // match any rule. The old blobs remain reachable in git history, so
+  // --history still flags them. Listed here with documentation so the
+  // scanner does not cry wolf on my own historical test fixtures.
+  path.normalize("test/core/hackathon/persistence.test.js"),
+  path.normalize("test/core/hackathon/security.test.js"),
 ]);
 
 const BINARY_EXT = new Set([
