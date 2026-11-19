@@ -7,7 +7,7 @@
 // orchestrator and todo engine state.
 
 import { defineCommand } from "../cli/registry.js";
-import { dim } from "../cli/ui.js";
+import { bold, dim } from "../cli/ui.js";
 import {
   renderWorkspaceLines,
   initialWorkspaceState,
@@ -26,6 +26,7 @@ import { TodoEngine } from "../security/todo.js";
 import { ModeRegistry, nextMode, MODE_PRIVILEGE, MODE_DESCRIPTIONS } from "../core/modes/index.js";
 import { CoordinatorRuntime } from "../core/hackathon/coordinator.js";
 import { LocalBus } from "../core/hackathon/transport.js";
+import { collectSessionInputs, prompt, renderSessionSummary } from "../core/hackathon/session-inputs.js";
 
 const TTY = process.stdout.isTTY && process.stdin.isTTY;
 
@@ -85,39 +86,105 @@ export async function run({ out }) {
     onPlugins: () => { state.notifications.push({ message: "Plugins panel coming soon", variant: "info" }); state.paletteOpen = false; state.paletteQuery = ""; },
     onSettings: () => { state.notifications.push({ message: "Settings coming soon", variant: "info" }); state.paletteOpen = false; state.paletteQuery = ""; },
     onDoctor: () => { state.notifications.push({ message: "Run: aflow doctor", variant: "info" }); state.paletteOpen = false; state.paletteQuery = ""; },
-    onHackathon: () => {
-      const bus = new LocalBus();
-      const coord = new CoordinatorRuntime({ bus });
-      coord.startSession({
-        leaderId: "tui-leader",
-        projectIdea: "Hackathon session started from TUI (Ctrl+P)",
-        projectRoot: process.cwd(),
-        timeBudget: {
-          totalDurationHours: 24,
-          elapsedHours: 0,
-          teammateCount: 0,
-          reserveFraction: 0.1,
-        },
-      }).then((result) => {
+    onHackathon: async () => {
+      // Close the palette immediately so readline prompts work outside raw mode.
+      state.paletteOpen = false;
+      state.paletteQuery = "";
+      state.paletteIndex = 0;
+      draw();
+
+      // Exit raw mode to use readline prompts (same as CLI).
+      const wasRaw = process.stdin.isTTY;
+      if (wasRaw) process.stdin.setRawMode(false);
+
+      try {
+        // Collect the three required session inputs via the shared service.
+        const inputs = await collectSessionInputs({});
+        const {
+          totalDurationHours,
+          elapsedHours,
+          remainingHours,
+          teammateCount,
+        } = inputs;
+
+        const reserveFraction = 0.1;
+        const reserveHours = Math.max(0, remainingHours * reserveFraction);
+        const workerBudgetHours = Math.max(0, remainingHours - reserveHours);
+
+        // Display the calculated budget for user review.
+        console.log("\n" + renderSessionSummary({
+          totalDurationHours,
+          elapsedHours,
+          remainingHours,
+          teammateCount,
+          reserveFraction,
+          workerBudgetHours,
+          reserveHours,
+        }).join("\n"));
+
+        // Ask the user to confirm before creating the session.
+        process.stdout.write(bold("Create this session and generate invitations? [y/N] "));
+        const confirmAnswer = await prompt("");
+        if ((confirmAnswer || "").trim().toLowerCase() !== "y") {
+          console.log("Session creation cancelled.");
+          state.notifications.push({
+            message: "Hackathon session creation cancelled.",
+            variant: "warn",
+          });
+          return;
+        }
+
+        const bus = new LocalBus();
+        const coord = new CoordinatorRuntime({ bus });
+        const result = await coord.startSession({
+          leaderId: "tui-leader",
+          projectIdea: "Hackathon session started from TUI (Ctrl+P)",
+          projectRoot: process.cwd(),
+          timeBudget: {
+            totalDurationHours,
+            elapsedHours,
+            teammateCount,
+            reserveFraction,
+          },
+        });
+
         if (result.ok) {
+          // Generate one unique invitation per teammate.
+          const workerIds = [];
+          for (let i = 1; i <= teammateCount; i += 1) {
+            workerIds.push(`worker-${i}`);
+          }
+          const invResult = coord.createInvitations({ workerIds });
+
           state.notifications.push({
             message: `Hackathon session started: ${result.data.sessionId}`,
             variant: "success",
           });
           state.notifications.push({
-            message: "Run: aflow hackathon status <session-id>  (or use CLI to add workers)",
+            message: `Teammates: ${teammateCount}, Remaining: ${remainingHours}h, Worker budget: ${Math.round(workerBudgetHours)}h`,
             variant: "info",
           });
+          if (invResult.ok) {
+            state.notifications.push({
+              message: `${invResult.data.invitations.length} invitation(s) generated. Use 'aflow hackathon join <code>' on each worker PC.`,
+              variant: "info",
+            });
+          }
         } else {
           state.notifications.push({
             message: `Hackathon start failed: ${result.error.message}`,
             variant: "error",
           });
         }
-        state.paletteOpen = false;
-        state.paletteQuery = "";
+      } catch (err) {
+        state.notifications.push({
+          message: `Session creation cancelled: ${err.message}`,
+          variant: "warn",
+        });
+      } finally {
+        if (wasRaw) process.stdin.setRawMode(true);
         draw();
-      });
+      }
     },
     onQuit: () => { running = false; process.stdout.write("\u001b[?1049l\u001b[?25h\u001b[0m"); process.exit(0); },
   };
@@ -291,6 +358,25 @@ export async function run({ out }) {
         const selected = cmds[state.paletteIndex];
         if (selected && !selected.disabled) {
           const result = selected.handler();
+          // Support async handlers (e.g. Hackathon Mode session creation).
+          if (result instanceof Promise) {
+            result.then(() => {
+              state.paletteOpen = false;
+              state.paletteQuery = "";
+              state.paletteIndex = 0;
+              draw();
+            }).catch((err) => {
+              state.notifications.push({
+                message: `Command failed: ${err.message}`,
+                variant: "error",
+              });
+              state.paletteOpen = false;
+              state.paletteQuery = "";
+              state.paletteIndex = 0;
+              draw();
+            });
+            return;
+          }
           state.paletteOpen = false;
           state.paletteQuery = "";
           state.paletteIndex = 0;

@@ -18,6 +18,7 @@ import { bold, dim, cyan, red, green, yellow } from "../cli/ui.js";
 import { CoordinatorRuntime } from "../core/hackathon/coordinator.js";
 import { LocalBus } from "../core/hackathon/transport.js";
 import { SESSION_STATUS, TASK_STATUS, WORKER_STATUS } from "../core/hackathon/session.js";
+import { collectSessionInputs, prompt, renderSessionSummary } from "../core/hackathon/session-inputs.js";
 
 function usage(message) {
   const err = /** @type {Error & { usage: boolean }} */ (new Error(message));
@@ -55,84 +56,6 @@ function workerStatusColor(status) {
   }
 }
 
-/** Read a line from stdin (interactive prompt). */
-async function prompt(question) {
-  const readline = await import("node:readline/promises");
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-  return rl.question(question).then((answer) => {
-    rl.close();
-    return answer.trim();
-  });
-}
-
-/** Parse a positive integer, throwing on invalid input. */
-function parsePositiveInt(value, label) {
-  const n = Number.parseInt(value, 10);
-  if (!Number.isFinite(n) || n < 0) {
-    throw new Error(`${label} must be a non-negative integer, got: ${value}`);
-  }
-  return n;
-}
-
-/** Collect the three required session inputs interactively. */
-async function collectSessionInputs(flags) {
-  let totalDurationHours;
-  let elapsedHours;
-  let teammateCount;
-
-  // Duration: flag first, then interactive.
-  if (flags["duration-hours"] !== undefined) {
-    totalDurationHours = parsePositiveInt(flags["duration-hours"], "--duration-hours");
-  } else {
-    const answer = await prompt("How many total working hours does this hackathon have? ");
-    totalDurationHours = parsePositiveInt(answer, "total duration");
-  }
-
-  if (flags["elapsed-hours"] !== undefined) {
-    elapsedHours = parsePositiveInt(flags["elapsed-hours"], "--elapsed-hours");
-  } else {
-    const answer = await prompt("How many hours have already elapsed? ");
-    elapsedHours = parsePositiveInt(answer, "elapsed hours");
-  }
-
-  // Validate: elapsed cannot exceed total.
-  if (elapsedHours > totalDurationHours) {
-    throw new Error(
-      `elapsed time (${elapsedHours}h) cannot exceed total duration (${totalDurationHours}h)`,
-    );
-  }
-
-  const remainingHours = totalDurationHours - elapsedHours;
-  if (remainingHours <= 0) {
-    throw new Error(
-      "No time remaining: elapsed time equals or exceeds total duration.",
-    );
-  }
-  if (remainingHours < 1) {
-    process.stderr.write(
-      `WARNING: Only ${remainingHours} hour(s) remain. The hackathon is nearly over.\n`,
-    );
-  }
-
-  if (flags.teammates !== undefined) {
-    teammateCount = parsePositiveInt(flags.teammates, "--teammates");
-  } else {
-    const answer = await prompt(
-      "How many teammates will connect to this Admin PC? (excludes the Admin PC) ",
-    );
-    teammateCount = parsePositiveInt(answer, "teammate count");
-  }
-
-  if (teammateCount < 1) {
-    throw new Error("At least one teammate is required for a distributed session.");
-  }
-
-  return { totalDurationHours, elapsedHours, remainingHours, teammateCount };
-}
-
 export async function run({ args, flags, _config, out }) {
   const [sub = "help", ...rest] = args;
 
@@ -143,11 +66,41 @@ export async function run({ args, flags, _config, out }) {
         throw usage('which project: aflow hackathon start "<idea>"');
       }
 
-      // Collect the three required session inputs (duration, elapsed, teammate count).
-      const { totalDurationHours, elapsedHours, remainingHours, teammateCount } =
-        await collectSessionInputs(flags);
+      // Collect the three required session inputs via the shared service.
+      const inputs = await collectSessionInputs(flags);
+      const {
+        totalDurationHours,
+        elapsedHours,
+        remainingHours,
+        teammateCount,
+      } = inputs;
 
       const reserveFraction = Number(flags["reserve-fraction"]) || 0.1;
+      const reserveHours = Math.max(0, remainingHours * reserveFraction);
+      const workerBudgetHours = Math.max(0, remainingHours - reserveHours);
+
+      // Display the calculated budget for user review before creating the session.
+      const summaryLines = renderSessionSummary({
+        totalDurationHours,
+        elapsedHours,
+        remainingHours,
+        teammateCount,
+        reserveFraction,
+        workerBudgetHours,
+        reserveHours,
+      });
+      for (const line of summaryLines) {
+        process.stdout.write(line + "\n");
+      }
+      process.stdout.write("\n");
+
+      // Ask the user to confirm before creating the session and generating invitations.
+      process.stdout.write(bold("Create this session and generate invitations? [y/N] "));
+      const confirmAnswer = await prompt("");
+      if ((confirmAnswer || "").trim().toLowerCase() !== "y") {
+        await out.init({}, () => "Session creation cancelled.\n");
+        return 0;
+      }
 
       const bus = new LocalBus();
       const coord = new CoordinatorRuntime({ bus });
@@ -190,7 +143,7 @@ export async function run({ args, flags, _config, out }) {
       lines.push(`  status:  ${statusColor(result.data.status)}`);
       lines.push(`  root:    ${dim(coord.session.projectRoot)}`);
       lines.push("");
-      lines.push(bold("time budget"));
+      lines.push(bold("time budget (confirmed)"));
       lines.push(`  total duration:   ${dim(`${totalDurationHours} hours`)}`);
       lines.push(`  elapsed:          ${dim(`${elapsedHours} hours`)}`);
       lines.push(`  remaining:        ${dim(`${remainingHours} hours`)}`);
