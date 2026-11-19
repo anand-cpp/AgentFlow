@@ -31,6 +31,54 @@ const DEFAULT_MAX_CONCURRENT_TASKS = 8;
 const DEFAULT_MAX_CONCURRENT_WORKERS = 16;
 const DEFAULT_MAX_RETRIES = 3;
 
+// Deadline-aware execution thresholds (fraction of remaining time).
+const DEADLINE_THRESHOLDS = {
+  MORE_THAN_50: 0.5,   // > 50% remaining: core features + integration + testing
+  TWENTY_FIVE_TO_50: 0.25, // 25–50%: prioritize core + integration
+  TEN_TO_TWENTY_FIVE: 0.10, // 10–25%: stop optional, stabilize + fix
+  LESS_THAN_10: 0.0,   // < 10%: critical bugs, security, build stability, submission
+};
+
+/** Execution policy based on time remaining. */
+const DEADLINE_POLICIES = {
+  [DEADLINE_THRESHOLDS.MORE_THAN_50]: {
+    label: "implement",
+    description: "Implement core features, integration, and testing",
+    acceptOptional: true,
+    maxConcurrentTasks: 8,
+  },
+  [DEADLINE_THRESHOLDS.TWENTY_FIVE_TO_50]: {
+    label: "prioritize",
+    description: "Prioritize core functionality and integration",
+    acceptOptional: false,
+    maxConcurrentTasks: 6,
+  },
+  [DEADLINE_THRESHOLDS.TEN_TO_TWENTY_FIVE]: {
+    label: "stabilize",
+    description: "Stop optional features; stabilize and fix important defects",
+    acceptOptional: false,
+    maxConcurrentTasks: 4,
+  },
+  [DEADLINE_THRESHOLDS.LESS_THAN_10]: {
+    label: "critical",
+    description: "Critical bugs, security, build stability, and submission only",
+    acceptOptional: false,
+    maxConcurrentTasks: 2,
+  },
+};
+
+/** Priority order for task evaluation (1 = highest). */
+const _TASK_PRIORITY_ORDER = [
+  "critical_security",
+  "crash_blocker",
+  "core_functionality",
+  "integration_failure",
+  "important_defect",
+  "deployment_reproducibility",
+  "minor_ui",
+  "optional_enhancement",
+];
+
 /** Result of a coordinator operation. */
 class CoordinatorResult {
   constructor({ ok, error, data } = {}) {
@@ -714,11 +762,12 @@ export class CoordinatorRuntime {
       }
     }
 
-    // Concurrency check: worker's active lease count.
+    // Concurrency check: worker's active lease count (deadline-aware).
     const activeLeases = this.scheduler.activeLeaseCount(workerId);
-    if (activeLeases >= this.maxConcurrentTasks) {
+    const deadlineMaxConcurrent = this.getMaxConcurrentTasks();
+    if (activeLeases >= deadlineMaxConcurrent) {
       return CoordinatorResult.err(new Error(
-        `worker ${workerId} at max concurrent tasks`,
+        `worker ${workerId} at max concurrent tasks (deadline limit: ${deadlineMaxConcurrent})`,
       ));
     }
 
@@ -1154,6 +1203,89 @@ export class CoordinatorRuntime {
   /** Get all workers. */
   getWorkers() {
     return [...this.workers.values()];
+  }
+
+  /** Get deadline status: time remaining, budget, reserve, and fraction. */
+  getDeadlineStatus() {
+    if (!this.session) return null;
+    const tb = this.session.timeBudget || {};
+    const total = tb.totalDurationHours || 0;
+    const elapsed = tb.elapsedHours || 0;
+    const remaining = tb.remainingHours || 0;
+    const workerBudget = tb.workerBudgetHours || 0;
+    const reserve = tb.reserveHours || 0;
+
+    const fraction = total > 0 ? remaining / total : 0;
+
+    return {
+      totalDurationHours: total,
+      elapsedHours: elapsed,
+      remainingHours: remaining,
+      workerBudgetHours: workerBudget,
+      reserveHours: reserve,
+      remainingFraction: fraction,
+      percentageRemaining: Math.round(fraction * 100),
+      calculatedAt: tb.calculatedAt || null,
+    };
+  }
+
+  /** Get the current deadline-aware execution policy. */
+  getExecutionPolicy() {
+    const status = this.getDeadlineStatus();
+    if (!status) {
+      return DEADLINE_POLICIES[DEADLINE_THRESHOLDS.MORE_THAN_50];
+    }
+
+    // No time budget configured — default to implement policy.
+    if (status.totalDurationHours === 0) {
+      return DEADLINE_POLICIES[DEADLINE_THRESHOLDS.MORE_THAN_50];
+    }
+
+    const { remainingFraction } = status;
+    if (remainingFraction > DEADLINE_THRESHOLDS.MORE_THAN_50) {
+      return DEADLINE_POLICIES[DEADLINE_THRESHOLDS.MORE_THAN_50];
+    }
+    if (remainingFraction > DEADLINE_THRESHOLDS.TWENTY_FIVE_TO_50) {
+      return DEADLINE_POLICIES[DEADLINE_THRESHOLDS.TWENTY_FIVE_TO_50];
+    }
+    if (remainingFraction > DEADLINE_THRESHOLDS.TEN_TO_TWENTY_FIVE) {
+      return DEADLINE_POLICIES[DEADLINE_THRESHOLDS.TEN_TO_TWENTY_FIVE];
+    }
+    return DEADLINE_POLICIES[DEADLINE_THRESHOLDS.LESS_THAN_10];
+  }
+
+  /** Whether optional (non-critical) work should be accepted. */
+  shouldAcceptOptionalWork() {
+    return this.getExecutionPolicy().acceptOptional;
+  }
+
+  /** Get the max concurrent tasks allowed under the current deadline policy. */
+  getMaxConcurrentTasks() {
+    const policy = this.getExecutionPolicy();
+    return Math.min(policy.maxConcurrentTasks, this.maxConcurrentTasks);
+  }
+
+  /** Rank a task by deadline-aware priority. Lower rank = higher priority. */
+  rankTaskPriority(task) {
+    const priority = (task.priority || "medium").toLowerCase();
+    const security = task.securityRestrictions || [];
+    const isCriticalSecurity = security.includes("critical") ||
+      priority === "critical_security";
+    const isCrashBlocker = priority === "crash_blocker";
+    const isCore = priority === "core_functionality";
+    const isIntegration = priority === "integration_failure";
+    const isImportant = priority === "important_defect";
+    const isDeployment = priority === "deployment_reproducibility";
+    const isMinorUI = priority === "minor_ui";
+
+    if (isCriticalSecurity) return 1;
+    if (isCrashBlocker) return 2;
+    if (isCore) return 3;
+    if (isIntegration) return 4;
+    if (isImportant) return 5;
+    if (isDeployment) return 6;
+    if (isMinorUI) return 7;
+    return 8; // optional_enhancement
   }
 
   /** Shutdown the coordinator. Stop all heartbeat monitors. */
