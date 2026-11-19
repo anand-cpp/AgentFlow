@@ -35,6 +35,11 @@ const DEFAULT_PONG_TIMEOUT_MS = 10000;
  * liveness, and message-size limits matching the event protocol.
  */
 class WebSocketTransport extends HackathonTransport {
+  /**
+   * @param {{ sessionId?: string, workerId?: string, url?: string, invitationToken?: string,
+   *   reconnectIntervalMs?: number, maxReconnectAttempts?: number, pingIntervalMs?: number,
+   *   pongTimeoutMs?: number }} options
+   */
   constructor({
     sessionId,
     workerId,
