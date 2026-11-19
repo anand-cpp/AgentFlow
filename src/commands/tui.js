@@ -24,6 +24,8 @@ import { OsvScanner } from "../security/scanners/osv.js";
 import { TrivyScanner } from "../security/scanners/trivy.js";
 import { TodoEngine } from "../security/todo.js";
 import { ModeRegistry, nextMode, MODE_PRIVILEGE, MODE_DESCRIPTIONS } from "../core/modes/index.js";
+import { CoordinatorRuntime } from "../core/hackathon/coordinator.js";
+import { LocalBus } from "../core/hackathon/transport.js";
 
 const TTY = process.stdout.isTTY && process.stdin.isTTY;
 
@@ -83,6 +85,40 @@ export async function run({ out }) {
     onPlugins: () => { state.notifications.push({ message: "Plugins panel coming soon", variant: "info" }); state.paletteOpen = false; state.paletteQuery = ""; },
     onSettings: () => { state.notifications.push({ message: "Settings coming soon", variant: "info" }); state.paletteOpen = false; state.paletteQuery = ""; },
     onDoctor: () => { state.notifications.push({ message: "Run: aflow doctor", variant: "info" }); state.paletteOpen = false; state.paletteQuery = ""; },
+    onHackathon: () => {
+      const bus = new LocalBus();
+      const coord = new CoordinatorRuntime({ bus });
+      coord.startSession({
+        leaderId: "tui-leader",
+        projectIdea: "Hackathon session started from TUI (Ctrl+P)",
+        projectRoot: process.cwd(),
+        timeBudget: {
+          totalDurationHours: 24,
+          elapsedHours: 0,
+          teammateCount: 0,
+          reserveFraction: 0.1,
+        },
+      }).then((result) => {
+        if (result.ok) {
+          state.notifications.push({
+            message: `Hackathon session started: ${result.data.sessionId}`,
+            variant: "success",
+          });
+          state.notifications.push({
+            message: "Run: aflow hackathon status <session-id>  (or use CLI to add workers)",
+            variant: "info",
+          });
+        } else {
+          state.notifications.push({
+            message: `Hackathon start failed: ${result.error.message}`,
+            variant: "error",
+          });
+        }
+        state.paletteOpen = false;
+        state.paletteQuery = "";
+        draw();
+      });
+    },
     onQuit: () => { running = false; process.stdout.write("\u001b[?1049l\u001b[?25h\u001b[0m"); process.exit(0); },
   };
 

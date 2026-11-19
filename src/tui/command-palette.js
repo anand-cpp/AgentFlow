@@ -132,6 +132,14 @@ export function createDefaultCommands(ctx = {}) {
       handler: () => { ctx.onDoctor?.(); return "doctor"; },
     }),
     new PaletteCommand({
+      id: "hackathon",
+      label: "Hackathon Mode",
+      description: "Coordinate agents across multiple computers",
+      category: "system",
+      shortcut: "Ctrl+H",
+      handler: () => { ctx.onHackathon?.(); return "hackathon"; },
+    }),
+    new PaletteCommand({
       id: "quit",
       label: "Quit",
       description: "Exit AgentFlow",
