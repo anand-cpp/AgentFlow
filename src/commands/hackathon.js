@@ -55,6 +55,84 @@ function workerStatusColor(status) {
   }
 }
 
+/** Read a line from stdin (interactive prompt). */
+async function prompt(question) {
+  const readline = await import("node:readline/promises");
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  return rl.question(question).then((answer) => {
+    rl.close();
+    return answer.trim();
+  });
+}
+
+/** Parse a positive integer, throwing on invalid input. */
+function parsePositiveInt(value, label) {
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(`${label} must be a non-negative integer, got: ${value}`);
+  }
+  return n;
+}
+
+/** Collect the three required session inputs interactively. */
+async function collectSessionInputs(flags) {
+  let totalDurationHours;
+  let elapsedHours;
+  let teammateCount;
+
+  // Duration: flag first, then interactive.
+  if (flags["duration-hours"] !== undefined) {
+    totalDurationHours = parsePositiveInt(flags["duration-hours"], "--duration-hours");
+  } else {
+    const answer = await prompt("How many total working hours does this hackathon have? ");
+    totalDurationHours = parsePositiveInt(answer, "total duration");
+  }
+
+  if (flags["elapsed-hours"] !== undefined) {
+    elapsedHours = parsePositiveInt(flags["elapsed-hours"], "--elapsed-hours");
+  } else {
+    const answer = await prompt("How many hours have already elapsed? ");
+    elapsedHours = parsePositiveInt(answer, "elapsed hours");
+  }
+
+  // Validate: elapsed cannot exceed total.
+  if (elapsedHours > totalDurationHours) {
+    throw new Error(
+      `elapsed time (${elapsedHours}h) cannot exceed total duration (${totalDurationHours}h)`,
+    );
+  }
+
+  const remainingHours = totalDurationHours - elapsedHours;
+  if (remainingHours <= 0) {
+    throw new Error(
+      "No time remaining: elapsed time equals or exceeds total duration.",
+    );
+  }
+  if (remainingHours < 1) {
+    process.stderr.write(
+      `WARNING: Only ${remainingHours} hour(s) remain. The hackathon is nearly over.\n`,
+    );
+  }
+
+  if (flags.teammates !== undefined) {
+    teammateCount = parsePositiveInt(flags.teammates, "--teammates");
+  } else {
+    const answer = await prompt(
+      "How many teammates will connect to this Admin PC? (excludes the Admin PC) ",
+    );
+    teammateCount = parsePositiveInt(answer, "teammate count");
+  }
+
+  if (teammateCount < 1) {
+    throw new Error("At least one teammate is required for a distributed session.");
+  }
+
+  return { totalDurationHours, elapsedHours, remainingHours, teammateCount };
+}
+
 export async function run({ args, flags, _config, out }) {
   const [sub = "help", ...rest] = args;
 
@@ -65,12 +143,24 @@ export async function run({ args, flags, _config, out }) {
         throw usage('which project: aflow hackathon start "<idea>"');
       }
 
+      // Collect the three required session inputs (duration, elapsed, teammate count).
+      const { totalDurationHours, elapsedHours, remainingHours, teammateCount } =
+        await collectSessionInputs(flags);
+
+      const reserveFraction = Number(flags["reserve-fraction"]) || 0.1;
+
       const bus = new LocalBus();
       const coord = new CoordinatorRuntime({ bus });
       const result = await coord.startSession({
         leaderId: flags["leader-id"] || "leader-1",
         projectIdea,
         projectRoot: flags.workspace || process.cwd(),
+        timeBudget: {
+          totalDurationHours,
+          elapsedHours,
+          teammateCount,
+          reserveFraction,
+        },
       });
 
       if (!result.ok) {
@@ -78,7 +168,19 @@ export async function run({ args, flags, _config, out }) {
         return 1;
       }
 
-      const invitation = coord.createInvitation({ workerId: "worker-1" });
+      // Generate one unique invitation per teammate.
+      const workerIds = [];
+      for (let i = 1; i <= teammateCount; i += 1) {
+        workerIds.push(`worker-${i}`);
+      }
+
+      const invResult = coord.createInvitations({ workerIds });
+      if (!invResult.ok) {
+        await out.init({ error: invResult.error }, () => `failed to generate invitations: ${invResult.error.message}\n`);
+        return 1;
+      }
+
+      const invitations = invResult.data.invitations;
 
       const lines = [];
       lines.push(bold("aflow hackathon — session started"));
@@ -88,12 +190,26 @@ export async function run({ args, flags, _config, out }) {
       lines.push(`  status:  ${statusColor(result.data.status)}`);
       lines.push(`  root:    ${dim(coord.session.projectRoot)}`);
       lines.push("");
-      lines.push(bold("worker invitation"));
-      lines.push(`  code:    ${dim(invitation.data.token.slice(0, 12))}...`);
-      lines.push(`  expires: ${dim(new Date(invitation.data.expiresAt).toISOString())}`);
+      lines.push(bold("time budget"));
+      lines.push(`  total duration:   ${dim(`${totalDurationHours} hours`)}`);
+      lines.push(`  elapsed:          ${dim(`${elapsedHours} hours`)}`);
+      lines.push(`  remaining:        ${dim(`${remainingHours} hours`)}`);
+      lines.push(`  worker budget:    ${dim(`${Math.round(result.data.timeBudget.workerBudgetHours)} hours`)}`);
+      lines.push(`  integration reserve: ${dim(`${Math.round(result.data.timeBudget.reserveHours)} hours`)}`);
+      lines.push(`  teammates:        ${dim(`${teammateCount} (excludes Admin PC)`)}`);
+      lines.push(`  total machines:   ${dim(`${teammateCount + 1}`)}`);
       lines.push("");
-      lines.push(dim("join:   aflow hackathon join <session-code>"));
+      lines.push(bold("worker invitations"));
+      lines.push(dim("  Each teammate gets a unique, single-use pairing code."));
+      lines.push("");
+      for (const inv of invitations) {
+        lines.push(`  ${dim(`Worker ${inv.workerId.slice(-1)}`)}: ${cyan(inv.token.slice(0, 12))}...`);
+        lines.push(`    expires: ${dim(new Date(inv.expiresAt).toISOString())}  status: ${dim(inv.status)}`);
+        lines.push("");
+      }
+      lines.push(dim("join:   aflow hackathon join <session-code>  (on each worker PC)"));
       lines.push(dim("status: aflow hackathon status " + result.data.sessionId));
+      lines.push(dim("The Admin PC also runs as worker-0 — register it with its own invitation."));
 
       await out.init({ sessionId: result.data.sessionId }, () => lines.join("\n"));
       return 0;
@@ -304,7 +420,7 @@ export async function run({ args, flags, _config, out }) {
 
 defineCommand("hackathon", {
   summary: "distributed multi-computer coordination (Hackathon Mode)",
-  valueFlags: ["leader-id", "workspace"],
+  valueFlags: ["leader-id", "workspace", "duration-hours", "elapsed-hours", "teammates", "reserve-fraction"],
   usage: `aflow hackathon start "<idea>"
     aflow hackathon join <session-code>
     aflow hackathon status <session-id>
@@ -321,8 +437,12 @@ defineCommand("hackathon", {
   stop    cancel all active tasks in a session
   report  show progress and delivery gate summary
 
-  --leader-id  leader identity for new sessions (default: leader-1)
-  --workspace  workspace root for new sessions (default: cwd)
+  --duration-hours    total hackathon duration in hours (interactive if omitted)
+  --elapsed-hours     hours already elapsed (interactive if omitted)
+  --teammates         number of teammates excluding Admin PC (interactive if omitted)
+  --reserve-fraction  fraction of remaining time reserved for integration (default 0.1)
+  --leader-id         leader identity for new sessions (default: leader-1)
+  --workspace         workspace root for new sessions (default: cwd)
 
   Entry point: Ctrl+P in the TUI command palette.
   Hackathon Mode is not in the Tab mode cycle.`,

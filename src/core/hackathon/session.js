@@ -56,7 +56,13 @@ const SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const TASK_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 
 /** Create a new Hackathon session owned by `leaderId`. */
-export function createSession({ leaderId, projectIdea, projectRoot, sessionId = null } = {}) {
+export function createSession({
+  leaderId,
+  projectIdea,
+  projectRoot,
+  sessionId = null,
+  timeBudget = null,
+} = {}) {
   if (!leaderId || typeof leaderId !== "string") {
     throw new Error("session requires a leaderId");
   }
@@ -77,6 +83,15 @@ export function createSession({ leaderId, projectIdea, projectRoot, sessionId = 
 
   const now = new Date().toISOString();
 
+  // Time budgeting: the leader knows the actual remaining time. Workers receive
+  // a smaller execution budget that protects the integration/reserve window.
+  const totalDurationHours = Number(timeBudget?.totalDurationHours) || 0;
+  const elapsedHours = Number(timeBudget?.elapsedHours) || 0;
+  const remainingHours = Math.max(0, totalDurationHours - elapsedHours);
+  const reserveFraction = Number(timeBudget?.reserveFraction) || 0.1; // 10% default reserve
+  const reserveHours = Math.max(0, remainingHours * reserveFraction);
+  const workerBudgetHours = Math.max(0, remainingHours - reserveHours);
+
   return {
     version: SESSION_VERSION,
     id,
@@ -86,6 +101,18 @@ export function createSession({ leaderId, projectIdea, projectRoot, sessionId = 
     status: SESSION_STATUS.CREATED,
     createdAt: now,
     updatedAt: now,
+    timeBudget: {
+      totalDurationHours,
+      elapsedHours,
+      remainingHours,
+      workerBudgetHours,
+      reserveHours,
+      reserveFraction,
+      calculatedAt: now,
+    },
+    teammateCount: Number(timeBudget?.teammateCount) || 0,
+    connectedWorkerCount: 0,
+    approvedWorkerCount: 0,
     architecture: null,        // approved architecture object
     architectureVersion: 0,
     workers: {},               // workerId -> WorkerRecord
@@ -98,6 +125,7 @@ export function createSession({ leaderId, projectIdea, projectRoot, sessionId = 
     events: [],                // recent event history (bounded)
     branches: {},              // workerId -> branch info
     approvals: {},             // approvalId -> ApprovalRecord
+    invitations: {},           // workerId -> { token, issuedAt, expiresAt, status }
     nextTaskCounter: 0,
     nextEventCounter: 0,
   };

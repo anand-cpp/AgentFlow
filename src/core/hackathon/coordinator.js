@@ -139,12 +139,24 @@ export class CoordinatorRuntime {
   }
 
   /** Start a new Hackathon session. */
-  async startSession({ leaderId, projectIdea, projectRoot, sessionId = null } = {}) {
+  async startSession({
+    leaderId,
+    projectIdea,
+    projectRoot,
+    sessionId = null,
+    timeBudget = null,
+  } = {}) {
     if (this._running) {
       return CoordinatorResult.err(new Error("coordinator already running"));
     }
 
-    this.session = createSession({ leaderId, projectIdea, projectRoot, sessionId });
+    this.session = createSession({
+      leaderId,
+      projectIdea,
+      projectRoot,
+      sessionId,
+      timeBudget,
+    });
     this.session.status = SESSION_STATUS.ACTIVE;
     this._running = true;
 
@@ -161,6 +173,7 @@ export class CoordinatorRuntime {
       sessionId: this.session.id,
       leaderId: this.session.leaderId,
       status: this.session.status,
+      timeBudget: this.session.timeBudget,
     });
   }
 
@@ -225,6 +238,77 @@ export class CoordinatorRuntime {
     });
 
     return CoordinatorResult.ok(invitation);
+  }
+
+  /** Create invitations for multiple teammates. Each gets a unique token.
+   *
+   * Returns { invitations: [{ workerId, token, issuedAt, expiresAt }] }.
+   * Every invitation is independent and single-use.
+   */
+  createInvitations({ workerIds, ttlMs = 30 * 60 * 1000 } = {}) {
+    if (!this.session) {
+      return CoordinatorResult.err(new Error("no active session"));
+    }
+    if (!Array.isArray(workerIds) || workerIds.length === 0) {
+      return CoordinatorResult.err(new Error("workerIds must be a non-empty array"));
+    }
+
+    const invitations = [];
+    for (const workerId of workerIds) {
+      if (this.workers.has(workerId)) {
+        return CoordinatorResult.err(new Error(
+          `worker ${workerId} already has an invitation`,
+        ));
+      }
+
+      const invitation = issueInvitation({
+        sessionId: this.session.id,
+        workerId,
+        ttlMs,
+      });
+
+      const pending = {
+        workerId,
+        invitationToken: invitation.token,
+        status: WORKER_STATUS.REGISTERED,
+        capabilities: [],
+        connectedAt: null,
+        lastHeartbeat: null,
+        invitationExpiresAt: invitation.expiresAt,
+      };
+      this.workers.set(workerId, pending);
+
+      // Track the invitation in the session for audit/display.
+      this.session.invitations = this.session.invitations || {};
+      this.session.invitations[workerId] = {
+        token: invitation.token,
+        issuedAt: invitation.issuedAt,
+        expiresAt: invitation.expiresAt,
+        status: "pending",
+      };
+
+      invitations.push({
+        workerId,
+        token: invitation.token,
+        issuedAt: invitation.issuedAt,
+        expiresAt: invitation.expiresAt,
+        status: "pending",
+      });
+
+      this._emitEvent(HACKATHON_EVENTS.WORKER_REGISTERED, {
+        workerId,
+        payload: { invited: true, expiresAt: invitation.expiresAt },
+      });
+    }
+
+    // Persist session.
+    if (this.stateDir) {
+      // Note: persist is async; callers that need durability should await
+      // persistSession separately. Here we fire-and-forget for the batch.
+      void persistSession(this.stateDir, this.session);
+    }
+
+    return CoordinatorResult.ok({ invitations });
   }
 
   /** Register an authenticated worker. Validates the invitation token. */
