@@ -669,6 +669,11 @@ export class CoordinatorRuntime {
     return this.deviceRegistry.isApproved(workerId);
   }
 
+  /** Get a device record by id. */
+  getDevice(workerId) {
+    return this.deviceRegistry.getDevice(workerId);
+  }
+
   /** Start heartbeat monitoring for a worker. */
   _startHeartbeatMonitor(workerId) {
     this._stopHeartbeatMonitor(workerId);

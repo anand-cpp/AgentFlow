@@ -55,9 +55,20 @@ export function validateInvitation(credential, { workerRecord, now = Date.now() 
   if (workerRecord.invitationToken !== credential.token) {
     return { ok: false, reason: "token mismatch" };
   }
-  if (now > credential.expiresAt) {
+
+  // Expiration: prefer the credential's expiresAt, fall back to the
+  // worker record's stored invitationExpiresAt (set when the invitation
+  // was created). This ensures expired invitations are rejected even when
+  // callers only pass the token.
+  const expiresAt = credential.expiresAt
+    ? new Date(credential.expiresAt)
+    : workerRecord.invitationExpiresAt
+      ? new Date(workerRecord.invitationExpiresAt)
+      : null;
+  if (expiresAt && now > expiresAt.getTime()) {
     return { ok: false, reason: "invitation expired" };
   }
+
   return { ok: true, workerId: workerRecord.workerId };
 }
 
