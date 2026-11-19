@@ -135,6 +135,7 @@ describe("CoordinatorRuntime", () => {
       token: invite.data.token,
       capabilities: ["node"],
     });
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
 
     // Add a task to the graph.
     coord.taskGraph.upsert({
@@ -165,6 +166,7 @@ describe("CoordinatorRuntime", () => {
       token: invite.data.token,
       capabilities: ["node"],
     });
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
 
     coord.taskGraph.upsert({
       taskId: "task-1",
@@ -193,6 +195,7 @@ describe("CoordinatorRuntime", () => {
       token: invite.data.token,
       capabilities: ["python"], // no node
     });
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
 
     coord.taskGraph.upsert({
       taskId: "task-1",
@@ -221,6 +224,7 @@ describe("CoordinatorRuntime", () => {
       token: invite.data.token,
       capabilities: ["node"],
     });
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
     coord.taskGraph.upsert({
       taskId: "task-1",
       title: "A",
@@ -253,6 +257,7 @@ describe("CoordinatorRuntime", () => {
       token: invite.data.token,
       capabilities: ["node"],
     });
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
     coord.taskGraph.upsert({
       taskId: "task-1",
       title: "A",
@@ -280,6 +285,7 @@ describe("CoordinatorRuntime", () => {
       token: invite.data.token,
       capabilities: ["node"],
     });
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
     coord.taskGraph.upsert({
       taskId: "task-1",
       title: "A",
@@ -316,6 +322,7 @@ describe("CoordinatorRuntime", () => {
       token: invite.data.token,
       capabilities: ["node"],
     });
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
     coord.taskGraph.upsert({
       taskId: "task-1",
       title: "A",
@@ -351,6 +358,7 @@ describe("CoordinatorRuntime", () => {
       token: invite.data.token,
       capabilities: ["node"],
     });
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
     coord.taskGraph.upsert({
       taskId: "task-1",
       title: "A",

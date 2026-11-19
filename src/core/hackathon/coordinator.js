@@ -21,6 +21,7 @@ import {
   HACKATHON_EVENTS, createEvent, validateEvent,
 } from "./events.js";
 import { validateTransition } from "./lifecycle.js";
+import { DeviceRegistry, DEVICE_STATUS } from "./device-registry.js";
 import { redactVerified } from "../redact.js";
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30 * 1000; // 30 seconds
@@ -84,6 +85,7 @@ export class CoordinatorRuntime {
     this.maxConcurrentTasks = maxConcurrentTasks;
     this.maxConcurrentWorkers = maxConcurrentWorkers;
     this.maxRetries = maxRetries;
+    this.deviceRegistry = new DeviceRegistry();
     this._heartbeatTimers = new Map(); // workerId -> timer
     this._nextEventSequence = 0;
     this._running = false;
@@ -343,6 +345,24 @@ export class CoordinatorRuntime {
 
     this.scheduler.registerWorker(workerId, { capabilities, available: true });
 
+    // Register the device in the device registry and mark it pending approval.
+    // The worker cannot receive project tasks until the Admin approves it.
+    try {
+      this.deviceRegistry.registerDevice({
+        deviceId: workerId,
+        sessionId: this.session.id,
+        deviceInfo: { capabilities },
+      });
+      this.deviceRegistry.markPendingApproval(workerId);
+    } catch {
+      // Device already registered (e.g., reconnection) — ensure it's pending
+      // approval if not already approved/rejected/revoked.
+      const existing = this.deviceRegistry.getDevice(workerId);
+      if (existing && existing.status === DEVICE_STATUS.REGISTERED) {
+        this.deviceRegistry.markPendingApproval(workerId);
+      }
+    }
+
     this._emitEvent(HACKATHON_EVENTS.WORKER_CONNECTED, {
       workerId,
       payload: { capabilities, workerCount: this.workers.size },
@@ -481,6 +501,126 @@ export class CoordinatorRuntime {
     return CoordinatorResult.ok({ workerId, status: record.status });
   }
 
+  /** Approve a device for project-task access. Requires explicit Admin approval. */
+  approveDevice({ workerId, approvedBy } = {}) {
+    if (!this.session) {
+      return CoordinatorResult.err(new Error("no active session"));
+    }
+    if (!workerId || !approvedBy) {
+      return CoordinatorResult.err(new Error("workerId and approvedBy required"));
+    }
+
+    const record = this.workers.get(workerId);
+    if (!record) {
+      return CoordinatorResult.err(new Error(`unknown worker: ${workerId}`));
+    }
+
+    try {
+      const device = this.deviceRegistry.approveDevice({ deviceId: workerId, approvedBy });
+
+      this._emitEvent(HACKATHON_EVENTS.WORKER_REGISTERED, {
+        workerId,
+        payload: { deviceApproved: true, approvedBy },
+      });
+
+      return CoordinatorResult.ok({
+        workerId,
+        device: device,
+        status: record.status,
+      });
+    } catch (err) {
+      return CoordinatorResult.err(err);
+    }
+  }
+
+  /** Reject a device (deny project-task access). */
+  rejectDevice({ workerId, rejectedBy, reason } = {}) {
+    if (!this.session) {
+      return CoordinatorResult.err(new Error("no active session"));
+    }
+    if (!workerId || !rejectedBy) {
+      return CoordinatorResult.err(new Error("workerId and rejectedBy required"));
+    }
+
+    try {
+      const device = this.deviceRegistry.rejectDevice({
+        deviceId: workerId,
+        rejectedBy,
+        reason,
+      });
+
+      this._emitEvent(HACKATHON_EVENTS.WORKER_DISCONNECTED, {
+        workerId,
+        payload: { deviceRejected: true, rejectedBy, reason },
+      });
+
+      return CoordinatorResult.ok({
+        workerId,
+        device: device,
+        status: "rejected",
+      });
+    } catch (err) {
+      return CoordinatorResult.err(err);
+    }
+  }
+
+  /** Revoke a device (immediate isolation). Also revokes the worker. */
+  revokeDevice({ workerId, revokedBy, reason } = {}) {
+    if (!this.session) {
+      return CoordinatorResult.err(new Error("no active session"));
+    }
+    if (!workerId || !revokedBy) {
+      return CoordinatorResult.err(new Error("workerId and revokedBy required"));
+    }
+
+    // Revoke the worker first (leases, heartbeat, transport).
+    const workerResult = this.revokeWorker({ workerId });
+    if (!workerResult.ok) {
+      return workerResult;
+    }
+
+    try {
+      const device = this.deviceRegistry.revokeDevice({
+        deviceId: workerId,
+        revokedBy,
+        reason,
+      });
+
+      this._emitEvent(HACKATHON_EVENTS.WORKER_DISCONNECTED, {
+        workerId,
+        payload: { deviceRevoked: true, revokedBy, reason },
+      });
+
+      return CoordinatorResult.ok({
+        workerId,
+        device: device,
+        status: "revoked",
+      });
+    } catch (err) {
+      return CoordinatorResult.err(err);
+    }
+  }
+
+  /** List devices awaiting Admin approval. */
+  getPendingDevices() {
+    return this.deviceRegistry.getPendingApproval();
+  }
+
+  /** List all devices with their status. */
+  getDevices() {
+    return this.deviceRegistry.listDevices();
+  }
+
+  /** Get device stats by status. */
+  getDeviceStats() {
+    return this.deviceRegistry.getStats();
+  }
+
+  /** Check whether a worker's device is approved. */
+  isDeviceApproved(workerId) {
+    return this.deviceRegistry.isApproved(workerId);
+  }
+
   /** Start heartbeat monitoring for a worker. */
   _startHeartbeatMonitor(workerId) {
     this._stopHeartbeatMonitor(workerId);
@@ -545,6 +685,15 @@ export class CoordinatorRuntime {
     }
     if (record.status !== WORKER_STATUS.CONNECTED) {
       return CoordinatorResult.err(new Error(`worker not connected: ${workerId}`));
+    }
+
+    // Device approval: only approved devices may receive project tasks.
+    if (!this.deviceRegistry.isApproved(workerId)) {
+      const device = this.deviceRegistry.getDevice(workerId);
+      const deviceState = device ? device.status : "unknown";
+      return CoordinatorResult.err(new Error(
+        `worker ${workerId} device is ${deviceState} — not approved for tasks`,
+      ));
     }
 
     // Capability validation.

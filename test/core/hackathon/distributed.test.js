@@ -79,6 +79,10 @@ describe("Real distributed execution", () => {
     assert.strictEqual(worker2.registered, true);
     assert.strictEqual(worker2.workspaceRoot, w2Dir);
 
+    // Approve both devices before task dispatch.
+    await coord.approveDevice({ workerId: "worker-1", approvedBy: "leader-1" });
+    await coord.approveDevice({ workerId: "worker-2", approvedBy: "leader-1" });
+
     // Two independent tasks (no dependencies).
     coord.taskGraph.upsert({
       taskId: "task-alpha",
@@ -189,6 +193,9 @@ describe("Real distributed execution", () => {
     const invite = coord.createInvitation({ workerId: "worker-dep" });
     await worker.register({ invitationToken: invite.data.token });
 
+    // Approve device before task dispatch.
+    await coord.approveDevice({ workerId: "worker-dep", approvedBy: "leader-1" });
+
     // task-b depends on task-a.
     coord.taskGraph.upsert({
       taskId: "task-a",
@@ -252,6 +259,9 @@ describe("Real distributed execution", () => {
 
     const invite = coord.createInvitation({ workerId: "worker-reconnect" });
     await worker.register({ invitationToken: invite.data.token });
+
+    // Approve device before task dispatch.
+    await coord.approveDevice({ workerId: "worker-reconnect", approvedBy: "leader-1" });
 
     coord.taskGraph.upsert({
       taskId: "task-rec",
